@@ -1,8 +1,8 @@
+import base64
 import subprocess
 from pathlib import Path
-from typing import Any, Dict, NoReturn, Tuple, Union
+from typing import Any, NoReturn
 
-import base64
 import orjson
 from playwright._impl._driver import compute_driver_executable
 
@@ -22,7 +22,7 @@ def camel_case(snake_str: str) -> str:
     return camel_case_str[0].lower() + camel_case_str[1:]
 
 
-def to_camel_case_dict(data: Dict[str, Any]) -> Dict[str, Any]:
+def to_camel_case_dict(data: dict[str, Any]) -> dict[str, Any]:
     """
     Convert a dictionary to camelCase
     """
@@ -34,7 +34,7 @@ def get_nodejs() -> str:
     Get the bundled Node.js executable
     """
     # Note: Older versions of Playwright return a string rather than a tuple.
-    _nodejs: Union[str, Tuple[str, ...]] = compute_driver_executable()[0]
+    _nodejs: str | tuple[str, ...] = compute_driver_executable()[0]
     if isinstance(_nodejs, tuple):
         return _nodejs[0]
     return _nodejs

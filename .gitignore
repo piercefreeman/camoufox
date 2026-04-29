@@ -37,6 +37,7 @@ venv/
 __pycache__/
 *.pyc
 *.mmdb
+pythonlib/camoufox.egg-info/
 pythonlib-dev/
 run-pw-dev.py
 
@@ -79,4 +80,3 @@ checks-bundle.js
 .env
 
 .tmp/
-

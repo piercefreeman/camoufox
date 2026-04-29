@@ -6,7 +6,7 @@ from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as pkg_version
 from os import environ
 from pathlib import Path
-from typing import Any, List, Optional, Tuple
+from typing import Any
 
 import rich_click as click
 
@@ -48,9 +48,9 @@ from .pkgman import (
 
 
 def _inquirer_select(
-    choices: List[Tuple[str, Any]],
+    choices: list[tuple[str, Any]],
     message: str,
-) -> Optional[Any]:
+) -> Any | None:
     """
     Generic inquirer selection. Returns selected value or None
     """
@@ -67,7 +67,7 @@ def _inquirer_select(
         return None
 
 
-def _find_installed(specifier: str) -> Optional[InstalledVersion]:
+def _find_installed(specifier: str) -> InstalledVersion | None:
     """
     Find installed version by channel path, build, or full version string
     """
@@ -180,8 +180,8 @@ class CamoufoxUpdate(CamoufoxFetcher):
 
     def __init__(
         self,
-        repo_config: Optional[RepoConfig] = None,
-        selected_version: Optional[AvailableVersion] = None,
+        repo_config: RepoConfig | None = None,
+        selected_version: AvailableVersion | None = None,
     ) -> None:
         super().__init__(repo_config=repo_config, selected_version=selected_version)
         try:
@@ -487,7 +487,7 @@ def set_cmd(specifier, geoip):
         click.secho(f"Channel: {channel.lower()}", fg="cyan")
     click.echo()
 
-    channel_versions = {}
+    channel_versions: dict[tuple[str, str], list[dict[str, Any]]] = {}
     for repo_data in cache["repos"]:
         name = repo_data["name"]
         versions = repo_data.get("versions", [])
@@ -499,7 +499,7 @@ def set_cmd(specifier, geoip):
             channel_versions[(name, "prerelease")] = prereleases
 
     while True:
-        choices = [("Set channel", "channel")]
+        choices: list[tuple[str, Any]] = [("Set channel", "channel")]
         for (name, ctype), versions in channel_versions.items():
             label = f"Pin version: {click.style(f'{name.lower()}/{ctype}', fg='cyan', bold=True)}"
             choices.append((label, ("pin", name, ctype, versions)))
@@ -517,7 +517,7 @@ def set_cmd(specifier, geoip):
         if action == "exit":
             return
 
-        elif action == "channel":
+        if action == "channel":
             ch_choices = []
             for name, ctype, latest in channels:
                 ver_str = f"v{latest['version']}-{latest['build']}"
@@ -546,7 +546,7 @@ def set_cmd(specifier, geoip):
             _set_channel(repo_name, ctype)
             return
 
-        elif isinstance(action, tuple) and action[0] == "pin":
+        if isinstance(action, tuple) and action[0] == "pin":
             _, rname, ctype, versions = action
 
             v_choices = []
@@ -762,8 +762,8 @@ def remove(version_path, select, yes):
 @click.option("--debug", is_flag=True, help="Print launch progress and fingerprint debug logs.")
 @click.argument("url", default=None, required=False)
 def test(
-    url: Optional[str] = None,
-    executable_path: Optional[str] = None,
+    url: str | None = None,
+    executable_path: str | None = None,
     debug: bool = False,
 ) -> None:
     """
@@ -811,6 +811,9 @@ def test(
     ) as browser:
         rprint("Browser launched.", fg="green")
         rprint("Creating fingerprinted context...", fg="yellow")
+        from playwright.sync_api import BrowserContext
+
+        assert not isinstance(browser, BrowserContext)
         context = NewContext(browser, fingerprint=fingerprint, ff_version=ff_version, debug=debug)
         rprint("Context ready.", fg="green")
         page = context.new_page()

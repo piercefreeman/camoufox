@@ -4,7 +4,6 @@ from glob import glob
 from multiprocessing import Lock
 from random import randrange
 from shutil import which
-from typing import List, Optional
 
 from camoufox.exceptions import (
     CannotExecuteXvfb,
@@ -19,31 +18,39 @@ class VirtualDisplay:
     A minimal virtual display implementation for Linux.
     """
 
-    def __init__(self, debug: Optional[bool] = False) -> None:
+    def __init__(self, debug: bool | None = False) -> None:
         """
         Constructor for the VirtualDisplay class (singleton object).
         """
         self.debug = debug
-        self.proc: Optional[subprocess.Popen] = None
-        self._display: Optional[int] = None
+        self.proc: subprocess.Popen | None = None
+        self._display: int | None = None
         self._lock = Lock()
 
     xvfb_args = (
-        # fmt: off
-        "-screen", "0", "1x1x24",
+        "-screen",
+        "0",
+        "1x1x24",
         "-ac",
-        "-nolisten", "tcp",
-        "-extension", "RENDER",
-        "+extension", "GLX",
-        "-extension", "COMPOSITE",
-        "-extension", "XVideo",
-        "-extension", "XVideo-MotionCompensation",
-        "-extension", "XINERAMA",
+        "-nolisten",
+        "tcp",
+        "-extension",
+        "RENDER",
+        "+extension",
+        "GLX",
+        "-extension",
+        "COMPOSITE",
+        "-extension",
+        "XVideo",
+        "-extension",
+        "XVideo-MotionCompensation",
+        "-extension",
+        "XINERAMA",
         "-shmem",
-        "-fp", "built-ins",
+        "-fp",
+        "built-ins",
         "-nocursor",
         "-br",
-        # fmt: on
     )
 
     @property
@@ -59,7 +66,7 @@ class VirtualDisplay:
         return path
 
     @property
-    def xvfb_cmd(self) -> List[str]:
+    def xvfb_cmd(self) -> list[str]:
         """
         Get the xvfb command
         """
@@ -107,7 +114,7 @@ class VirtualDisplay:
         self.kill()
 
     @staticmethod
-    def _get_lock_files() -> List[str]:
+    def _get_lock_files() -> list[str]:
         """
         Get list of lock files in /tmp
         """

@@ -1,7 +1,6 @@
 import os
 from enum import Enum
 from multiprocessing import Lock
-from typing import List, Optional
 
 from .exceptions import InvalidAddonPath
 from .pkgman import INSTALL_DIR, unzip, webdl
@@ -18,7 +17,7 @@ class DefaultAddons(Enum):
     UBO = "https://addons.mozilla.org/firefox/downloads/latest/ublock-origin/latest.xpi"
 
 
-def confirm_paths(paths: List[str]) -> None:
+def confirm_paths(paths: list[str]) -> None:
     """
     Confirms that the addon paths are valid
     """
@@ -32,7 +31,7 @@ def confirm_paths(paths: List[str]) -> None:
 
 
 def add_default_addons(
-    addons_list: List[str], exclude_list: Optional[List[DefaultAddons]] = None
+    addons_list: list[str], exclude_list: list[DefaultAddons] | None = None
 ) -> None:
     """
     Adds default addons, minus any specified in exclude_list, to addons_list
@@ -41,7 +40,7 @@ def add_default_addons(
     if exclude_list is None:
         exclude_list = []
 
-    addons = [addon for addon in DefaultAddons if addon not in exclude_list]
+    addons: list[DefaultAddons] = [addon for addon in DefaultAddons if addon not in exclude_list]
 
     with Lock():
         maybe_download_addons(addons, addons_list)
@@ -64,7 +63,7 @@ def get_addon_path(addon_name: str) -> str:
 
 
 def maybe_download_addons(
-    addons: List[DefaultAddons], addons_list: Optional[List[str]] = None
+    addons: list[DefaultAddons], addons_list: list[str] | None = None
 ) -> None:
     """
     Downloads and extracts addons from a given dictionary to a specified list

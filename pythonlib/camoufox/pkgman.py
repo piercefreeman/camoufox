@@ -4,11 +4,12 @@ import re
 import shutil
 import sys
 import tempfile
+from collections.abc import Callable
 from dataclasses import dataclass
 from functools import total_ordering
 from io import BufferedWriter, BytesIO
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Literal, Optional, Tuple, Union
+from typing import Any, Literal, Optional, TypeAlias
 from zipfile import ZipFile
 
 import orjson
@@ -25,7 +26,6 @@ from rich.progress import (
     TimeRemainingColumn,
     TransferSpeedColumn,
 )
-from typing_extensions import TypeAlias
 from yaml import CLoader, load
 
 from .__version__ import CONSTRAINTS
@@ -38,9 +38,9 @@ from .exceptions import (
     UnsupportedVersion,
 )
 
-DownloadBuffer: TypeAlias = Union[BytesIO, tempfile._TemporaryFileWrapper, BufferedWriter]
+DownloadBuffer: TypeAlias = BytesIO | tempfile._TemporaryFileWrapper | BufferedWriter
 
-ARCH_MAP: Dict[str, str] = {
+ARCH_MAP: dict[str, str] = {
     'amd64': 'x86_64',
     'x86_64': 'x86_64',
     'x86': 'x86_64',
@@ -52,7 +52,7 @@ ARCH_MAP: Dict[str, str] = {
     'armv6l': 'arm64',
     'armv7l': 'arm64',
 }
-OS_MAP: Dict[str, Literal['mac', 'win', 'lin']] = {'darwin': 'mac', 'linux': 'lin', 'win32': 'win'}
+OS_MAP: dict[str, Literal['mac', 'win', 'lin']] = {'darwin': 'mac', 'linux': 'lin', 'win32': 'win'}
 
 if sys.platform not in OS_MAP:
     raise UnsupportedOS(f"OS {sys.platform} is not supported")
@@ -61,7 +61,7 @@ OS_NAME: Literal['mac', 'win', 'lin'] = OS_MAP[sys.platform]
 
 INSTALL_DIR: Path = Path(user_cache_dir("camoufox"))
 
-OS_ARCH_MATRIX: Dict[str, List[str]] = {
+OS_ARCH_MATRIX: dict[str, list[str]] = {
     'win': ['x86_64', 'i686'],
     'mac': ['x86_64', 'arm64'],
     'lin': ['x86_64', 'arm64', 'i686'],
@@ -78,7 +78,7 @@ GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
 console = Console()
 
 
-def rprint(msg: str, fg: Optional[str] = None, nl: bool = True) -> None:
+def rprint(msg: str, fg: str | None = None, nl: bool = True) -> None:
     """
     Print a styled message
     """
@@ -86,7 +86,7 @@ def rprint(msg: str, fg: Optional[str] = None, nl: bool = True) -> None:
     console.print(msg, style=style, end="\n" if nl else "", highlight=False)
 
 
-def _parse_semver(version: str) -> Tuple[int, ...]:
+def _parse_semver(version: str) -> tuple[int, ...]:
     """
     Parse a semver string into a comparable tuple
     """
@@ -114,7 +114,9 @@ def _get_library_version() -> str:
         return '0.0.0'
 
 
-def _find_version_constraints(versions: List[Dict], library_version: str) -> Optional[Dict]:
+def _find_version_constraints(
+    versions: list[dict[str, Any]], library_version: str
+) -> dict[str, Any] | None:
     """
     Find browser build constraints for the current library version.
     Each entry has python_library {min, max} and browser {min, max}.
@@ -135,13 +137,13 @@ class RepoConfig:
     Configuration for a Camoufox repository
     """
 
-    repos: List[str]  # Primary + fallback GitHub repos
+    repos: list[str]  # Primary + fallback GitHub repos
     name: str
     pattern: str
-    os_map: Dict[str, str]
-    arch_map: Dict[str, str]
-    build_min: Optional[str] = None
-    build_max: Optional[str] = None
+    os_map: dict[str, Literal['mac', 'win', 'lin']]
+    arch_map: dict[str, str]
+    build_min: str | None = None
+    build_max: str | None = None
 
     @property
     def repo(self) -> str:
@@ -151,11 +153,11 @@ class RepoConfig:
         return self.repos[0]
 
     @staticmethod
-    def load_repos(spoof_library_version: Optional[str] = None) -> List['RepoConfig']:
+    def load_repos(spoof_library_version: str | None = None) -> list['RepoConfig']:
         """
         Load repository configurations from repos.yml
         """
-        with open(get_asset_by_name('repos.yml'), 'r') as f:
+        with open(get_asset_by_name('repos.yml')) as f:
             data = load(f, Loader=CLoader)
         return [RepoConfig.from_dict(r, spoof_library_version) for r in data.get('browsers', [])]
 
@@ -164,20 +166,20 @@ class RepoConfig:
         """
         Get the default repo name from repos.yml
         """
-        with open(get_asset_by_name('repos.yml'), 'r') as f:
+        with open(get_asset_by_name('repos.yml')) as f:
             data = load(f, Loader=CLoader)
         return data.get('default', {}).get('browser', 'Official')
 
     @staticmethod
-    def from_dict(d: Dict, spoof_library_version: Optional[str] = None) -> 'RepoConfig':
+    def from_dict(d: dict[str, Any], spoof_library_version: str | None = None) -> 'RepoConfig':
         """
         Create RepoConfig from dictionary
         """
         if 'pattern' not in d:
             raise ValueError(f"Repo '{d.get('name', 'unknown')}' missing required pattern")
 
-        build_min: Optional[str] = None
-        build_max: Optional[str] = None
+        build_min: str | None = None
+        build_max: str | None = None
         if d.get('versions'):
             library_version = spoof_library_version or _get_library_version()
             browser = _find_version_constraints(d['versions'], library_version)
@@ -221,7 +223,7 @@ class RepoConfig:
                 return repo
         return None
 
-    def get_os_name(self, spoof_os: Optional[str] = None) -> str:
+    def get_os_name(self, spoof_os: str | None = None) -> str:
         """
         Get the mapped OS name
         """
@@ -232,7 +234,7 @@ class RepoConfig:
             raise UnsupportedOS(f"OS {sys.platform} is not supported")
         return os_name
 
-    def get_arch(self, spoof_arch: Optional[str] = None) -> str:
+    def get_arch(self, spoof_arch: str | None = None) -> str:
         """
         Get the mapped architecture
         """
@@ -245,7 +247,7 @@ class RepoConfig:
         return arch
 
     def build_pattern(
-        self, spoof_os: Optional[str] = None, spoof_arch: Optional[str] = None
+        self, spoof_os: str | None = None, spoof_arch: str | None = None
     ) -> re.Pattern:
         """
         Build asset regex from the config pattern string
@@ -280,7 +282,7 @@ class Version:
     """
 
     build: str
-    version: Optional[str] = None
+    version: str | None = None
 
     def __post_init__(self) -> None:
         self.sorted_rel = tuple(
@@ -304,7 +306,7 @@ class Version:
         return VERSION_MIN <= self < VERSION_MAX
 
     @staticmethod
-    def from_path(path: Optional[Path] = None) -> 'Version':
+    def from_path(path: Path | None = None) -> 'Version':
         """
         Get the version from version.json at the given path
         """
@@ -333,7 +335,7 @@ class Version:
         return Version.from_path(path) >= VERSION_MIN
 
     @staticmethod
-    def build_minmax() -> Tuple['Version', 'Version']:
+    def build_minmax() -> tuple['Version', 'Version']:
         return Version(build=CONSTRAINTS.MIN_VERSION), Version(build=CONSTRAINTS.MAX_VERSION)
 
 
@@ -345,14 +347,14 @@ class GitHubDownloader:
     Manages fetching GitHub releases with fallback repos
     """
 
-    def __init__(self, github_repos: Union[str, List[str]]) -> None:
+    def __init__(self, github_repos: str | list[str]) -> None:
         if isinstance(github_repos, str):
             github_repos = [github_repos]
         self.github_repos = github_repos
         self.github_repo = github_repos[0]
         self.is_prerelease: bool = False
 
-    def check_asset(self, asset: Dict, release: Optional[Dict] = None) -> Any:
+    def check_asset(self, asset: dict[str, Any], release: dict[str, Any] | None = None) -> Any:
         """
         Return truthy data if this is the desired asset, else None
         """
@@ -364,7 +366,7 @@ class GitHubDownloader:
         """
         raise MissingRelease(f"Could not find a release asset in {self.github_repo}.")
 
-    def _get_releases(self, github_repo: str) -> List[Dict]:
+    def _get_releases(self, github_repo: str) -> list[dict]:
         """
         Fetch releases from a single GitHub repo
         """
@@ -395,6 +397,7 @@ class GitHubDownloader:
         if last_error:
             raise last_error
         self.missing_asset_error()
+        raise AssertionError("unreachable")
 
 
 @dataclass
@@ -407,9 +410,9 @@ class AvailableVersion:
     url: str
     is_prerelease: bool
     # GitHub metadata for tracking changes
-    asset_id: Optional[int] = None
-    asset_size: Optional[int] = None
-    asset_updated_at: Optional[str] = None
+    asset_id: int | None = None
+    asset_size: int | None = None
+    asset_updated_at: str | None = None
 
     @property
     def display(self) -> str:
@@ -419,7 +422,7 @@ class AvailableVersion:
         pre = " (prerelease)" if self.is_prerelease else ""
         return f"v{self.version.full_string}{pre}"
 
-    def to_metadata(self) -> Dict[str, Any]:
+    def to_metadata(self) -> dict[str, Any]:
         """
         Return metadata dict for storing in version.json
         """
@@ -440,15 +443,15 @@ class CamoufoxFetcher(GitHubDownloader):
 
     def __init__(
         self,
-        repo_config: Optional[RepoConfig] = None,
-        selected_version: Optional[AvailableVersion] = None,
+        repo_config: RepoConfig | None = None,
+        selected_version: AvailableVersion | None = None,
     ) -> None:
         self.repo_config = repo_config or RepoConfig.get_default()
         super().__init__(self.repo_config.repos)
 
         self.arch = self.get_platform_arch()
-        self._version_obj: Optional[Version] = None
-        self._selected_version: Optional[AvailableVersion] = None
+        self._version_obj: Version | None = None
+        self._selected_version: AvailableVersion | None = None
         self.pattern: re.Pattern = self.repo_config.build_pattern()
 
         if selected_version:
@@ -460,8 +463,8 @@ class CamoufoxFetcher(GitHubDownloader):
             self.fetch_latest()
 
     def check_asset(
-        self, asset: Dict, release: Optional[Dict] = None
-    ) -> Optional[Tuple[Version, str]]:
+        self, asset: dict, release: dict | None = None
+    ) -> tuple[Version, str] | None:
         """
         Match a release asset against version constraints, OS, and arch
         """
@@ -568,11 +571,11 @@ class CamoufoxFetcher(GitHubDownloader):
 
 
 def list_available_versions(
-    repo_config: Optional[RepoConfig] = None,
+    repo_config: RepoConfig | None = None,
     include_prerelease: bool = True,
-    spoof_os: Optional[str] = None,
-    spoof_arch: Optional[str] = None,
-) -> List[AvailableVersion]:
+    spoof_os: str | None = None,
+    spoof_arch: str | None = None,
+) -> list[AvailableVersion]:
     """
     Fetch all supported versions from GitHub for the current platform
     """
@@ -600,7 +603,7 @@ def list_available_versions(
     if not releases and last_error:
         raise last_error
 
-    versions: List[AvailableVersion] = []
+    versions: list[AvailableVersion] = []
     seen_builds: set = set()
 
     for release in releases:
@@ -676,15 +679,12 @@ def camoufox_path(download_if_missing: bool = True) -> Path:
 
     if not os.path.exists(INSTALL_DIR) or not os.listdir(INSTALL_DIR):
         if not download_if_missing:
-            from .multiversion import load_config, get_default_channel
+            from .multiversion import get_default_channel, load_config
 
             config = load_config()
             pinned = config.get("pinned")
             channel = config.get("channel") or get_default_channel()
-            if pinned:
-                active_display = f"{channel}/{pinned}"
-            else:
-                active_display = channel
+            active_display = f"{channel}/{pinned}" if pinned else channel
             raise CamoufoxNotInstalled(
                 f"{active_display} is not installed. " f"Please run `camoufox fetch` to install."
             )
@@ -709,7 +709,7 @@ def get_path(file: str) -> str:
     return str(camoufox_path() / file)
 
 
-def launch_path(browser_path: Optional[Path] = None) -> str:
+def launch_path(browser_path: Path | None = None) -> str:
     """
     Get the path to the camoufox executable
     """
@@ -730,15 +730,15 @@ def launch_path(browser_path: Optional[Path] = None) -> str:
     return exec_path
 
 
-ProgressCallback: TypeAlias = 'Callable[[int, int], None]'
+ProgressCallback: TypeAlias = Callable[[int, int], None]
 
 
 def webdl(
     url: str,
-    desc: Optional[str] = None,
-    buffer: Optional[DownloadBuffer] = None,
+    desc: str | None = None,
+    buffer: DownloadBuffer | None = None,
     bar: bool = True,
-    progress_callback: Optional[ProgressCallback] = None,
+    progress_callback: ProgressCallback | None = None,
 ) -> DownloadBuffer:
     """
     Download a file from the given URL
@@ -794,7 +794,7 @@ def webdl(
 def unzip(
     zip_file: DownloadBuffer,
     extract_path: str,
-    desc: Optional[str] = None,
+    desc: str | None = None,
     bar: bool = True,
 ) -> None:
     """
@@ -824,9 +824,9 @@ def unzip(
                 print(f"\r{desc}: Complete")
 
 
-def load_yaml(file: str) -> Dict[str, Any]:
+def load_yaml(file: str) -> dict[str, Any]:
     """
     Load a local YAML file as a dictionary
     """
-    with open(get_asset_by_name(file), 'r') as f:
+    with open(get_asset_by_name(file)) as f:
         return load(f, Loader=CLoader)

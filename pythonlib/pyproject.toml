@@ -59,6 +59,8 @@ camoufox = "camoufox.__main__:cli"
 [dependency-groups]
 dev = [
     "pytest>=8.4.1",
+    "ruff==0.15.11",
+    "ty==0.0.31",
 ]
 
 [tool.setuptools]
@@ -85,3 +87,38 @@ camoufox = [
 "camoufox.webgl" = [
     "*.db",
 ]
+
+[tool.ruff]
+target-version = "py310"
+
+[tool.ruff.lint]
+select = [
+    "E4",
+    "E7",
+    "E9",
+    "F",
+    "I",
+    "B",
+    "UP",
+    "SIM",
+    "RUF",
+    "PIE",
+    "RET",
+]
+ignore = [
+    "B008",
+    "E501",
+]
+
+[tool.ty.analysis]
+allowed-unresolved-imports = ["maxminddb"]
+
+[tool.ty.environment]
+python = ".venv"
+python-version = "3.10"
+
+[tool.ty.src]
+exclude = ["camoufox/gui/**"]
+
+[tool.ty.terminal]
+output-format = "concise"
