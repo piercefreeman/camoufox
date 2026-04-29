@@ -102,6 +102,73 @@ Useful output locations:
 - Apple Silicon build: `camoufox-*/obj-aarch64-apple-darwin/dist/Camoufox.app`
 - Intel build: `camoufox-*/obj-x86_64-apple-darwin/dist/Camoufox.app`
 
+## When You Need To Rebuild
+
+You only need `make build` when you change browser-side code or bundled browser data.
+
+Rebuild required:
+
+- `patches/`
+- `additions/`
+- `settings/`
+- anything under the extracted `camoufox-*/` Firefox source tree that affects the browser binary or bundled resources
+
+Rebuild not required:
+
+- `pythonlib/camoufox/fingerprints.py`
+- `pythonlib/camoufox/utils.py`
+- `pythonlib/camoufox/sync_api.py`
+- `pythonlib/camoufox/async_api.py`
+- other Python-only wrapper code
+
+Those Python files run at launch time on the client machine. If you only changed fingerprint generation logic, rerun your Python entrypoint against an existing Camoufox binary.
+
+If you changed both sides, the split is simple:
+
+- rebuild the browser so binary-side changes are present
+- rerun the Python code so the new launcher/context logic is used
+
+## Launching The Python Fingerprint Flow
+
+The easiest local-dev path is:
+
+1. Build the browser once with `make build`.
+2. Point the Python package at that local executable.
+3. Launch through `NewContext()`, which is where the per-context fingerprint is generated.
+
+From the repo root:
+
+```bash
+uv sync --project pythonlib --group dev
+source upstream.sh
+export CAMOUFOX_EXECUTABLE_PATH="$PWD/camoufox-$version-$release/obj-aarch64-apple-darwin/dist/Camoufox.app/Contents/MacOS/camoufox"
+uv run --project pythonlib --group dev python -m camoufox test
+```
+
+On Intel macOS, replace `obj-aarch64-apple-darwin` with `obj-x86_64-apple-darwin`.
+
+If startup looks stuck, rerun with `--debug` to print browser-launch and fingerprint-generation logs:
+
+```bash
+uv run --project pythonlib --group dev python -m camoufox test --debug
+```
+
+`camoufox test` now opens a controllable Playwright inspector session using the active fingerprint flow:
+
+- BrowserForge generates the Firefox skeleton
+- Camoufox constrains it to the real macOS host
+- `NewContext()` applies the per-context overrides
+
+If you want the Python CLI and default launcher path to pick up your local build without passing `executable_path`, package and install it into the local Camoufox cache:
+
+```bash
+make package-macos arch=arm64
+./scripts/install-local-build.sh
+uv run --project pythonlib --group dev python -m camoufox test
+```
+
+That is only needed if you want the Python package to resolve the browser through its normal installed-browser lookup. For fast iteration on `pythonlib/`, pointing `CAMOUFOX_EXECUTABLE_PATH` at the repo build is simpler.
+
 ## Fast Path
 
 If you just want the commands without the explanation:

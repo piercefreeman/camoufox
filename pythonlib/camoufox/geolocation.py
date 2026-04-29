@@ -12,10 +12,11 @@ from yaml import CDumper, CLoader
 from yaml import dump as yaml_dump
 from yaml import load as yaml_load
 
+from .assets import get_asset_by_name
 from .exceptions import NotInstalledGeoIPExtra, UnknownIPLocation
 from .ip import validate_ip
 from .locales import SELECTOR, Geolocation
-from .pkgman import LOCAL_DATA, rprint, unzip, webdl
+from .pkgman import rprint, unzip, webdl
 
 try:
     import maxminddb  # type: ignore
@@ -47,7 +48,7 @@ def _load_geoip_repos() -> Tuple[List[Dict], str]:
     """
     Load GeoIP repos and default name from repos.yml
     """
-    with open(LOCAL_DATA / 'repos.yml', 'r') as f:
+    with open(get_asset_by_name('repos.yml'), 'r') as f:
         data = yaml_load(f, Loader=CLoader)
     geoip_repos = data.get('geoip', [])
     default_name = data.get('default', {}).get('geoip', 'GeoLite2')

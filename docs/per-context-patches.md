@@ -614,28 +614,28 @@ bundle/
 
 ## Python Library Changes
 
-The Camoufox Python package (`pythonlib/`) generates fingerprints for both `NewBrowser` (global CAMOU_CONFIG) and `NewContext` (per-context init script). **BrowserForge is the default for both paths.** Real fingerprint presets are available as an opt-in alternative.
+The Camoufox Python package (`pythonlib/`) generates fingerprints for both `NewBrowser` (global CAMOU_CONFIG) and `NewContext` (per-context init script). **BrowserForge is still the default skeleton generator for both paths.** Camoufox now combines that with a real macOS host profile so GPU-facing values stay real and the advertised font/voice inventories are filtered to what the host actually supports.
 
 ### Fingerprint Source Priority
 
 | Path | Default | Opt-in Alternative |
 |------|---------|-------------------|
-| **NewBrowser** (`launch_options()` in `utils.py`) | BrowserForge synthetic | Pass `fingerprint_preset=True` or a preset dict |
-| **NewContext** (`generate_context_fingerprint()` in `fingerprints.py`) | BrowserForge synthetic | Pass `preset=dict` explicitly |
+| **NewBrowser** (`launch_options()` in `utils.py`) | BrowserForge Firefox skeleton + host-filtered fonts/voices | Pass an explicit `fingerprint_preset=dict` |
+| **NewContext** (`generate_context_fingerprint()` in `fingerprints.py`) | BrowserForge Firefox skeleton + host-filtered fonts/voices | Pass `preset=dict` explicitly |
 
 ### What Each Path Sets
 
 | Property | Source | Notes |
 |----------|--------|-------|
-| UA, platform, HWC, oscpu | BrowserForge or preset | UA version patched to match Camoufox Firefox version |
+| UA, platform, oscpu | BrowserForge or preset | Narrow host-compatible subset only; UA version patched to match Camoufox Firefox version |
 | Screen dims, colorDepth | BrowserForge or preset | Viewport adjusted by -28px for browser chrome |
-| WebGL vendor/renderer | `sample_webgl()` from `webgl_data.db` | OS-weighted probability sampling. BrowserForge does NOT generate WebGL (commented out in `browserforge.yml`). Both paths call `sample_webgl()` when WebGL values are missing. |
-| Font list | `_generate_random_font_subset()` | Random 30-78% of OS fonts. Essential + marker fonts always included. NOT from presets — generated fresh per call. |
+| WebGL vendor/renderer | Real host GPU | Default paths no longer spoof GPU identity or sample WebGL params from the database. |
+| Font list | macOS bundled baseline + host extras | Advertises the installed macOS-bundled font set, plus a random `0-50` extra locally installed fonts. |
 | Font spacing seed | `randint(1, 2^32-1)` | Excludes 0 (0 = no-op in C++) |
 | Audio seed | `randint(1, 2^32-1)` | Excludes 0 |
 | Canvas seed | `randint(1, 2^32-1)` | Excludes 0 |
 | Timezone | From preset, or Intl.DateTimeFormat fallback in init script | NewBrowser: from preset or geolocation detection. NewContext: preset or browser default. |
-| Speech voices | `_generate_random_voice_subset()` | Random 40-80% of OS voices. Essential voices always included. macOS: 6 essentials + random subset of ~184. Windows: all voices (too few to subset). Linux: empty (no native voices). NOT from presets — generated fresh per call. |
+| Speech voices | macOS bundled baseline + host extras | Advertises the installed macOS-bundled voice set, plus a random `0-50` extra locally installed voices. |
 | WebRTC IP | Not set by default | User sets via `window.setWebRTCIPv4()`. NewContext init script defaults to empty string `""` |
 | Geolocation | User parameter or geoip detection | Via Playwright `context.setGeolocation()` |
 
@@ -643,24 +643,18 @@ The Camoufox Python package (`pythonlib/`) generates fingerprints for both `NewB
 
 **`fingerprints.py`** — Per-context fingerprint generation:
 - `generate_context_fingerprint()` — main API. Returns `{init_script, context_options, config, preset}`
-- `from_preset()` — converts real preset to CAMOU_CONFIG format
+- `from_preset()` — compiles an explicit caller-supplied preset dict into the same host-compatible config format
 - `from_browserforge()` — converts BrowserForge Fingerprint to CAMOU_CONFIG using `browserforge.yml` mappings
-- `_build_init_script()` — generates JavaScript IIFE calling 15 `window.setXxx()` functions with `typeof` guards (`setWebRTCIPv6` is not included — IPv6 is optional and rarely set)
-- `_generate_random_font_subset()` — unique random font subset per call (Fisher-Yates, essential + marker fonts always included)
-- `_generate_random_voice_subset()` — unique random voice subset per call (essential voices always included, OS-aware)
+- `_build_init_script()` — generates the JavaScript IIFE for the remaining per-context overrides (`setWebRTCIPv6` is not included — IPv6 is optional and rarely set)
+- `_MacOSHostProfile` — probes the real macOS host for GPU family, installed fonts, and installed voices
+- `_sample_extras()` — adds a small random sample of extra installed fonts or voices on top of the bundled baseline
 
 **`utils.py`** — Global browser launch configuration:
 - `launch_options()` — builds CAMOU_CONFIG env var, Playwright args, and Firefox prefs
-- Font subset generated via same `_generate_random_font_subset()` function
-- Voice subset generated via same `_generate_random_voice_subset()` function
-- WebGL sampled via same `sample_webgl()` function
+- Font inventory generated from the real host inventory
+- Voice inventory generated from the real host inventory
+- WebGL uses the real host GPU; spoofing overrides are stripped before serialization
 - Config validated against `properties.json` before serialization
-
-**`fingerprint-presets.json`** — Bundled real fingerprints organized by OS (macOS, Windows, Linux). Each preset includes navigator properties, screen dimensions, WebGL params, speech voices, and timezone. Font and voice data not used from presets — generated fresh per launch.
-
-**`fonts.json`** — Complete OS-specific font lists for random font subset generation.
-
-**`voices.json`** — Complete OS-specific speech voice lists for random voice subset generation. macOS: 190 voices, Windows: 53 voices, Linux: empty. Format: `"Name:locale:type"` — names extracted at load time.
 
 **`properties.json`** — Includes `audio:seed` and `canvas:seed` as `CAMOU_CONFIG` properties (uint type). These enable the MaskConfig fallback in the audio and canvas patches when using global config without per-context JavaScript.
 

@@ -5,9 +5,9 @@ from typing import Any, Dict, Iterable, List, Optional, Set, Tuple, Union
 import numpy as np
 from language_tags import tags
 
-from camoufox.pkgman import LOCAL_DATA
 from camoufox._warnings import LeakWarning
 
+from .assets import get_asset_by_name
 from .exceptions import InvalidLocale, UnknownLanguage, UnknownTerritory
 
 """
@@ -179,7 +179,7 @@ def get_unicode_info() -> ET.Element:
     Fetches supplemental data from the territoryInfo.xml file.
     Source: https://raw.githubusercontent.com/unicode-org/cldr/master/common/supplemental/supplementalData.xml
     """
-    with open(LOCAL_DATA / 'territoryInfo.xml', 'rb') as f:
+    with open(get_asset_by_name('territoryInfo.xml'), 'rb') as f:
         data = ET.XML(f.read())
     assert data is not None, 'Failed to load territoryInfo.xml'
     return data

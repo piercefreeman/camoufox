@@ -29,6 +29,7 @@ from typing_extensions import TypeAlias
 from yaml import CLoader, load
 
 from .__version__ import CONSTRAINTS
+from .assets import get_asset_by_name
 from .exceptions import (
     CamoufoxNotInstalled,
     MissingRelease,
@@ -59,7 +60,6 @@ if sys.platform not in OS_MAP:
 OS_NAME: Literal['mac', 'win', 'lin'] = OS_MAP[sys.platform]
 
 INSTALL_DIR: Path = Path(user_cache_dir("camoufox"))
-LOCAL_DATA: Path = Path(os.path.abspath(__file__)).parent
 
 OS_ARCH_MATRIX: Dict[str, List[str]] = {
     'win': ['x86_64', 'i686'],
@@ -155,8 +155,7 @@ class RepoConfig:
         """
         Load repository configurations from repos.yml
         """
-        repos_path = LOCAL_DATA / 'repos.yml'
-        with open(repos_path, 'r') as f:
+        with open(get_asset_by_name('repos.yml'), 'r') as f:
             data = load(f, Loader=CLoader)
         return [RepoConfig.from_dict(r, spoof_library_version) for r in data.get('browsers', [])]
 
@@ -165,8 +164,7 @@ class RepoConfig:
         """
         Get the default repo name from repos.yml
         """
-        repos_path = LOCAL_DATA / 'repos.yml'
-        with open(repos_path, 'r') as f:
+        with open(get_asset_by_name('repos.yml'), 'r') as f:
             data = load(f, Loader=CLoader)
         return data.get('default', {}).get('browser', 'Official')
 
@@ -830,5 +828,5 @@ def load_yaml(file: str) -> Dict[str, Any]:
     """
     Load a local YAML file as a dictionary
     """
-    with open(LOCAL_DATA / file, 'r') as f:
+    with open(get_asset_by_name(file), 'r') as f:
         return load(f, Loader=CLoader)

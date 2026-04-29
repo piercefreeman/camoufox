@@ -1,16 +1,17 @@
 [build-system]
-requires = ["poetry-core>=1.0.0"]
-build-backend = "poetry.core.masonry.api"
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
 
-[tool.poetry]
+[project]
 name = "camoufox"
 version = "0.5.0"
 description = "Wrapper around Playwright to help launch Camoufox"
-authors = ["daijro <daijro.dev@gmail.com>"]
-license = "MIT"
-repository = "https://github.com/daijro/camoufox"
-homepage = "https://camoufox.com/python"
 readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [
+    { name = "daijro", email = "daijro.dev@gmail.com" },
+]
 keywords = [
     "client",
     "fingerprint",
@@ -25,31 +26,62 @@ classifiers = [
     "Topic :: Internet :: WWW/HTTP :: Browsers",
     "Topic :: Software Development :: Libraries :: Python Modules",
 ]
+dependencies = [
+    "browserforge>=1.2.4,<2",
+    "inquirer",
+    "language-tags",
+    "lxml",
+    "numpy",
+    "orjson",
+    "platformdirs",
+    "playwright",
+    "pysocks",
+    "pyyaml",
+    "requests",
+    "rich",
+    "rich-click",
+    "screeninfo",
+    "typing_extensions",
+    "ua_parser",
+]
 
-[tool.poetry.dependencies]
-python = "^3.10"
-rich-click = "*"
-rich = "*"
-requests = "*"
-orjson = "*"
-browserforge = "^1.2.4"
-playwright = "*"
-pyyaml = "*"
-platformdirs = "*"
-numpy = "*"
-ua_parser = "*"
-typing_extensions = "*"
-screeninfo = "*"
-lxml = "*"
-language-tags = "*"
-pysocks = "*"
-inquirer = "*"
-geoip2 = {version = "*", optional = true}
-PySide6 = {version = "*", optional = true}
+[project.urls]
+Homepage = "https://camoufox.com/python"
+Repository = "https://github.com/daijro/camoufox"
 
-[tool.poetry.extras]
+[project.optional-dependencies]
 geoip = ["geoip2"]
 gui = ["PySide6"]
 
-[tool.poetry.scripts]
+[project.scripts]
 camoufox = "camoufox.__main__:cli"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.4.1",
+]
+
+[tool.setuptools]
+include-package-data = true
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["camoufox*"]
+
+[tool.setuptools.package-data]
+camoufox = [
+    "*.cfg",
+    "py.typed",
+]
+"camoufox.assets" = [
+    "*.js",
+    "*.xml",
+    "*.yml",
+]
+"camoufox.gui" = [
+    "assets/*",
+    "qml/*",
+]
+"camoufox.webgl" = [
+    "*.db",
+]
