@@ -167,6 +167,13 @@ class Patcher:
         with open(mozconfig_backup, 'r', encoding='utf-8') as f:
             content = f.read()
 
+        # Native macOS runners already provide Xcode and a local SDK.
+        # Forcing Mozilla's bootstrap toolchains there can fail on SDK downloads,
+        # so allow CI to opt out and use the system toolchain instead.
+        if os.environ.get("CAMOUFOX_DISABLE_BOOTSTRAP") == "1":
+            content = content.replace("ac_add_options --enable-bootstrap\n", "")
+            content += "\nac_add_options --disable-bootstrap\n"
+
         # Add target option
         content += f"\nac_add_options --target={self.moz_target}\n"
 

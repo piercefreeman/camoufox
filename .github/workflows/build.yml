@@ -114,13 +114,13 @@ jobs:
           BUILD_RELEASE: ${{ needs.metadata.outputs.build_release }}
         run: |
           make setup-minimal version="$BROWSER_VERSION" release="$BUILD_RELEASE"
-          make mozbootstrap version="$BROWSER_VERSION" release="$BUILD_RELEASE"
           mkdir -p dist
 
       - name: Build and package macOS artifact
         env:
           BROWSER_VERSION: ${{ needs.metadata.outputs.browser_version }}
           BUILD_RELEASE: ${{ needs.metadata.outputs.build_release }}
+          CAMOUFOX_DISABLE_BOOTSTRAP: "1"
         run: |
           export BUILD_TARGET="macos,${{ matrix.arch }}"
           make build version="$BROWSER_VERSION" release="$BUILD_RELEASE"
