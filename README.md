@@ -238,46 +238,6 @@ python3 multibuild.py --target macos --arch arm64
 
 After that, [`scripts/install-local-build.sh`](scripts/install-local-build.sh) can install the latest zip from `dist/` into the local Camoufox cache.
 
-## Docker Fallback
-
-If native building on your M1 turns out to be flaky or too slow, this repo already has a containerized build path.
-
-That path is not a separate implementation: it follows the same cross-build model used in [`.github/workflows/build.yml`](.github/workflows/build.yml), where macOS artifacts are built on Ubuntu.
-
-Build the image:
-
-```bash
-docker build -t camoufox-builder .
-```
-
-Build a macOS Apple Silicon artifact into `dist/`:
-
-```bash
-mkdir -p dist
-docker run --rm \
-  -v "$(pwd)/dist:/app/dist" \
-  camoufox-builder \
-  --target macos \
-  --arch arm64
-```
-
-If you want the container to reuse an existing Mozilla toolchain cache:
-
-```bash
-docker run --rm \
-  -v "$HOME/.mozbuild:/root/.mozbuild" \
-  -v "$(pwd)/dist:/app/dist" \
-  camoufox-builder \
-  --target macos \
-  --arch arm64
-```
-
-Notes:
-
-- Docker is a fallback, not the only supported path.
-- The artifact will be written to `dist/` as `camoufox-<version>-<release>-mac.arm64.zip`.
-- If you want to mirror CI more closely, inspect [`.github/workflows/build.yml`](.github/workflows/build.yml).
-
 ## How This Repo Is Organized
 
 - `patches/` contains the Firefox patch stack applied by [`scripts/patch.py`](scripts/patch.py).
