@@ -2,6 +2,8 @@
 /camoufox-*
 /firefox-*
 /mozilla-unified
+/.ccache-local/
+/.mozbuild-local/
 dist/
 bin/
 launch
