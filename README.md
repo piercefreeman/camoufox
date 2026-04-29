@@ -2,7 +2,7 @@
 
 This repository is a fork of the original [daijro/camoufox](https://github.com/daijro/camoufox).
 
-The upstream project has the broader product docs and Python usage docs. This fork is focused on local browser development: patching Firefox, rebuilding quickly, and packaging local macOS builds.
+The upstream project has the broader product docs and Python usage docs. This fork is focused more on automation than it is on crawling; it gives your Agents access to a browser that works almost identically to your daily driver.
 
 - Original project: [github.com/daijro/camoufox](https://github.com/daijro/camoufox)
 - Upstream docs: [camoufox.com](https://camoufox.com)
