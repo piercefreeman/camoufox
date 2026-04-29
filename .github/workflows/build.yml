@@ -92,7 +92,7 @@ jobs:
         env:
           HOMEBREW_NO_AUTO_UPDATE: "1"
         run: |
-          brew install aria2 p7zip ccache
+          brew install aria2 p7zip ccache lld
 
       - name: Check runner environment
         run: |
@@ -102,6 +102,8 @@ jobs:
           xcodebuild -version
           xcrun --find actool
           xcrun --show-sdk-version
+          which ld.lld || true
+          which ld64.lld || true
 
       - name: Fetch source
         env:

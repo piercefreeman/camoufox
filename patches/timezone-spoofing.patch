@@ -75,6 +75,7 @@ index 0000000000..7ec236d160
 +
 +}  // namespace dom
 +}  // namespace mozilla
++
 diff --git a/dom/base/TimezoneManager.h b/dom/base/TimezoneManager.h
 new file mode 100644
 index 0000000000..a7f5735e53

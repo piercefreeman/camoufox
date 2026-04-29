@@ -142,6 +142,8 @@ class Patcher:
 
         # After patch completes, search for any .rej files created during this patch
         rejects = []
+        if result.returncode != 0:
+            rejects.append(f"patch exited with code {result.returncode}")
         for root, dirs, files in os.walk('.'):
             for file in files:
                 if file.endswith('.rej'):
@@ -183,6 +185,7 @@ class Patcher:
         if os.environ.get("CAMOUFOX_DISABLE_BOOTSTRAP") == "1":
             content = content.replace("ac_add_options --enable-bootstrap\n", "")
             content += "\nac_add_options --disable-bootstrap\n"
+            content += "ac_add_options --enable-linker=lld\n"
 
         # Add target option
         content += f"\nac_add_options --target={self.moz_target}\n"
