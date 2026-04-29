@@ -1,2 +1,0 @@
-[console_scripts]
-camoufox = camoufox.__main__:cli
