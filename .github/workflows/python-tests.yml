@@ -1,4 +1,4 @@
-name: Python Tests
+name: Python Checks
 
 on:
   pull_request:
@@ -15,6 +15,64 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  ruff:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v8
+        with:
+          enable-cache: true
+          cache-dependency-glob: |
+            pythonlib/pyproject.toml
+            pythonlib/uv.lock
+
+      - name: Sync Python dev environment
+        working-directory: pythonlib
+        run: uv sync --group dev --locked
+
+      - name: Run Ruff
+        working-directory: pythonlib
+        run: uv run --project . ruff check camoufox
+
+  ty:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v8
+        with:
+          enable-cache: true
+          cache-dependency-glob: |
+            pythonlib/pyproject.toml
+            pythonlib/uv.lock
+
+      - name: Sync Python dev environment
+        working-directory: pythonlib
+        run: uv sync --group dev --locked
+
+      - name: Run ty
+        working-directory: pythonlib
+        run: uv run --project . ty check camoufox
+
   pytest:
     runs-on: ubuntu-24.04
     timeout-minutes: 10

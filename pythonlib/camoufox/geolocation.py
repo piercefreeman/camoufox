@@ -4,8 +4,10 @@ Helpers to fetch geolocation, timezone, and locale data given an IP
 
 import shutil
 import tempfile
+from collections.abc import Callable
+from importlib.util import find_spec
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, cast
+from typing import Any, cast
 
 from platformdirs import user_cache_dir
 from yaml import CDumper, CLoader
@@ -18,12 +20,7 @@ from .ip import validate_ip
 from .locales import SELECTOR, Geolocation
 from .pkgman import rprint, unzip, webdl
 
-try:
-    import maxminddb  # type: ignore
-except ImportError:
-    ALLOW_GEOIP = False
-else:
-    ALLOW_GEOIP = True
+ALLOW_GEOIP = find_spec("maxminddb") is not None
 
 
 GEOIP_DIR = Path(user_cache_dir("camoufox")) / "geoip"
@@ -31,38 +28,39 @@ MMDB_DIR = GEOIP_DIR / "mmdb"
 GEOIP_CONFIG = GEOIP_DIR / "config.yml"
 
 
-def _find_in(data: Dict, key: str) -> Any:
+def _find_in(data: dict[str, Any], key: str) -> Any:
     """
     Resolve a dotted path in a nested dict
     """
+    current: Any = data
     for part in key.split('.'):
-        if not isinstance(data, dict):
+        if not isinstance(current, dict):
             return None
-        data = data.get(part)
-        if data is None:
+        current = current.get(part)
+        if current is None:
             return None
-    return data
+    return current
 
 
-def _load_geoip_repos() -> Tuple[List[Dict], str]:
+def _load_geoip_repos() -> tuple[list[dict[str, Any]], str]:
     """
     Load GeoIP repos and default name from repos.yml
     """
-    with open(get_asset_by_name('repos.yml'), 'r') as f:
-        data = yaml_load(f, Loader=CLoader)
+    with open(get_asset_by_name('repos.yml')) as f:
+        data = cast(dict[str, Any], yaml_load(f, Loader=CLoader))
     geoip_repos = data.get('geoip', [])
     default_name = data.get('default', {}).get('geoip', 'GeoLite2')
-    return geoip_repos, default_name
+    return cast(list[dict[str, Any]], geoip_repos), default_name
 
 
-def _get_geoip_config_by_name(name: Optional[str] = None) -> Dict:
+def _get_geoip_config_by_name(name: str | None = None) -> dict[str, Any]:
     """
     Get GeoIP config by name from repos.yml. If None, uses default
     """
     repos, default_name = _load_geoip_repos()
     target_name = name or default_name
 
-    def _validate_repo(repo: Dict) -> Dict:
+    def _validate_repo(repo: dict[str, Any]) -> dict[str, Any]:
         if 'urls' not in repo:
             raise ValueError(f"GeoIP repo '{repo.get('name')}' missing required urls")
         if 'paths' not in repo:
@@ -82,13 +80,13 @@ def _get_geoip_config_by_name(name: Optional[str] = None) -> Dict:
     raise ValueError("No GeoIP repos configured in repos.yml")
 
 
-def load_geoip_config() -> Dict:
+def load_geoip_config() -> dict[str, Any]:
     """
     Load active GeoIP config from disk, falling back to repos.yml default
     """
     if GEOIP_CONFIG.exists():
-        with open(GEOIP_CONFIG, 'r') as f:
-            saved = yaml_load(f, Loader=CLoader)
+        with open(GEOIP_CONFIG) as f:
+            saved = cast(dict[str, Any], yaml_load(f, Loader=CLoader))
         try:
             return _get_geoip_config_by_name(saved.get('name'))
         except (ValueError, KeyError):
@@ -96,7 +94,7 @@ def load_geoip_config() -> Dict:
     return _get_geoip_config_by_name(None)
 
 
-def save_geoip_config(config: Dict) -> None:
+def save_geoip_config(config: dict[str, Any]) -> None:
     """
     Save active GeoIP source name to disk
     """
@@ -105,7 +103,7 @@ def save_geoip_config(config: Dict) -> None:
         yaml_dump({'name': config['name']}, f, Dumper=CDumper, default_flow_style=False)
 
 
-def get_mmdb_path(ip_version: str = 'ipv4', config: Optional[Dict] = None) -> Path:
+def get_mmdb_path(ip_version: str = 'ipv4', config: dict[str, Any] | None = None) -> Path:
     """
     Get path to the mmdb file for the specified IP version
     """
@@ -129,8 +127,8 @@ def geoip_allowed() -> None:
 
 
 def download_mmdb(
-    source: Optional[str] = None,
-    progress_callback: Optional[callable] = None,
+    source: str | None = None,
+    progress_callback: Callable[[int, int], None] | None = None,
 ) -> None:
     """
     Downloads the GeoIP database(s) to geoip/mmdb/
@@ -203,7 +201,7 @@ def remove_mmdb() -> None:
     rprint("GeoIP database removed.")
 
 
-def needs_update(config: Optional[Dict] = None) -> bool:
+def needs_update(config: dict[str, Any] | None = None) -> bool:
     """
     Check if the GeoIP database needs an update (older than 30 days)
     """
@@ -223,7 +221,7 @@ def needs_update(config: Optional[Dict] = None) -> bool:
     return age > timedelta(days=update_days)
 
 
-def get_geolocation(ip: str, geoip_db: Optional[str] = None) -> Geolocation:
+def get_geolocation(ip: str, geoip_db: str | None = None) -> Geolocation:
     """
     Gets the geolocation for an IP address
     """
@@ -237,14 +235,11 @@ def get_geolocation(ip: str, geoip_db: Optional[str] = None) -> Geolocation:
         download_mmdb()
         mmdb_path = get_mmdb_path(ip_version)
 
-    if geoip_db:
-        config = _get_geoip_config_by_name(geoip_db)
-    else:
-        config = load_geoip_config()
+    config = _get_geoip_config_by_name(geoip_db) if geoip_db else load_geoip_config()
     paths = config['paths']
 
     with maxminddb.open_database(str(mmdb_path)) as reader:
-        resp = cast(Dict[str, Any], reader.get(ip))
+        resp = cast(dict[str, Any], reader.get(ip))
 
         if not resp:
             raise UnknownIPLocation(f"IP not found in database: {ip}")

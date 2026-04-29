@@ -2,31 +2,36 @@ from __future__ import annotations
 
 import configparser
 import os
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from os import environ
 from os.path import abspath
 from pathlib import Path
 from pprint import pprint
 from random import randint, randrange
-from typing import Any, Dict, Iterable, List, Literal, Optional, Tuple, Union, cast
+from typing import Any, Literal, TypeAlias, cast
 
 import orjson
 from browserforge.fingerprints import Fingerprint, Screen
 from screeninfo import get_monitors
-from typing_extensions import TypeAlias
 from ua_parser import user_agent_parser
 
 from ._warnings import LeakWarning
 from .addons import DefaultAddons, add_default_addons, confirm_paths
 from .exceptions import InvalidOS, InvalidPropertyType, NonFirefoxFingerprint
-from .fingerprints import from_browserforge, from_preset, generate_fingerprint, is_generated_fingerprint
+from .fingerprints import (
+    from_browserforge,
+    from_preset,
+    generate_fingerprint,
+    is_generated_fingerprint,
+)
 from .geolocation import geoip_allowed, get_geolocation
 from .ip import Proxy, public_ip, valid_ipv4, valid_ipv6
 from .locales import handle_locales
 from .pkgman import OS_NAME, get_path, installed_verstr, launch_path
 from .virtdisplay import VirtualDisplay
 
-ListOrString: TypeAlias = Union[Tuple[str, ...], List[str], str]
+ListOrString: TypeAlias = tuple[str, ...] | list[str] | str
 
 CACHE_PREFS = {
     "browser.cache.disk.smart_size.enabled": True,
@@ -39,40 +44,40 @@ CACHE_PREFS = {
 
 def launch_options(
     *,
-    config: Optional[Dict[str, Any]] = None,
-    os: Optional[ListOrString] = None,
-    block_images: Optional[bool] = None,
-    block_webrtc: Optional[bool] = None,
-    block_webgl: Optional[bool] = None,
-    disable_coop: Optional[bool] = None,
-    webgl_config: Optional[Tuple[str, str]] = None,
-    geoip: Optional[Union[str, bool]] = None,
-    geoip_db: Optional[str] = None,
-    humanize: Optional[Union[bool, float]] = None,
-    locale: Optional[Union[str, List[str]]] = None,
-    addons: Optional[List[str]] = None,
-    fonts: Optional[List[str]] = None,
-    custom_fonts_only: Optional[bool] = None,
-    exclude_addons: Optional[List[DefaultAddons]] = None,
-    screen: Optional[Screen] = None,
-    window: Optional[Tuple[int, int]] = None,
-    fingerprint: Optional[Fingerprint] = None,
-    fingerprint_preset: Optional[Dict[str, Any]] = None,
-    ff_version: Optional[int] = None,
-    headless: Optional[bool] = None,
-    main_world_eval: Optional[bool] = None,
-    executable_path: Optional[Union[str, Path]] = None,
-    browser: Optional[str] = None,
-    firefox_user_prefs: Optional[Dict[str, Any]] = None,
-    proxy: Optional[Dict[str, str]] = None,
-    enable_cache: Optional[bool] = None,
-    args: Optional[List[str]] = None,
-    env: Optional[Dict[str, Union[str, float, bool]]] = None,
-    i_know_what_im_doing: Optional[bool] = None,
-    debug: Optional[bool] = None,
-    virtual_display: Optional[str] = None,
-    **launch_options: Dict[str, Any],
-) -> Dict[str, Any]:
+    config: dict[str, Any] | None = None,
+    os: ListOrString | None = None,
+    block_images: bool | None = None,
+    block_webrtc: bool | None = None,
+    block_webgl: bool | None = None,
+    disable_coop: bool | None = None,
+    webgl_config: tuple[str, str] | None = None,
+    geoip: str | bool | None = None,
+    geoip_db: str | None = None,
+    humanize: bool | float | None = None,
+    locale: str | list[str] | None = None,
+    addons: list[str] | None = None,
+    fonts: list[str] | None = None,
+    custom_fonts_only: bool | None = None,
+    exclude_addons: list[DefaultAddons] | None = None,
+    screen: Screen | None = None,
+    window: tuple[int, int] | None = None,
+    fingerprint: Fingerprint | None = None,
+    fingerprint_preset: dict[str, Any] | None = None,
+    ff_version: int | None = None,
+    headless: bool | None = None,
+    main_world_eval: bool | None = None,
+    executable_path: str | Path | None = None,
+    browser: str | None = None,
+    firefox_user_prefs: dict[str, Any] | None = None,
+    proxy: dict[str, str] | None = None,
+    enable_cache: bool | None = None,
+    args: list[str] | None = None,
+    env: dict[str, str | float | bool] | None = None,
+    i_know_what_im_doing: bool | None = None,
+    debug: bool | None = None,
+    virtual_display: str | None = None,
+    **launch_options: dict[str, Any],
+) -> dict[str, Any]:
     """
     Build the Playwright launch options for Camoufox.
 
@@ -122,8 +127,8 @@ def launch_options(
 
 async def async_attach_vd(
     browser: Any,
-    virtual_display: Optional[VirtualDisplay] = None,
-) -> Any:  # type: ignore
+    virtual_display: VirtualDisplay | None = None,
+) -> Any:
     """
     Attach a virtual display lifecycle to an async Playwright browser/context.
 
@@ -148,8 +153,8 @@ async def async_attach_vd(
 
 def sync_attach_vd(
     browser: Any,
-    virtual_display: Optional[VirtualDisplay] = None,
-) -> Any:  # type: ignore
+    virtual_display: VirtualDisplay | None = None,
+) -> Any:
     """
     Attach a virtual display lifecycle to a sync Playwright browser/context.
 
@@ -173,9 +178,9 @@ def sync_attach_vd(
 
 
 def get_env_vars(
-    config_map: Dict[str, Any],
+    config_map: dict[str, Any],
     user_agent_os: str,
-) -> Dict[str, Union[str, float, bool]]:
+) -> dict[str, str | float | bool]:
     """
     Serialize a config map into the `CAMOU_CONFIG_N` environment variables.
 
@@ -185,7 +190,7 @@ def get_env_vars(
     encoded = orjson.dumps(config_map).decode("utf-8")
     chunk_size = 2047 if OS_NAME == "win" else 32767
 
-    env_vars: Dict[str, Union[str, float, bool]] = {}
+    env_vars: dict[str, str | float | bool] = {}
     for index, start in enumerate(range(0, len(encoded), chunk_size), start=1):
         env_vars[f"CAMOU_CONFIG_{index}"] = encoded[start : start + chunk_size]
 
@@ -202,7 +207,7 @@ def get_env_vars(
     return env_vars
 
 
-def validate_config(config_map: Dict[str, Any], path: Optional[Path] = None) -> None:
+def validate_config(config_map: dict[str, Any], path: Path | None = None) -> None:
     """
     Validate a config map against the browser `properties.json` schema.
 
@@ -246,41 +251,41 @@ def validate_type(value: Any, expected_type: str) -> bool:
 
 @dataclass
 class _LaunchOptionBuilder:
-    config: Optional[Dict[str, Any]]
-    requested_os: Optional[ListOrString]
-    block_images: Optional[bool]
-    block_webrtc: Optional[bool]
-    block_webgl: Optional[bool]
-    disable_coop: Optional[bool]
-    webgl_config: Optional[Tuple[str, str]]
-    geoip: Optional[Union[str, bool]]
-    geoip_db: Optional[str]
-    humanize: Optional[Union[bool, float]]
-    locale: Optional[Union[str, List[str]]]
-    addons: Optional[List[str]]
-    fonts: Optional[List[str]]
-    custom_fonts_only: Optional[bool]
-    exclude_addons: Optional[List[DefaultAddons]]
-    screen: Optional[Screen]
-    window: Optional[Tuple[int, int]]
-    fingerprint: Optional[Fingerprint]
-    fingerprint_preset: Optional[Dict[str, Any]]
-    ff_version: Optional[int]
-    headless: Optional[bool]
-    main_world_eval: Optional[bool]
-    executable_path: Optional[Union[str, Path]]
-    browser: Optional[str]
-    firefox_user_prefs: Optional[Dict[str, Any]]
-    proxy: Optional[Dict[str, str]]
-    enable_cache: Optional[bool]
-    args: Optional[List[str]]
-    env: Optional[Dict[str, Union[str, float, bool]]]
-    i_know_what_im_doing: Optional[bool]
-    debug: Optional[bool]
-    virtual_display: Optional[str]
-    extra_launch_options: Dict[str, Any] = field(default_factory=dict)
+    config: dict[str, Any] | None
+    requested_os: ListOrString | None
+    block_images: bool | None
+    block_webrtc: bool | None
+    block_webgl: bool | None
+    disable_coop: bool | None
+    webgl_config: tuple[str, str] | None
+    geoip: str | bool | None
+    geoip_db: str | None
+    humanize: bool | float | None
+    locale: str | list[str] | None
+    addons: list[str] | None
+    fonts: list[str] | None
+    custom_fonts_only: bool | None
+    exclude_addons: list[DefaultAddons] | None
+    screen: Screen | None
+    window: tuple[int, int] | None
+    fingerprint: Fingerprint | None
+    fingerprint_preset: dict[str, Any] | None
+    ff_version: int | None
+    headless: bool | None
+    main_world_eval: bool | None
+    executable_path: str | Path | None
+    browser: str | None
+    firefox_user_prefs: dict[str, Any] | None
+    proxy: dict[str, str] | None
+    enable_cache: bool | None
+    args: list[str] | None
+    env: dict[str, str | float | bool] | None
+    i_know_what_im_doing: bool | None
+    debug: bool | None
+    virtual_display: str | None
+    extra_launch_options: dict[str, Any] = field(default_factory=dict)
 
-    _manual_fonts: List[str] = field(init=False, repr=False)
+    _manual_fonts: list[str] = field(init=False, repr=False)
 
     def __post_init__(self) -> None:
         original_config = dict(self.config or {})
@@ -293,7 +298,7 @@ class _LaunchOptionBuilder:
         self.args = list(self.args or [])
         self.firefox_user_prefs = dict(self.firefox_user_prefs or {})
         self.fonts = list(self.fonts or [])
-        self.env = dict(self.env or cast(Dict[str, Union[str, float, bool]], dict(environ)))
+        self.env = dict(self.env or cast(dict[str, str | float | bool], dict(environ)))
         self.extra_launch_options = dict(self.extra_launch_options)
 
         if self.headless is None:
@@ -306,12 +311,42 @@ class _LaunchOptionBuilder:
         if isinstance(self.executable_path, str):
             self.executable_path = Path(abspath(self.executable_path))
 
-    def build(self) -> Dict[str, Any]:
+    def _config_map(self) -> dict[str, Any]:
+        config = self.config
+        assert config is not None
+        return config
+
+    def _addons_list(self) -> list[str]:
+        addons = self.addons
+        assert addons is not None
+        return addons
+
+    def _launch_args(self) -> list[str]:
+        args = self.args
+        assert args is not None
+        return args
+
+    def _env_map(self) -> dict[str, str | float | bool]:
+        env = self.env
+        assert env is not None
+        return env
+
+    def _firefox_prefs(self) -> dict[str, Any]:
+        prefs = self.firefox_user_prefs
+        assert prefs is not None
+        return prefs
+
+    def build(self) -> dict[str, Any]:
+        config = self._config_map()
+        env = self._env_map()
+        args = self._launch_args()
+        firefox_user_prefs = self._firefox_prefs()
+
         if self.virtual_display:
-            self.env["DISPLAY"] = self.virtual_display
+            env["DISPLAY"] = self.virtual_display
 
         if not self.i_know_what_im_doing:
-            _warn_manual_config(self.config)
+            _warn_manual_config(config)
 
         resolved_executable_path = self._resolve_executable_path()
         resolved_executable = Path(resolved_executable_path)
@@ -324,8 +359,8 @@ class _LaunchOptionBuilder:
         ff_version_str = self._resolve_firefox_version(resolved_executable)
         _debug_log(self.debug, f"Resolved Firefox version: {ff_version_str}")
         generated_config = self._build_generated_config(target_os, ff_version_str)
-        _merge_missing(self.config, generated_config)
-        _strip_gpu_overrides(self.config)
+        _merge_missing(config, generated_config)
+        _strip_gpu_overrides(config)
 
         self._apply_fonts()
         self._apply_launch_defaults()
@@ -336,19 +371,19 @@ class _LaunchOptionBuilder:
 
         if self.debug:
             print("[DEBUG] Config:")
-            pprint(self.config)
+            pprint(config)
 
         _debug_log(self.debug, "Validating generated config against browser properties.json.")
-        validate_config(self.config, path=resolved_executable)
+        validate_config(config, path=resolved_executable)
 
         result = {
-            "args": self.args,
+            "args": args,
             "env": {
-                **get_env_vars(self.config, _user_agent_os(self.config)),
-                **self.env,
+                **get_env_vars(config, _user_agent_os(config)),
+                **env,
             },
             "executable_path": resolved_executable_path,
-            "firefox_user_prefs": self.firefox_user_prefs,
+            "firefox_user_prefs": firefox_user_prefs,
             "headless": self.headless,
             **self.extra_launch_options,
         }
@@ -357,12 +392,15 @@ class _LaunchOptionBuilder:
         return result
 
     def _configure_addons(self) -> None:
-        add_default_addons(self.addons, self.exclude_addons)
-        if not self.addons:
+        addons = self._addons_list()
+        config = self._config_map()
+
+        add_default_addons(addons, self.exclude_addons)
+        if not addons:
             return
 
-        confirm_paths(self.addons)
-        self.config["addons"] = self.addons
+        confirm_paths(addons)
+        config["addons"] = addons
 
     def _resolve_firefox_version(self, executable_path: Path) -> str:
         if self.ff_version is None:
@@ -374,7 +412,9 @@ class _LaunchOptionBuilder:
         LeakWarning.warn("ff_version", self.i_know_what_im_doing)
         return str(self.ff_version)
 
-    def _build_generated_config(self, target_os: str, ff_version: str) -> Dict[str, Any]:
+    def _build_generated_config(self, target_os: str, ff_version: str) -> dict[str, Any]:
+        env = self._env_map()
+
         if self.fingerprint is not None:
             if not self.i_know_what_im_doing:
                 _check_custom_fingerprint(self.fingerprint)
@@ -389,13 +429,13 @@ class _LaunchOptionBuilder:
         _debug_log(self.debug, "Generating BrowserForge fingerprint for browser launch.")
         fingerprint = generate_fingerprint(
             os=target_os,
-            screen=self.screen or _screen_constraints(self.headless or "DISPLAY" in self.env),
+            screen=self.screen or _screen_constraints(bool(self.headless) or "DISPLAY" in env),
             window=self.window,
             debug=bool(self.debug),
         )
         return from_browserforge(fingerprint, ff_version)
 
-    def _resolve_preset(self) -> Optional[Dict[str, Any]]:
+    def _resolve_preset(self) -> dict[str, Any] | None:
         if self.fingerprint_preset is None:
             return None
         if isinstance(self.fingerprint_preset, bool):
@@ -405,30 +445,38 @@ class _LaunchOptionBuilder:
         return self.fingerprint_preset
 
     def _apply_fonts(self) -> None:
+        config = self._config_map()
+        firefox_user_prefs = self._firefox_prefs()
+
         if self.custom_fonts_only:
-            self.firefox_user_prefs["gfx.bundled-fonts.activate"] = 0
+            firefox_user_prefs["gfx.bundled-fonts.activate"] = 0
             if not self._manual_fonts:
                 raise ValueError("No custom fonts were passed, but `custom_fonts_only` is enabled.")
-            self.config["fonts"] = self._manual_fonts
+            config["fonts"] = self._manual_fonts
             return
 
         if self._manual_fonts:
-            self.config["fonts"] = _unique_strings(
-                [*_string_list(self.config.get("fonts")), *self._manual_fonts]
+            config["fonts"] = _unique_strings(
+                [*_string_list(config.get("fonts")), *self._manual_fonts]
             )
 
     def _apply_launch_defaults(self) -> None:
-        _set_if_missing(self.config, "window.history.length", randrange(1, 6))  # nosec
-        _set_if_missing(self.config, "fonts:spacing_seed", randint(1, 4_294_967_295))  # nosec
-        _set_if_missing(self.config, "audio:seed", randint(1, 4_294_967_295))  # nosec
-        _set_if_missing(self.config, "canvas:seed", randint(1, 4_294_967_295))  # nosec
+        config = self._config_map()
+
+        _set_if_missing(config, "window.history.length", randrange(1, 6))  # nosec
+        _set_if_missing(config, "fonts:spacing_seed", randint(1, 4_294_967_295))  # nosec
+        _set_if_missing(config, "audio:seed", randint(1, 4_294_967_295))  # nosec
+        _set_if_missing(config, "canvas:seed", randint(1, 4_294_967_295))  # nosec
 
     def _apply_geoip(self) -> None:
+        config = self._config_map()
+        firefox_user_prefs = self._firefox_prefs()
+
         if not self.geoip:
             if (
                 self.proxy
                 and "localhost" not in self.proxy.get("server", "")
-                and not _is_domain_set(self.config, "geolocation")
+                and not _is_domain_set(config, "geolocation")
             ):
                 LeakWarning.warn("proxy_without_geoip")
             return
@@ -442,53 +490,57 @@ class _LaunchOptionBuilder:
 
         if not self.block_webrtc:
             if valid_ipv4(ip_address):
-                _set_if_missing(self.config, "webrtc:ipv4", ip_address)
-                self.firefox_user_prefs["network.dns.disableIPv6"] = True
+                _set_if_missing(config, "webrtc:ipv4", ip_address)
+                firefox_user_prefs["network.dns.disableIPv6"] = True
             elif valid_ipv6(ip_address):
-                _set_if_missing(self.config, "webrtc:ipv6", ip_address)
+                _set_if_missing(config, "webrtc:ipv6", ip_address)
 
         geolocation = get_geolocation(ip_address, geoip_db=self.geoip_db)
         for key, value in geolocation.as_config().items():
             if key in {"timezone", "locale:language", "locale:region", "locale:script"}:
-                self.config.setdefault(key, value)
+                config.setdefault(key, value)
             else:
-                self.config[key] = value
+                config[key] = value
 
     def _apply_locale(self) -> None:
         if self.locale:
-            handle_locales(self.locale, self.config)
+            handle_locales(self.locale, self._config_map())
 
     def _apply_humanize(self) -> None:
+        config = self._config_map()
+
         if self.humanize:
-            _set_if_missing(self.config, "humanize", True)
+            _set_if_missing(config, "humanize", True)
             if isinstance(self.humanize, (int, float)):
-                _set_if_missing(self.config, "humanize:maxTime", self.humanize)
+                _set_if_missing(config, "humanize:maxTime", self.humanize)
 
         if self.main_world_eval:
-            _set_if_missing(self.config, "allowMainWorld", True)
+            _set_if_missing(config, "allowMainWorld", True)
 
     def _apply_firefox_preferences(self) -> None:
+        firefox_user_prefs = self._firefox_prefs()
+
         if self.block_images:
             LeakWarning.warn("block_images", self.i_know_what_im_doing)
-            self.firefox_user_prefs["permissions.default.image"] = 2
+            firefox_user_prefs["permissions.default.image"] = 2
 
         if self.block_webrtc:
-            self.firefox_user_prefs["media.peerconnection.enabled"] = False
+            firefox_user_prefs["media.peerconnection.enabled"] = False
 
         if self.disable_coop:
             LeakWarning.warn("disable_coop", self.i_know_what_im_doing)
-            self.firefox_user_prefs["browser.tabs.remote.useCrossOriginOpenerPolicy"] = False
+            firefox_user_prefs["browser.tabs.remote.useCrossOriginOpenerPolicy"] = False
 
         allow_webgl = self.extra_launch_options.pop("allow_webgl", True)
         if self.block_webgl or allow_webgl is False:
-            self.firefox_user_prefs["webgl.disabled"] = True
+            firefox_user_prefs["webgl.disabled"] = True
             LeakWarning.warn("block_webgl", self.i_know_what_im_doing)
         elif self.webgl_config:
             # GPU identity should come from the real host, not from injected strings.
             pass
 
         if self.enable_cache:
-            _merge_missing(self.firefox_user_prefs, CACHE_PREFS)
+            _merge_missing(firefox_user_prefs, CACHE_PREFS)
 
     def _resolve_executable_path(self) -> str:
         if self.executable_path is not None:
@@ -525,7 +577,7 @@ def _generate_fontconfig(fontconfig_path: str) -> str:
     fonts_dir = get_path("fonts")
     fonts_conf_src = os.path.join(fontconfig_path, "fonts.conf")
 
-    with open(fonts_conf_src, "r", encoding="utf-8") as handle:
+    with open(fonts_conf_src, encoding="utf-8") as handle:
         conf_content = handle.read()
 
     conf_content = conf_content.replace(
@@ -545,7 +597,7 @@ def _generate_fontconfig(fontconfig_path: str) -> str:
     return runtime_conf
 
 
-def _load_properties(path: Optional[Path] = None) -> Dict[str, str]:
+def _load_properties(path: Path | None = None) -> dict[str, str]:
     if path:
         prop_file = _resolve_bundle_resource(path, "properties.json")
         if not prop_file.exists():
@@ -558,7 +610,7 @@ def _load_properties(path: Optional[Path] = None) -> Dict[str, str]:
     return {item["property"]: item["type"] for item in properties}
 
 
-def _normalize_requested_os(requested_os: Optional[ListOrString]) -> str:
+def _normalize_requested_os(requested_os: ListOrString | None) -> str:
     if requested_os is None:
         return "macos"
 
@@ -569,7 +621,7 @@ def _normalize_requested_os(requested_os: Optional[ListOrString]) -> str:
     return "macos"
 
 
-def _user_agent_os(config: Dict[str, Any]) -> Literal["mac", "win", "lin"]:
+def _user_agent_os(config: dict[str, Any]) -> Literal["mac", "win", "lin"]:
     user_agent = config.get("navigator.userAgent")
     if isinstance(user_agent, str):
         return _determine_ua_os(user_agent)
@@ -587,7 +639,7 @@ def _determine_ua_os(user_agent: str) -> Literal["mac", "win", "lin"]:
     return "lin"
 
 
-def _screen_constraints(headless: Optional[bool] = None) -> Optional[Screen]:
+def _screen_constraints(headless: bool | None = None) -> Screen | None:
     if headless is False:
         return None
 
@@ -631,22 +683,22 @@ def _check_valid_os(os_value: ListOrString) -> None:
         raise InvalidOS(f"Camoufox does not support the OS: '{os_value}'")
 
 
-def _merge_missing(target: Dict[str, Any], source: Dict[str, Any]) -> None:
+def _merge_missing(target: dict[str, Any], source: dict[str, Any]) -> None:
     for key, value in source.items():
         target.setdefault(key, value)
 
 
-def _set_if_missing(target: Dict[str, Any], key: str, value: Any) -> None:
+def _set_if_missing(target: dict[str, Any], key: str, value: Any) -> None:
     target.setdefault(key, value)
 
 
-def _strip_gpu_overrides(config: Dict[str, Any]) -> None:
+def _strip_gpu_overrides(config: dict[str, Any]) -> None:
     for key in list(config):
-        if key.startswith("webGl:") or key.startswith("webGl2:"):
+        if key.startswith(("webGl:", "webGl2:")):
             del config[key]
 
 
-def _warn_manual_config(config: Dict[str, Any]) -> None:
+def _warn_manual_config(config: dict[str, Any]) -> None:
     if _is_domain_set(config, "navigator.language", "navigator.languages", "headers.Accept-Language", "locale:"):
         LeakWarning.warn("locale", False)
     if _is_domain_set(config, "geolocation:", "timezone"):
@@ -659,7 +711,7 @@ def _warn_manual_config(config: Dict[str, Any]) -> None:
         LeakWarning.warn("viewport", False)
 
 
-def _is_domain_set(config: Dict[str, Any], *properties: str) -> bool:
+def _is_domain_set(config: dict[str, Any], *properties: str) -> bool:
     for prop in properties:
         if prop[-1] in (".", ":"):
             if any(key.startswith(prop) for key in config):
@@ -669,7 +721,7 @@ def _is_domain_set(config: Dict[str, Any], *properties: str) -> bool:
     return False
 
 
-def _string_list(value: Any) -> List[str]:
+def _string_list(value: Any) -> list[str]:
     if isinstance(value, str):
         return [value]
     if isinstance(value, (list, tuple)):
@@ -677,9 +729,9 @@ def _string_list(value: Any) -> List[str]:
     return []
 
 
-def _unique_strings(values: Iterable[str]) -> List[str]:
+def _unique_strings(values: Iterable[str]) -> list[str]:
     seen: set[str] = set()
-    result: List[str] = []
+    result: list[str] = []
     for value in values:
         if value in seen:
             continue
@@ -699,7 +751,7 @@ def _resolve_bundle_resource(executable_path: Path, filename: str) -> Path:
     return candidates[0]
 
 
-def _load_bundle_version(executable_path: Path) -> Optional[str]:
+def _load_bundle_version(executable_path: Path) -> str | None:
     application_ini = _resolve_bundle_resource(executable_path, "application.ini")
     if not application_ini.exists():
         return None
@@ -709,6 +761,6 @@ def _load_bundle_version(executable_path: Path) -> Optional[str]:
     return parser.get("App", "Version", fallback=None)
 
 
-def _debug_log(enabled: Optional[bool], message: str) -> None:
+def _debug_log(enabled: bool | None, message: str) -> None:
     if enabled:
         print(f"[camoufox:launch] {message}")

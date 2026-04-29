@@ -2,7 +2,7 @@ import asyncio
 import json as _json
 import urllib.request
 from functools import partial
-from typing import Any, Dict, List, Optional, Union, overload
+from typing import Any, Literal, overload
 from urllib.parse import urlparse
 
 from browserforge.fingerprints import Fingerprint
@@ -12,7 +12,6 @@ from playwright.async_api import (
     Playwright,
     PlaywrightContextManager,
 )
-from typing_extensions import Literal
 
 from camoufox.virtdisplay import VirtualDisplay
 
@@ -29,9 +28,9 @@ class AsyncCamoufox(PlaywrightContextManager):
     def __init__(self, **launch_options):
         super().__init__()
         self.launch_options = launch_options
-        self.browser: Optional[Union[Browser, BrowserContext]] = None
+        self.browser: Browser | BrowserContext | None = None
 
-    async def __aenter__(self) -> Union[Browser, BrowserContext]:
+    async def __aenter__(self) -> Any:
         _playwright = await super().__aenter__()
         self.browser = await AsyncNewBrowser(_playwright, **self.launch_options)
         return self.browser
@@ -46,7 +45,7 @@ class AsyncCamoufox(PlaywrightContextManager):
 async def AsyncNewBrowser(
     playwright: Playwright,
     *,
-    from_options: Optional[Dict[str, Any]] = None,
+    from_options: dict[str, Any] | None = None,
     persistent_context: Literal[False] = False,
     **kwargs,
 ) -> Browser: ...
@@ -56,7 +55,7 @@ async def AsyncNewBrowser(
 async def AsyncNewBrowser(
     playwright: Playwright,
     *,
-    from_options: Optional[Dict[str, Any]] = None,
+    from_options: dict[str, Any] | None = None,
     persistent_context: Literal[True],
     **kwargs,
 ) -> BrowserContext: ...
@@ -65,12 +64,12 @@ async def AsyncNewBrowser(
 async def AsyncNewBrowser(
     playwright: Playwright,
     *,
-    headless: Optional[Union[bool, Literal['virtual']]] = None,
-    from_options: Optional[Dict[str, Any]] = None,
+    headless: bool | Literal['virtual'] | None = None,
+    from_options: dict[str, Any] | None = None,
     persistent_context: bool = False,
-    debug: Optional[bool] = None,
+    debug: bool | None = None,
     **kwargs,
-) -> Union[Browser, BrowserContext]:
+) -> Browser | BrowserContext:
     """
     Launches a new browser instance for Camoufox given a set of launch options.
 
@@ -94,10 +93,11 @@ async def AsyncNewBrowser(
             None,
             partial(launch_options, headless=headless, debug=debug, **kwargs),
         )
+    assert from_options is not None
 
     # Persistent context
     if persistent_context:
-        context = await playwright.firefox.launch_persistent_context(**from_options)
+        context = await playwright.firefox.launch_persistent_context("", **from_options)
         return await async_attach_vd(context, virtual_display)
 
     # Browser
@@ -105,7 +105,7 @@ async def AsyncNewBrowser(
     return await async_attach_vd(browser, virtual_display)
 
 
-def _proxy_url_with_creds(proxy: Dict[str, str]) -> str:
+def _proxy_url_with_creds(proxy: dict[str, str]) -> str:
     """Builds a proxy URL string with embedded credentials."""
     parsed = urlparse(proxy.get("server", ""))
     user = proxy.get("username", "")
@@ -115,11 +115,11 @@ def _proxy_url_with_creds(proxy: Dict[str, str]) -> str:
     return proxy.get("server", "")
 
 
-async def _resolve_proxy_geo(proxy: Dict[str, str]) -> Dict[str, Optional[str]]:
+async def _resolve_proxy_geo(proxy: dict[str, str]) -> dict[str, str | None]:
     """Queries ip-api.com through the proxy for the exit IP and timezone."""
     proxy_url = _proxy_url_with_creds(proxy)
 
-    def _fetch() -> Dict[str, Optional[str]]:
+    def _fetch() -> dict[str, str | None]:
         handler = urllib.request.ProxyHandler({"http": proxy_url, "https": proxy_url})
         opener = urllib.request.build_opener(handler)
         try:
@@ -135,14 +135,14 @@ async def _resolve_proxy_geo(proxy: Dict[str, str]) -> Dict[str, Optional[str]]:
 async def AsyncNewContext(
     browser: Browser,
     *,
-    fingerprint: Optional[Fingerprint] = None,
-    preset: Optional[Dict[str, Any]] = None,
-    os: Optional[str] = None,
-    ff_version: Optional[str] = None,
-    webrtc_ip: Optional[str] = None,
-    proxy: Optional[Dict[str, str]] = None,
-    geolocation: Optional[Dict[str, float]] = None,
-    debug: Optional[bool] = None,
+    fingerprint: Fingerprint | None = None,
+    preset: dict[str, Any] | None = None,
+    os: str | None = None,
+    ff_version: str | None = None,
+    webrtc_ip: str | None = None,
+    proxy: dict[str, str] | None = None,
+    geolocation: dict[str, float] | None = None,
+    debug: bool | None = None,
     **context_kwargs: Any,
 ) -> BrowserContext:
     """
@@ -191,7 +191,7 @@ async def AsyncNewContext(
     )
 
     # Merge generated context options with user overrides (user wins)
-    opts: Dict[str, Any] = {**fp['context_options'], **context_kwargs}
+    opts: dict[str, Any] = {**fp['context_options'], **context_kwargs}
     if proxy:
         opts['proxy'] = proxy
     if geolocation:

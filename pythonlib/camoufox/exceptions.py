@@ -3,7 +3,6 @@ class UnsupportedVersion(Exception):
     Raised when the Camoufox executable is outdated.
     """
 
-    ...
 
 
 class MissingRelease(Exception):
@@ -11,7 +10,6 @@ class MissingRelease(Exception):
     Raised when a required GitHub release asset is missing.
     """
 
-    ...
 
 
 class UnsupportedArchitecture(Exception):
@@ -19,7 +17,6 @@ class UnsupportedArchitecture(Exception):
     Raised when the architecture is not supported.
     """
 
-    ...
 
 
 class UnsupportedOS(Exception):
@@ -27,7 +24,6 @@ class UnsupportedOS(Exception):
     Raised when the OS is not supported.
     """
 
-    ...
 
 
 class UnknownProperty(Exception):
@@ -35,7 +31,6 @@ class UnknownProperty(Exception):
     Raised when the property is unknown.
     """
 
-    ...
 
 
 class InvalidPropertyType(Exception):
@@ -43,7 +38,6 @@ class InvalidPropertyType(Exception):
     Raised when the property type is invalid.
     """
 
-    ...
 
 
 class InvalidAddonPath(FileNotFoundError):
@@ -51,7 +45,6 @@ class InvalidAddonPath(FileNotFoundError):
     Raised when the addon path is invalid.
     """
 
-    ...
 
 
 class InvalidDebugPort(ValueError):
@@ -59,7 +52,6 @@ class InvalidDebugPort(ValueError):
     Raised when the debug port is invalid.
     """
 
-    ...
 
 
 class MissingDebugPort(ValueError):
@@ -67,7 +59,6 @@ class MissingDebugPort(ValueError):
     Raised when the debug port is missing.
     """
 
-    ...
 
 
 class LocaleError(Exception):
@@ -75,7 +66,6 @@ class LocaleError(Exception):
     Raised when the locale is invalid.
     """
 
-    ...
 
 
 class InvalidIP(Exception):
@@ -83,7 +73,6 @@ class InvalidIP(Exception):
     Raised when an IP address is invalid.
     """
 
-    ...
 
 
 class InvalidProxy(Exception):
@@ -91,7 +80,6 @@ class InvalidProxy(Exception):
     Raised when a proxy is invalid.
     """
 
-    ...
 
 
 class UnknownIPLocation(LocaleError):
@@ -99,7 +87,6 @@ class UnknownIPLocation(LocaleError):
     Raised when the location of an IP is unknown.
     """
 
-    ...
 
 
 class InvalidLocale(LocaleError):
@@ -120,7 +107,6 @@ class UnknownTerritory(InvalidLocale):
     Raised when the territory is unknown.
     """
 
-    ...
 
 
 class UnknownLanguage(InvalidLocale):
@@ -128,7 +114,6 @@ class UnknownLanguage(InvalidLocale):
     Raised when the language is unknown.
     """
 
-    ...
 
 
 class NotInstalledGeoIPExtra(ImportError):
@@ -136,7 +121,6 @@ class NotInstalledGeoIPExtra(ImportError):
     Raised when the geoip2 module is not installed.
     """
 
-    ...
 
 
 class NonFirefoxFingerprint(Exception):
@@ -144,7 +128,6 @@ class NonFirefoxFingerprint(Exception):
     Raised when a passed Browserforge fingerprint is invalid.
     """
 
-    ...
 
 
 class InvalidOS(ValueError):
@@ -152,7 +135,6 @@ class InvalidOS(ValueError):
     Raised when the target OS is invalid.
     """
 
-    ...
 
 
 class VirtualDisplayError(Exception):
@@ -160,7 +142,6 @@ class VirtualDisplayError(Exception):
     Raised when there is an error with the virtual display.
     """
 
-    ...
 
 
 class CannotFindXvfb(VirtualDisplayError):
@@ -168,8 +149,6 @@ class CannotFindXvfb(VirtualDisplayError):
     Raised when Xvfb cannot be found.
     """
 
-    ...
-    pass
 
 
 class CannotExecuteXvfb(VirtualDisplayError):
@@ -177,7 +156,6 @@ class CannotExecuteXvfb(VirtualDisplayError):
     Raised when Xvfb cannot be executed.
     """
 
-    ...
 
 
 class VirtualDisplayNotSupported(VirtualDisplayError):
@@ -185,7 +163,6 @@ class VirtualDisplayNotSupported(VirtualDisplayError):
     Raised when the user tried to use a virtual display on a non-Linux OS.
     """
 
-    ...
 
 
 class CamoufoxNotInstalled(FileNotFoundError):
@@ -193,4 +170,3 @@ class CamoufoxNotInstalled(FileNotFoundError):
     Raised when camoufox is not installed.
     """
 
-    ...

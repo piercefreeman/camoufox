@@ -2,8 +2,7 @@ import re
 import warnings
 from contextlib import contextmanager
 from dataclasses import dataclass
-from functools import lru_cache
-from typing import Dict, Optional, Tuple
+from functools import cache, lru_cache
 
 import requests
 from urllib3.exceptions import InsecureRequestWarning
@@ -22,12 +21,12 @@ class Proxy:
     """
 
     server: str
-    username: Optional[str] = None
-    password: Optional[str] = None
-    bypass: Optional[str] = None
+    username: str | None = None
+    password: str | None = None
+    bypass: str | None = None
 
     @staticmethod
-    def parse_server(server: str) -> Tuple[str, str, Optional[str]]:
+    def parse_server(server: str) -> tuple[str, str, str | None]:
         """
         Parses the proxy server string.
         """
@@ -53,7 +52,7 @@ class Proxy:
         return result
 
     @staticmethod
-    def as_requests_proxy(proxy_string: str) -> Dict[str, str]:
+    def as_requests_proxy(proxy_string: str) -> dict[str, str]:
         """
         Converts the proxy to a requests proxy dictionary.
         """
@@ -85,8 +84,8 @@ def _suppress_insecure_warning():
         yield
 
 
-@lru_cache(maxsize=None)
-def public_ip(proxy: Optional[str] = None) -> str:
+@cache
+def public_ip(proxy: str | None = None) -> str:
     """
     Sends a request to a public IP api
     """

@@ -8,7 +8,7 @@ import shutil
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Dict, List, Optional
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from .pkgman import AvailableVersion
@@ -24,7 +24,7 @@ REPO_CACHE_FILE: Path = INSTALL_DIR / "repo_cache.json"
 COMPAT_FLAG: Path = INSTALL_DIR / ".0.5_FLAG"
 
 
-def load_config() -> Dict:
+def load_config() -> dict:
     """
     Load user config from disk, or return empty dict
     """
@@ -45,7 +45,7 @@ def get_default_channel() -> str:
     return f"{RepoConfig.get_default_name().lower()}/stable"
 
 
-def save_config(config: Dict) -> None:
+def save_config(config: dict) -> None:
     """
     Save user config to disk
     """
@@ -53,7 +53,7 @@ def save_config(config: Dict) -> None:
     CONFIG_FILE.write_bytes(orjson.dumps(config, option=orjson.OPT_INDENT_2))
 
 
-def load_repo_cache() -> Dict:
+def load_repo_cache() -> dict:
     """
     Load cached repo data from disk
     """
@@ -65,7 +65,7 @@ def load_repo_cache() -> Dict:
     return {}
 
 
-def save_repo_cache(cache: Dict) -> None:
+def save_repo_cache(cache: dict) -> None:
     """
     Save repo cache to disk
     """
@@ -73,7 +73,7 @@ def save_repo_cache(cache: Dict) -> None:
     REPO_CACHE_FILE.write_bytes(orjson.dumps(cache, option=orjson.OPT_INDENT_2))
 
 
-def get_cached_versions(repo_name: Optional[str] = None) -> List['AvailableVersion']:
+def get_cached_versions(repo_name: str | None = None) -> list['AvailableVersion']:
     """
     Get cached available versions, optionally filtered by repo
     """
@@ -103,7 +103,7 @@ def get_cached_versions(repo_name: Optional[str] = None) -> List['AvailableVersi
     return versions
 
 
-def get_cached_repo_names() -> List[str]:
+def get_cached_repo_names() -> list[str]:
     """
     Get list of repo names in cache
     """
@@ -134,9 +134,9 @@ class InstalledVersion:
     path: Path
     is_active: bool = False
     is_prerelease: bool = False
-    asset_id: Optional[int] = None
-    asset_size: Optional[int] = None
-    asset_updated_at: Optional[str] = None
+    asset_id: int | None = None
+    asset_size: int | None = None
+    asset_updated_at: str | None = None
 
     @property
     def relative_path(self) -> str:
@@ -153,11 +153,11 @@ class InstalledVersion:
         ctype = "prerelease" if self.is_prerelease else "stable"
         return f"{self.repo_name}/{ctype}/{self.version.full_string}"
 
-    def get_changes(self, available: 'AvailableVersion') -> List[str]:
+    def get_changes(self, available: 'AvailableVersion') -> list[str]:
         """
         Compare with an available version and return change indicators
         """
-        changes: List[str] = []
+        changes: list[str] = []
         if self.is_prerelease and not available.is_prerelease:
             changes.append("prerelease -> stable")
         elif not self.is_prerelease and available.is_prerelease:
@@ -166,31 +166,33 @@ class InstalledVersion:
         if self.asset_updated_at and available.asset_updated_at:
             if self.asset_updated_at != available.asset_updated_at:
                 changes.append("asset updated")
-        elif self.asset_size and available.asset_size:
-            if self.asset_size != available.asset_size:
-                changes.append("asset updated")
+        elif (
+            self.asset_size
+            and available.asset_size
+            and self.asset_size != available.asset_size
+        ):
+            changes.append("asset updated")
 
         return changes
 
 
 def find_installed_by_build(
-    build: str, repo_name: Optional[str] = None
-) -> Optional[InstalledVersion]:
+    build: str, repo_name: str | None = None
+) -> InstalledVersion | None:
     """
     Find an installed version by its build string
     """
     for v in list_installed():
-        if v.version.build == build:
-            if repo_name is None or v.repo_name == repo_name:
-                return v
+        if v.version.build == build and (repo_name is None or v.repo_name == repo_name):
+            return v
     return None
 
 
-def list_installed() -> List[InstalledVersion]:
+def list_installed() -> list[InstalledVersion]:
     """
     Scan browsers/ for installed versions, sorted by repo then version descending
     """
-    installed: List[InstalledVersion] = []
+    installed: list[InstalledVersion] = []
     config = load_config()
     active = config.get('active_version')
 
@@ -233,7 +235,7 @@ def list_installed() -> List[InstalledVersion]:
     return installed
 
 
-def get_active_path() -> Optional[Path]:
+def get_active_path() -> Path | None:
     """
     Get path to active version. Returns None if no version is active.
     Only auto-selects if no channel/pin was been set
@@ -266,7 +268,7 @@ def set_active(relative_path: str) -> None:
     save_config(config)
 
 
-def find_installed_version(specifier: str) -> Optional[Path]:
+def find_installed_version(specifier: str) -> Path | None:
     """
     Find an installed version by path, build, full version, or repo/build
     """

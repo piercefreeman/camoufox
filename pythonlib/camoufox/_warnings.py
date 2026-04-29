@@ -1,7 +1,6 @@
 import inspect
 import warnings
 from pathlib import Path
-from typing import Optional
 
 from camoufox.pkgman import load_yaml
 
@@ -14,7 +13,7 @@ class LeakWarning(RuntimeWarning):
     """
 
     @staticmethod
-    def warn(warning_key: str, i_know_what_im_doing: Optional[bool] = None) -> None:
+    def warn(warning_key: str, i_know_what_im_doing: bool | None = None) -> None:
         """
         Warns the user if a passed parameter can cause leaks.
         """
@@ -41,4 +40,4 @@ class LeakWarning(RuntimeWarning):
             )
             return
 
-        warnings.warn(warning, category=LeakWarning)
+        warnings.warn(warning, category=LeakWarning, stacklevel=2)

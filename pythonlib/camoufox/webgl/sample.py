@@ -1,6 +1,5 @@
 import sqlite3
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 import orjson
@@ -12,8 +11,8 @@ DB_PATH = Path(__file__).parent / 'webgl_data.db'
 
 
 def sample_webgl(
-    os: str, vendor: Optional[str] = None, renderer: Optional[str] = None
-) -> Dict[str, str]:
+    os: str, vendor: str | None = None, renderer: str | None = None
+) -> dict[str, str]:
     """
     Sample a random WebGL vendor/renderer combination and its data based on OS probabilities.
     Optionally use a specific vendor/renderer pair.
@@ -74,7 +73,7 @@ def sample_webgl(
         raise ValueError(f'No WebGL data found for OS: {os}')
 
     # Split into separate arrays
-    _, _, data_strs, probs = map(list, zip(*results))
+    _, _, data_strs, probs = map(list, zip(*results, strict=True))
 
     # Convert probabilities to numpy array and normalize
     probs_array = np.array(probs, dtype=np.float64)
@@ -87,7 +86,7 @@ def sample_webgl(
     return orjson.loads(data_strs[idx])
 
 
-def get_possible_pairs() -> Dict[str, List[Tuple[str, str]]]:
+def get_possible_pairs() -> dict[str, list[tuple[str, str]]]:
     """
     Get all possible (vendor, renderer) pairs for all OS, where the probability is greater than 0.
     """
@@ -96,7 +95,7 @@ def get_possible_pairs() -> Dict[str, List[Tuple[str, str]]]:
     cursor = conn.cursor()
 
     # Get all vendor/renderer pairs for each OS where probability > 0
-    result: Dict[str, List[Tuple[str, str]]] = {}
+    result: dict[str, list[tuple[str, str]]] = {}
     for os_type in OS_ARCH_MATRIX:
         cursor.execute(
             'SELECT DISTINCT vendor, renderer FROM webgl_fingerprints '

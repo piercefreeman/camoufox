@@ -5,11 +5,16 @@ import platform
 import re
 import subprocess
 import sys
+from collections.abc import Iterable, Sequence
 from dataclasses import asdict, dataclass
 from random import randint, randrange, sample
-from typing import Any, ClassVar, Dict, Iterable, List, Optional, Sequence, Tuple
+from typing import Any, ClassVar, cast
 
-from browserforge.fingerprints import Fingerprint, FingerprintGenerator, ScreenFingerprint
+from browserforge.fingerprints import (
+    Fingerprint,
+    FingerprintGenerator,
+    ScreenFingerprint,
+)
 
 from camoufox.pkgman import load_yaml
 
@@ -17,15 +22,15 @@ _GENERATED_FINGERPRINT_IDS: set[int] = set()
 
 
 def generate_context_fingerprint(
-    fingerprint: Optional[Fingerprint] = None,
-    preset: Optional[Dict[str, Any]] = None,
-    os: Optional[str] = None,
-    ff_version: Optional[str] = None,
-    webrtc_ip: Optional[str] = None,
-    timezone: Optional[str] = None,
-    locale: Optional[str] = None,
+    fingerprint: Fingerprint | None = None,
+    preset: dict[str, Any] | None = None,
+    os: str | None = None,
+    ff_version: str | None = None,
+    webrtc_ip: str | None = None,
+    timezone: str | None = None,
+    locale: str | None = None,
     debug: bool = False,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Build the per-context fingerprint payload used by `BrowserContext.add_init_script()`.
 
@@ -87,7 +92,7 @@ def generate_context_fingerprint(
 
 
 def generate_fingerprint(
-    window: Optional[Tuple[int, int]] = None,
+    window: tuple[int, int] | None = None,
     debug: bool = False,
     **config: Any,
 ) -> Fingerprint:
@@ -105,7 +110,7 @@ def generate_fingerprint(
     return fingerprint
 
 
-def from_browserforge(fingerprint: Fingerprint, ff_version: Optional[str] = None) -> Dict[str, Any]:
+def from_browserforge(fingerprint: Fingerprint, ff_version: str | None = None) -> dict[str, Any]:
     """
     Compile a BrowserForge fingerprint into a host-compatible `CAMOU_CONFIG`.
 
@@ -116,7 +121,7 @@ def from_browserforge(fingerprint: Fingerprint, ff_version: Optional[str] = None
     return _FirefoxFingerprintCompiler.current().compile_browserforge(fingerprint, ff_version)
 
 
-def from_preset(preset: Dict[str, Any], ff_version: Optional[str] = None) -> Dict[str, Any]:
+def from_preset(preset: dict[str, Any], ff_version: str | None = None) -> dict[str, Any]:
     """
     Compile an explicit caller-supplied preset into a host-compatible `CAMOU_CONFIG`.
 
@@ -191,7 +196,7 @@ _SYSTEM_FONT_PREFIXES = (
     "/Library/Apple/System/Library/Fonts",
 )
 
-_COMMON_MACOS_SCREEN_SIZES: Tuple[Tuple[int, int], ...] = (
+_COMMON_MACOS_SCREEN_SIZES: tuple[tuple[int, int], ...] = (
     (1280, 800),
     (1440, 900),
     (1512, 982),
@@ -211,10 +216,10 @@ _MACOS_MARKER_FONTS = ("Helvetica Neue", "PingFang HK", "PingFang SC", "PingFang
 
 @dataclass(frozen=True)
 class _CompiledScreen:
-    width: Optional[int]
-    height: Optional[int]
-    color_depth: Optional[int]
-    device_pixel_ratio: Optional[float] = None
+    width: int | None
+    height: int | None
+    color_depth: int | None
+    device_pixel_ratio: float | None = None
 
 
 @dataclass(frozen=True)
@@ -226,23 +231,23 @@ class _FontRecord:
 @dataclass(frozen=True)
 class _MacOSHostProfile:
     architecture: str
-    gpu_vendor: Optional[str]
-    gpu_family: Optional[str]
-    bundled_fonts: Tuple[str, ...]
-    extra_fonts: Tuple[str, ...]
-    bundled_voices: Tuple[str, ...]
-    extra_voices: Tuple[str, ...]
+    gpu_vendor: str | None
+    gpu_family: str | None
+    bundled_fonts: tuple[str, ...]
+    extra_fonts: tuple[str, ...]
+    bundled_voices: tuple[str, ...]
+    extra_voices: tuple[str, ...]
 
-    _cached: ClassVar[Optional["_MacOSHostProfile"]] = None
+    _cached: ClassVar[_MacOSHostProfile | None] = None
 
     @classmethod
-    def current(cls) -> "_MacOSHostProfile":
+    def current(cls) -> _MacOSHostProfile:
         if cls._cached is None:
             cls._cached = cls._probe()
         return cls._cached
 
     @classmethod
-    def _probe(cls) -> "_MacOSHostProfile":
+    def _probe(cls) -> _MacOSHostProfile:
         _normalize_target_os("macos")
 
         gpu_vendor, gpu_family = _probe_gpu_family()
@@ -264,7 +269,7 @@ class _MacOSHostProfile:
             extra_voices=_dedupe(extra_voices),
         )
 
-    def sample_fonts(self) -> List[str]:
+    def sample_fonts(self) -> list[str]:
         fonts = list(self.bundled_fonts)
         fonts.extend(_sample_extras(self.extra_fonts))
         for marker in _MACOS_MARKER_FONTS:
@@ -272,7 +277,7 @@ class _MacOSHostProfile:
                 fonts.append(marker)
         return _dedupe_list(fonts)
 
-    def sample_voices(self) -> List[str]:
+    def sample_voices(self) -> list[str]:
         voices = list(self.bundled_voices)
         voices.extend(_sample_extras(self.extra_voices))
         return _dedupe_list(voices)
@@ -282,15 +287,15 @@ class _MacOSHostProfile:
 class _FirefoxFingerprintCompiler:
     generator: FingerprintGenerator
 
-    _cached: ClassVar[Optional["_FirefoxFingerprintCompiler"]] = None
+    _cached: ClassVar[_FirefoxFingerprintCompiler | None] = None
 
     @classmethod
-    def current(cls) -> "_FirefoxFingerprintCompiler":
+    def current(cls) -> _FirefoxFingerprintCompiler:
         if cls._cached is None:
             cls._cached = cls(generator=FingerprintGenerator(browser="firefox", os=("macos",)))
         return cls._cached
 
-    def generate(self, window: Optional[Tuple[int, int]] = None, **config: Any) -> Fingerprint:
+    def generate(self, window: tuple[int, int] | None = None, **config: Any) -> Fingerprint:
         config["os"] = _normalize_target_os(config.get("os"))
         fingerprint = self.generator.generate(**config)
         if window:
@@ -300,9 +305,9 @@ class _FirefoxFingerprintCompiler:
     def compile_browserforge(
         self,
         fingerprint: Fingerprint,
-        ff_version: Optional[str],
-    ) -> Dict[str, Any]:
-        config: Dict[str, Any] = {}
+        ff_version: str | None,
+    ) -> dict[str, Any]:
+        config: dict[str, Any] = {}
         self._cast_to_config(config, _BROWSERFORGE_MAPPING, asdict(fingerprint), ff_version)
         _copy_screen_offsets(config, fingerprint.screen)
 
@@ -313,10 +318,10 @@ class _FirefoxFingerprintCompiler:
         self._finalize_config(config)
         return _filter_public_config(config)
 
-    def compile_preset(self, preset: Dict[str, Any], ff_version: Optional[str]) -> Dict[str, Any]:
+    def compile_preset(self, preset: dict[str, Any], ff_version: str | None) -> dict[str, Any]:
         _normalize_target_os(_preset_target_os(preset))
 
-        config: Dict[str, Any] = {}
+        config: dict[str, Any] = {}
         navigator = preset.get("navigator", {})
         screen = preset.get("screen", {})
 
@@ -356,7 +361,7 @@ class _FirefoxFingerprintCompiler:
     def screen_from_browserforge(
         self,
         fingerprint: Fingerprint,
-        config: Dict[str, Any],
+        config: dict[str, Any],
     ) -> _CompiledScreen:
         screen = asdict(fingerprint.screen)
         return _CompiledScreen(
@@ -367,7 +372,7 @@ class _FirefoxFingerprintCompiler:
             device_pixel_ratio=_extract_device_pixel_ratio(screen),
         )
 
-    def screen_from_preset(self, preset: Dict[str, Any], config: Dict[str, Any]) -> _CompiledScreen:
+    def screen_from_preset(self, preset: dict[str, Any], config: dict[str, Any]) -> _CompiledScreen:
         screen = preset.get("screen", {})
         return _CompiledScreen(
             width=_as_optional_int(config.get("screen.width")) or _as_optional_int(screen.get("width")),
@@ -380,10 +385,10 @@ class _FirefoxFingerprintCompiler:
 
     def build_context_options(
         self,
-        config: Dict[str, Any],
+        config: dict[str, Any],
         screen: _CompiledScreen,
-    ) -> Dict[str, Any]:
-        options: Dict[str, Any] = {}
+    ) -> dict[str, Any]:
+        options: dict[str, Any] = {}
 
         user_agent = config.get("navigator.userAgent")
         if isinstance(user_agent, str):
@@ -410,9 +415,9 @@ class _FirefoxFingerprintCompiler:
 
     def build_init_script(
         self,
-        config: Dict[str, Any],
+        config: dict[str, Any],
         screen: _CompiledScreen,
-        webrtc_ip: Optional[str],
+        webrtc_ip: str | None,
     ) -> str:
         values = {
             "audioFingerprintSeed": config.get("audio:seed"),
@@ -484,7 +489,7 @@ class _FirefoxFingerprintCompiler:
         lines.append("})();")
         return "\n".join(lines)
 
-    def _finalize_config(self, config: Dict[str, Any]) -> None:
+    def _finalize_config(self, config: dict[str, Any]) -> None:
         _ensure_oscpu(config)
         _snap_screen_to_common_macos_sizes(config)
         _merge_host_inventories(config, _MacOSHostProfile.current())
@@ -492,10 +497,10 @@ class _FirefoxFingerprintCompiler:
 
     def _cast_to_config(
         self,
-        target: Dict[str, Any],
-        schema: Dict[str, Any],
-        source: Dict[str, Any],
-        ff_version: Optional[str],
+        target: dict[str, Any],
+        schema: dict[str, Any],
+        source: dict[str, Any],
+        ff_version: str | None,
     ) -> None:
         for key, value in source.items():
             if value is None:
@@ -517,7 +522,7 @@ class _FirefoxFingerprintCompiler:
             target[mapped] = value
 
 
-def _apply_locale_override(config: Dict[str, Any], locale: str) -> None:
+def _apply_locale_override(config: dict[str, Any], locale: str) -> None:
     from .locales import normalize_locale
 
     parsed = normalize_locale(locale)
@@ -528,7 +533,7 @@ def _apply_locale_override(config: Dict[str, Any], locale: str) -> None:
         config["locale:script"] = parsed.script
 
 
-def _normalize_target_os(value: Optional[Any]) -> str:
+def _normalize_target_os(value: Any | None) -> str:
     candidates: Sequence[str]
     if value is None:
         candidates = ("macos",)
@@ -553,15 +558,15 @@ def _normalize_architecture(machine: str) -> str:
     return _HOST_ARCH_MAP.get(machine.lower(), machine.lower())
 
 
-def _dedupe(items: Iterable[str]) -> Tuple[str, ...]:
+def _dedupe(items: Iterable[str]) -> tuple[str, ...]:
     return tuple(dict.fromkeys(item for item in items if item))
 
 
-def _dedupe_list(items: Iterable[str]) -> List[str]:
+def _dedupe_list(items: Iterable[str]) -> list[str]:
     return list(_dedupe(items))
 
 
-def _sample_extras(items: Sequence[str]) -> List[str]:
+def _sample_extras(items: Sequence[str]) -> list[str]:
     if not items:
         return []
 
@@ -571,17 +576,17 @@ def _sample_extras(items: Sequence[str]) -> List[str]:
     return sample(list(items), count)
 
 
-def _as_optional_int(value: Any) -> Optional[int]:
+def _as_optional_int(value: Any) -> int | None:
     return value if isinstance(value, int) else None
 
 
-def _as_optional_float(value: Any) -> Optional[float]:
+def _as_optional_float(value: Any) -> float | None:
     if isinstance(value, (int, float)):
         return float(value)
     return None
 
 
-def _extract_device_pixel_ratio(screen: Dict[str, Any]) -> Optional[float]:
+def _extract_device_pixel_ratio(screen: dict[str, Any]) -> float | None:
     for key in ("devicePixelRatio", "pixelRatio"):
         value = _as_optional_float(screen.get(key))
         if value is not None:
@@ -589,22 +594,22 @@ def _extract_device_pixel_ratio(screen: Dict[str, Any]) -> Optional[float]:
     return None
 
 
-def _merge_seed_values(config: Dict[str, Any]) -> None:
+def _merge_seed_values(config: dict[str, Any]) -> None:
     config.setdefault("fonts:spacing_seed", randint(1, 4_294_967_295))  # nosec
     config.setdefault("audio:seed", randint(1, 4_294_967_295))  # nosec
     config.setdefault("canvas:seed", randint(1, 4_294_967_295))  # nosec
 
 
-def _merge_host_inventories(config: Dict[str, Any], host: _MacOSHostProfile) -> None:
+def _merge_host_inventories(config: dict[str, Any], host: _MacOSHostProfile) -> None:
     config["fonts"] = host.sample_fonts()
     config["voices"] = host.sample_voices()
 
 
-def _filter_public_config(config: Dict[str, Any]) -> Dict[str, Any]:
+def _filter_public_config(config: dict[str, Any]) -> dict[str, Any]:
     return {key: value for key, value in config.items() if key in _PUBLIC_CONFIG_KEYS}
 
 
-def _copy_screen_offsets(config: Dict[str, Any], screen: ScreenFingerprint) -> None:
+def _copy_screen_offsets(config: dict[str, Any], screen: ScreenFingerprint) -> None:
     if "window.screenX" not in config:
         config["window.screenX"] = max(getattr(screen, "screenX", 0), 0)
     if "window.screenY" in config:
@@ -632,10 +637,10 @@ def _apply_window_override(fingerprint: Fingerprint, outer_width: int, outer_hei
     screen.outerWidth = outer_width
     screen.outerHeight = outer_height
     if hasattr(screen, "screenY"):
-        screen.screenY = max((screen.height - outer_height) // 2, 0)
+        cast(Any, screen).screenY = max((screen.height - outer_height) // 2, 0)
 
 
-def _ensure_oscpu(config: Dict[str, Any]) -> None:
+def _ensure_oscpu(config: dict[str, Any]) -> None:
     if config.get("navigator.oscpu"):
         return
 
@@ -644,13 +649,12 @@ def _ensure_oscpu(config: Dict[str, Any]) -> None:
         config["navigator.oscpu"] = "Intel Mac OS X 10.15"
 
 
-def _patch_firefox_version(value: str, ff_version: Optional[str]) -> str:
+def _patch_firefox_version(value: str, ff_version: str | None) -> str:
     if not ff_version:
         return value
 
     value = re.sub(r"Firefox/\d+\.0", f"Firefox/{ff_version}.0", value)
-    value = re.sub(r"rv:\d+\.0", f"rv:{ff_version}.0", value)
-    return value
+    return re.sub(r"rv:\d+\.0", f"rv:{ff_version}.0", value)
 
 
 def _derive_app_version(user_agent: str) -> str:
@@ -660,7 +664,7 @@ def _derive_app_version(user_agent: str) -> str:
     return f"5.0 ({match.group(1)})"
 
 
-def _snap_screen_to_common_macos_sizes(config: Dict[str, Any]) -> None:
+def _snap_screen_to_common_macos_sizes(config: dict[str, Any]) -> None:
     width = _as_optional_int(config.get("screen.width"))
     height = _as_optional_int(config.get("screen.height"))
     if width is None or height is None:
@@ -693,7 +697,7 @@ def _snap_screen_to_common_macos_sizes(config: Dict[str, Any]) -> None:
             config["window.innerHeight"] = max(config["window.outerHeight"] - height_delta, 0)
 
 
-def _probe_gpu_family() -> Tuple[Optional[str], Optional[str]]:
+def _probe_gpu_family() -> tuple[str | None, str | None]:
     data = _run_host_json("system_profiler", "SPDisplaysDataType", "-json")
     for entry in data.get("SPDisplaysDataType", []):
         renderer = entry.get("sppci_model") or entry.get("_name") or ""
@@ -703,9 +707,9 @@ def _probe_gpu_family() -> Tuple[Optional[str], Optional[str]]:
     return None, None
 
 
-def _probe_fonts() -> Tuple[_FontRecord, ...]:
+def _probe_fonts() -> tuple[_FontRecord, ...]:
     data = _run_host_json("system_profiler", "SPFontsDataType", "-json")
-    records: List[_FontRecord] = []
+    records: list[_FontRecord] = []
     seen: set[str] = set()
 
     for entry in data.get("SPFontsDataType", []):
@@ -725,9 +729,9 @@ def _probe_fonts() -> Tuple[_FontRecord, ...]:
     return tuple(records)
 
 
-def _probe_voices() -> Tuple[str, ...]:
+def _probe_voices() -> tuple[str, ...]:
     output = _run_host_text("say", "-v", "?")
-    names: List[str] = []
+    names: list[str] = []
 
     for line in output.splitlines():
         match = re.match(r"^(?P<name>.+?)\s{2,}[A-Za-z_]+\s+#", line.rstrip())
@@ -748,7 +752,7 @@ def _run_host_text(*args: str) -> str:
     return result.stdout
 
 
-def _run_host_json(*args: str) -> Dict[str, Any]:
+def _run_host_json(*args: str) -> dict[str, Any]:
     return json.loads(_run_host_text(*args))
 
 
@@ -761,14 +765,14 @@ def _is_bundled_voice(name: str) -> bool:
     return "enhanced" not in lowered and "premium" not in lowered and "(" not in lowered
 
 
-def _preset_target_os(preset: Dict[str, Any]) -> str:
+def _preset_target_os(preset: dict[str, Any]) -> str:
     user_agent = preset.get("navigator", {}).get("userAgent", "")
     if isinstance(user_agent, str) and "Macintosh" in user_agent:
         return "macos"
     return "macos"
 
 
-def _normalize_gpu_vendor(text: str) -> Optional[str]:
+def _normalize_gpu_vendor(text: str) -> str | None:
     lowered = text.lower()
     if "apple" in lowered:
         return "apple"
@@ -781,7 +785,7 @@ def _normalize_gpu_vendor(text: str) -> Optional[str]:
     return None
 
 
-def _normalize_gpu_family(text: str) -> Optional[str]:
+def _normalize_gpu_family(text: str) -> str | None:
     lowered = text.lower()
     if not lowered:
         return None

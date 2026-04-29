@@ -1,6 +1,7 @@
 import xml.etree.ElementTree as ET  # nosec
+from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import Any, Dict, Iterable, List, Optional, Set, Tuple, Union
+from typing import Any
 
 import numpy as np
 from language_tags import tags
@@ -22,8 +23,8 @@ class Locale:
     """
 
     language: str
-    region: Optional[str] = None
-    script: Optional[str] = None
+    region: str | None = None
+    script: str | None = None
 
     @property
     def as_string(self) -> str:
@@ -31,7 +32,7 @@ class Locale:
             return f"{self.language}-{self.region}"
         return self.language
 
-    def as_config(self) -> Dict[str, str]:
+    def as_config(self) -> dict[str, str]:
         """
         Converts the locale to a intl config dictionary.
         """
@@ -55,9 +56,9 @@ class Geolocation:
     longitude: float
     latitude: float
     timezone: str
-    accuracy: Optional[float] = None
+    accuracy: float | None = None
 
-    def as_config(self) -> Dict[str, Any]:
+    def as_config(self) -> dict[str, Any]:
         """
         Converts the geolocation to a config dictionary.
         """
@@ -140,7 +141,7 @@ def handle_locale(locale: str, ignore_region: bool = False) -> Locale:
     raise InvalidLocale.invalid_input(locale)
 
 
-def handle_locales(locales: Union[str, List[str]], config: Dict[str, Any]) -> None:
+def handle_locales(locales: str | list[str], config: dict[str, Any]) -> None:
     """
     Handles a list of locales.
     """
@@ -165,7 +166,7 @@ def _join_unique(seq: Iterable[str]) -> str:
     """
     Joins a sequence of strings without duplicates
     """
-    seen: Set[str] = set()
+    seen: set[str] = set()
     return ', '.join(x for x in seq if not (x in seen or seen.add(x)))
 
 
@@ -201,7 +202,7 @@ class StatisticalLocaleSelector:
     def __init__(self):
         self.root = get_unicode_info()
 
-    def _load_territory_data(self, iso_code: str) -> Tuple[np.ndarray, np.ndarray]:
+    def _load_territory_data(self, iso_code: str) -> tuple[np.ndarray, np.ndarray]:
         """
         Calculates a random language based on the territory code,
         based on the probability that a person speaks the language in the territory.
@@ -219,7 +220,7 @@ class StatisticalLocaleSelector:
 
         return self.normalize_probabilities(languages, percentages)
 
-    def _load_language_data(self, language: str) -> Tuple[np.ndarray, np.ndarray]:
+    def _load_language_data(self, language: str) -> tuple[np.ndarray, np.ndarray]:
         """
         Calculates a random region for a language
         based on the total speakers of the language in that region.
@@ -255,7 +256,7 @@ class StatisticalLocaleSelector:
 
     def normalize_probabilities(
         self, languages: np.ndarray, freq: np.ndarray
-    ) -> Tuple[np.ndarray, np.ndarray]:
+    ) -> tuple[np.ndarray, np.ndarray]:
         """
         Normalize probabilities.
         """

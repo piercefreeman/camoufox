@@ -207,17 +207,17 @@ _ROLE_NAMES = {
 
 class VersionItem:
     __slots__ = (
-        'display',
         'build',
-        'is_header',
-        'is_prerelease',
-        'is_active',
-        'is_pinned',
-        'is_installed',
-        'section',
+        'display',
         'expanded',
-        'version_data',
         'installed_data',
+        'is_active',
+        'is_header',
+        'is_installed',
+        'is_pinned',
+        'is_prerelease',
+        'section',
+        'version_data',
     )
 
     def __init__(
@@ -640,7 +640,7 @@ class Backend(QObject):
         cfg['channel'] = key
         cfg.pop('pinned', None)
 
-        repo_name, ctype = (key.split('/', 1) + ['stable'])[:2]
+        repo_name, ctype = [*key.split('/', 1), 'stable'][:2]
         is_pre = ctype == 'prerelease'
         display, build = "", ""
         cache = load_repo_cache()
