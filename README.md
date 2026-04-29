@@ -169,6 +169,30 @@ uv run --project pythonlib --group dev python -m camoufox test
 
 That is only needed if you want the Python package to resolve the browser through its normal installed-browser lookup. For fast iteration on `pythonlib/`, pointing `CAMOUFOX_EXECUTABLE_PATH` at the repo build is simpler.
 
+## Persona Stability Check
+
+If you want to verify that saved persona files fully capture the browser identity over time, run the persona consistency script from the repo root:
+
+```bash
+uv sync --project pythonlib --group dev
+source upstream.sh
+export CAMOUFOX_EXECUTABLE_PATH="$PWD/camoufox-$version-$release/obj-aarch64-apple-darwin/dist/Camoufox.app/Contents/MacOS/camoufox"
+uv run --project pythonlib --group dev python example/persona_consistency.py
+```
+
+What it does:
+
+- generates 5 persona JSON files under `.tmp/personas/`
+- launches each persona against CreepJS and extracts its `FP ID`
+- closes all browsers, relaunches from the saved persona files only, and checks the IDs again
+- exits non-zero if any persona drifts between runs
+
+If you want to watch the browsers during the check:
+
+```bash
+uv run --project pythonlib --group dev python example/persona_consistency.py --headful
+```
+
 ## Fast Path
 
 If you just want the commands without the explanation:

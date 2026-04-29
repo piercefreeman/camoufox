@@ -27,10 +27,9 @@ ccache is already enabled in the build config. A cold build takes the usual ~40 
 ## Pull Request Rules
 
 1. Each pull request must be associated with a Github issue
-2. Follow the pull request template
-3. Keep commits focused — one logical change per commit.
-4. Open a PR with a clear description of what you changed and why.
-5. All pull requests must pass both the **build-tester** and **service-tester** test suites before merging.
+2. Keep commits focused — one logical change per commit.
+3. Open a PR with a clear description of what you changed and why.
+4. All pull requests must pass both the **build-tester** and **service-tester** test suites before merging.
 
 ## Testing Requirements
 
