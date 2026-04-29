@@ -92,23 +92,45 @@ jobs:
         env:
           HOMEBREW_NO_AUTO_UPDATE: "1"
         run: |
-          brew install aria2 p7zip ccache lld cbindgen llvm
+          brew install aria2 p7zip ccache lld cbindgen llvm wasi-libc
+
+      - id: toolchain
+        name: Resolve toolchain paths
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          LLVM_PREFIX="$(brew --prefix llvm)"
+          WASI_PREFIX="$(brew --prefix wasi-libc)"
+          WASI_SYSROOT="$(find "$WASI_PREFIX" -type f -path '*/include/string.h' | sed 's#/include/string.h##' | head -n 1)"
+
+          if [[ -z "$WASI_SYSROOT" ]]; then
+            echo "Unable to locate a wasi sysroot under $WASI_PREFIX"
+            find "$WASI_PREFIX" -maxdepth 4 -print | sort
+            exit 1
+          fi
+
+          echo "llvm_prefix=$LLVM_PREFIX" >> "$GITHUB_OUTPUT"
+          echo "wasi_prefix=$WASI_PREFIX" >> "$GITHUB_OUTPUT"
+          echo "wasi_sysroot=$WASI_SYSROOT" >> "$GITHUB_OUTPUT"
 
       - name: Check runner environment
         run: |
           uname -a
           df -h
-          LLVM_PREFIX="$(brew --prefix llvm)"
           xcode-select -p
           xcodebuild -version
           xcrun --find actool
           xcrun --show-sdk-version
-          echo "llvm prefix: $LLVM_PREFIX"
+          echo "llvm prefix: ${{ steps.toolchain.outputs.llvm_prefix }}"
+          echo "wasi prefix: ${{ steps.toolchain.outputs.wasi_prefix }}"
+          echo "wasi sysroot: ${{ steps.toolchain.outputs.wasi_sysroot }}"
           which cbindgen || true
           which ld.lld || true
           which ld64.lld || true
-          "$LLVM_PREFIX/bin/clang" --version
-          "$LLVM_PREFIX/bin/clang++" --version
+          "${{ steps.toolchain.outputs.llvm_prefix }}/bin/clang" --version
+          "${{ steps.toolchain.outputs.llvm_prefix }}/bin/clang++" --version
+          test -f "${{ steps.toolchain.outputs.wasi_sysroot }}/include/string.h"
 
       - name: Fetch source
         env:
@@ -130,9 +152,10 @@ jobs:
           BROWSER_VERSION: ${{ needs.metadata.outputs.browser_version }}
           BUILD_RELEASE: ${{ needs.metadata.outputs.build_release }}
           CAMOUFOX_DISABLE_BOOTSTRAP: "1"
+          LLVM_PREFIX: ${{ steps.toolchain.outputs.llvm_prefix }}
+          WASI_SYSROOT: ${{ steps.toolchain.outputs.wasi_sysroot }}
         run: |
           export BUILD_TARGET="macos,${{ matrix.arch }}"
-          export LLVM_PREFIX="$(brew --prefix llvm)"
           export WASM_CC="$LLVM_PREFIX/bin/clang"
           export WASM_CXX="$LLVM_PREFIX/bin/clang++"
           make build version="$BROWSER_VERSION" release="$BUILD_RELEASE"
