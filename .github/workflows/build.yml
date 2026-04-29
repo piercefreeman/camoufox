@@ -92,19 +92,23 @@ jobs:
         env:
           HOMEBREW_NO_AUTO_UPDATE: "1"
         run: |
-          brew install aria2 p7zip ccache lld cbindgen
+          brew install aria2 p7zip ccache lld cbindgen llvm
 
       - name: Check runner environment
         run: |
           uname -a
           df -h
+          LLVM_PREFIX="$(brew --prefix llvm)"
           xcode-select -p
           xcodebuild -version
           xcrun --find actool
           xcrun --show-sdk-version
+          echo "llvm prefix: $LLVM_PREFIX"
           which cbindgen || true
           which ld.lld || true
           which ld64.lld || true
+          "$LLVM_PREFIX/bin/clang" --version
+          "$LLVM_PREFIX/bin/clang++" --version
 
       - name: Fetch source
         env:
@@ -128,6 +132,9 @@ jobs:
           CAMOUFOX_DISABLE_BOOTSTRAP: "1"
         run: |
           export BUILD_TARGET="macos,${{ matrix.arch }}"
+          export LLVM_PREFIX="$(brew --prefix llvm)"
+          export WASM_CC="$LLVM_PREFIX/bin/clang"
+          export WASM_CXX="$LLVM_PREFIX/bin/clang++"
           make build version="$BROWSER_VERSION" release="$BUILD_RELEASE"
           make package-macos arch="${{ matrix.arch }}" version="$BROWSER_VERSION" release="$BUILD_RELEASE"
           mv "camoufox-${BROWSER_VERSION}-${BUILD_RELEASE}-mac.${{ matrix.arch }}.zip" dist/
