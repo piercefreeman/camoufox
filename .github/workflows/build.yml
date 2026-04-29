@@ -78,41 +78,16 @@ jobs:
         with:
           fetch-depth: 1
 
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: "1.23"
-
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
 
-      - name: Install Homebrew dependencies
+      - name: Install README dependencies
         env:
           HOMEBREW_NO_AUTO_UPDATE: "1"
         run: |
-          brew install aria2 p7zip ccache lld cbindgen llvm wasi-libc
-
-      - id: toolchain
-        name: Resolve toolchain paths
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          LLVM_PREFIX="$(brew --prefix llvm)"
-          WASI_PREFIX="$(brew --prefix wasi-libc)"
-          WASI_SYSROOT="$(find "$WASI_PREFIX" -type f -path '*/include/string.h' | sed 's#/include/string.h##' | head -n 1)"
-
-          if [[ -z "$WASI_SYSROOT" ]]; then
-            echo "Unable to locate a wasi sysroot under $WASI_PREFIX"
-            find "$WASI_PREFIX" -maxdepth 4 -print | sort
-            exit 1
-          fi
-
-          echo "llvm_prefix=$LLVM_PREFIX" >> "$GITHUB_OUTPUT"
-          echo "wasi_prefix=$WASI_PREFIX" >> "$GITHUB_OUTPUT"
-          echo "wasi_sysroot=$WASI_SYSROOT" >> "$GITHUB_OUTPUT"
+          brew install aria2 p7zip ccache
 
       - name: Check runner environment
         run: |
@@ -122,42 +97,30 @@ jobs:
           xcodebuild -version
           xcrun --find actool
           xcrun --show-sdk-version
-          echo "llvm prefix: ${{ steps.toolchain.outputs.llvm_prefix }}"
-          echo "wasi prefix: ${{ steps.toolchain.outputs.wasi_prefix }}"
-          echo "wasi sysroot: ${{ steps.toolchain.outputs.wasi_sysroot }}"
-          which cbindgen || true
-          which ld.lld || true
-          which ld64.lld || true
-          "${{ steps.toolchain.outputs.llvm_prefix }}/bin/clang" --version
-          "${{ steps.toolchain.outputs.llvm_prefix }}/bin/clang++" --version
-          test -f "${{ steps.toolchain.outputs.wasi_sysroot }}/include/string.h"
+          which ccache || true
+          which 7z || true
 
-      - name: Fetch source
-        env:
-          CAMOUFOX_PASSWD: ${{ secrets.CAMOUFOX_PASSWD }}
-          BROWSER_VERSION: ${{ needs.metadata.outputs.browser_version }}
-          BUILD_RELEASE: ${{ needs.metadata.outputs.build_release }}
-        run: make fetch version="$BROWSER_VERSION" release="$BUILD_RELEASE"
-
-      - name: Setup and bootstrap
+      - name: Setup and bootstrap with Mozilla toolchains
         env:
           BROWSER_VERSION: ${{ needs.metadata.outputs.browser_version }}
           BUILD_RELEASE: ${{ needs.metadata.outputs.build_release }}
+          MOZ_AUTOMATION: "1"
+          MOZBOOTSTRAP_FLAGS: "--no-system-changes"
         run: |
-          make setup-minimal version="$BROWSER_VERSION" release="$BUILD_RELEASE"
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          export BUILD_TARGET="macos,${{ matrix.arch }}"
+          make setup version="$BROWSER_VERSION" release="$BUILD_RELEASE"
+          make mozbootstrap version="$BROWSER_VERSION" release="$BUILD_RELEASE"
           mkdir -p dist
 
       - name: Build and package macOS artifact
         env:
           BROWSER_VERSION: ${{ needs.metadata.outputs.browser_version }}
           BUILD_RELEASE: ${{ needs.metadata.outputs.build_release }}
-          CAMOUFOX_DISABLE_BOOTSTRAP: "1"
-          LLVM_PREFIX: ${{ steps.toolchain.outputs.llvm_prefix }}
-          WASI_SYSROOT: ${{ steps.toolchain.outputs.wasi_sysroot }}
+          MOZ_AUTOMATION: "1"
         run: |
           export BUILD_TARGET="macos,${{ matrix.arch }}"
-          export WASM_CC="$LLVM_PREFIX/bin/clang"
-          export WASM_CXX="$LLVM_PREFIX/bin/clang++"
           make build version="$BROWSER_VERSION" release="$BUILD_RELEASE"
           make package-macos arch="${{ matrix.arch }}" version="$BROWSER_VERSION" release="$BUILD_RELEASE"
           mv "camoufox-${BROWSER_VERSION}-${BUILD_RELEASE}-mac.${{ matrix.arch }}.zip" dist/

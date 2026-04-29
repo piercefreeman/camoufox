@@ -3,6 +3,7 @@ export
 
 cf_source_dir := camoufox-$(version)-$(release)
 ff_source_tarball := firefox-$(version).source.tar.xz
+MOZBOOTSTRAP_FLAGS ?=
 
 debs := python3 python3-dev python3-pip p7zip-full golang-go msitools wget aria2 libsqlite3-dev
 rpms := python3 python3-devel p7zip golang msitools wget aria2 sqlite-devel
@@ -89,7 +90,7 @@ set-target:
 	python3 scripts/patch.py $(version) $(release) --mozconfig-only
 
 mozbootstrap:
-	cd $(cf_source_dir) && MOZBUILD_STATE_PATH=$$HOME/.mozbuild ./mach --no-interactive bootstrap --application-choice=browser
+	cd $(cf_source_dir) && MOZBUILD_STATE_PATH=$$HOME/.mozbuild ./mach --no-interactive bootstrap --application-choice=browser $(MOZBOOTSTRAP_FLAGS)
 
 bootstrap: dir
 	(sudo apt-get -y install $(debs) || sudo dnf -y install $(rpms) || sudo pacman -Sy $(pacman))
