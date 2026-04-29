@@ -1,4 +1,4 @@
-name: Build macOS Release Artifacts
+name: Build macOS Artifacts
 
 on:
   workflow_dispatch:
@@ -7,12 +7,19 @@ on:
         description: Release suffix to use instead of upstream.sh
         required: false
         type: string
+  pull_request:
+    types:
+      - opened
+      - reopened
+      - synchronize
+      - labeled
   push:
     tags:
       - "*"
 
 jobs:
   metadata:
+    if: github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-build')
     runs-on: ubuntu-latest
     outputs:
       browser_version: ${{ steps.meta.outputs.browser_version }}
@@ -35,6 +42,8 @@ jobs:
           build_release="$release"
           if [[ -n "$MANUAL_RELEASE" ]]; then
             build_release="$MANUAL_RELEASE"
+          elif [[ "${GITHUB_EVENT_NAME}" == "pull_request" ]]; then
+            build_release="0.0.1"
           elif [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
             build_release="${GITHUB_REF_NAME#v}"
           fi
@@ -52,6 +61,7 @@ jobs:
           echo "bundled_version=$bundled_version" >> "$GITHUB_OUTPUT"
 
   build:
+    if: github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-build')
     needs: metadata
     runs-on: ${{ matrix.runner }}
     strategy:
