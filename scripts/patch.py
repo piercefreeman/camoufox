@@ -11,6 +11,7 @@ Run:
 
 import hashlib
 import os
+from pathlib import Path
 import re
 import shutil
 import subprocess
@@ -47,9 +48,18 @@ class Patcher:
         """
         version, release = extract_args()
         with temp_cd(find_src_dir('.', version, release)):
-            # Reset to unpatched state first (like "Find broken patches")
-            print("Resetting to unpatched state...")
-            run('git clean -fdx && ./mach clobber && git reset --hard unpatched', exit_on_fail=False)
+            # Reset to the generated source baseline when this directory is its own
+            # git checkout. `setup-minimal` intentionally skips git init, and
+            # running `git clean` there would operate on the outer repo and wipe
+            # the extracted Firefox tree.
+            if Path(".git").exists():
+                print("Resetting to unpatched state...")
+                run(
+                    'git clean -fdx && ./mach clobber && git reset --hard unpatched',
+                    exit_on_fail=False,
+                )
+            else:
+                print("No nested git checkout detected; skipping reset to unpatched state.")
 
             # Re-copy additions and settings after reset
             print("Re-copying additions and settings...")
