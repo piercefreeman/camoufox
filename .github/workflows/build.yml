@@ -1,120 +1,131 @@
-name: Build and Release
+name: Build macOS Release Artifacts
 
 on:
   workflow_dispatch:
+    inputs:
+      release:
+        description: Release suffix to use instead of upstream.sh
+        required: false
+        type: string
   push:
     tags:
       - "*"
 
 jobs:
-  build:
-    runs-on: ubuntu-24.04
-    strategy:
-      matrix:
-        target: [linux, windows, macos]
-        arch: [x86_64, arm64, i686]
-        exclude:
-          # Fails (.mozbuild does not include clang++-cl)
-          - target: windows
-            arch: arm64
-          # Unsuported
-          - target: macos
-            arch: i686
+  metadata:
+    runs-on: ubuntu-latest
+    outputs:
+      browser_version: ${{ steps.meta.outputs.browser_version }}
+      build_release: ${{ steps.meta.outputs.build_release }}
+      bundled_version: ${{ steps.meta.outputs.bundled_version }}
 
     steps:
-      - name: Maximize build space
-        uses: AdityaGarg8/remove-unwanted-software@v4.1
-        with:
-          remove-dotnet: "true"
-          remove-android: "true"
-          remove-haskell: "true"
-          remove-codeql: "true"
-          remove-docker-images: "true"
-          remove-cached-tools: "true"
-          remove-swapfile: "true"
-          verbose: "false"
+      - uses: actions/checkout@v4
 
-      - name: Remove unwanted tools
-        # Originally from here: https://github.com/AdityaGarg8/remove-unwanted-software/blob/master/action.yml
+      - id: meta
+        name: Resolve bundled version metadata
+        env:
+          MANUAL_RELEASE: ${{ github.event.inputs.release || '' }}
+        shell: bash
         run: |
-          sudo apt-get remove -y '^aspnetcore-.*' > /dev/null
-          sudo apt-get remove -y '^dotnet-.*' > /dev/null
-          sudo apt-get remove -y '^llvm-.*' > /dev/null
-          sudo apt-get remove -y 'php.*' > /dev/null
-          sudo apt-get remove -y '^mongodb-.*' > /dev/null
-          sudo apt-get remove -y '^mysql-.*' > /dev/null
-          sudo apt-get remove -y azure-cli google-chrome-stable firefox ${POWERSHELL} mono-devel libgl1-mesa-dri --fix-missing > /dev/null
-          if [[ (${CODENAME} = focal) || (${CODENAME} = jammy) ]]; then
-            sudo apt-get remove -y google-cloud-sdk --fix-missing > /dev/null
-            sudo apt-get remove -y google-cloud-cli --fix-missing > /dev/null
-          fi
-          sudo apt-get autoremove -y > /dev/null
-          sudo apt-get clean > /dev/null
+          set -euo pipefail
 
-      - uses: actions/checkout@v2
+          source upstream.sh
+
+          build_release="$release"
+          if [[ -n "$MANUAL_RELEASE" ]]; then
+            build_release="$MANUAL_RELEASE"
+          elif [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            build_release="${GITHUB_REF_NAME#v}"
+          fi
+
+          if [[ ! "$build_release" =~ ^[A-Za-z0-9._-]+$ ]]; then
+            echo "Invalid build release: $build_release"
+            echo "Use only letters, numbers, dots, underscores, and hyphens."
+            exit 1
+          fi
+
+          bundled_version="${version}-${build_release}"
+
+          echo "browser_version=$version" >> "$GITHUB_OUTPUT"
+          echo "build_release=$build_release" >> "$GITHUB_OUTPUT"
+          echo "bundled_version=$bundled_version" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: metadata
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86_64
+            runner: macos-15-intel
+          - arch: arm64
+            runner: macos-15
+
+    steps:
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 1
 
       - name: Set up Go
-        uses: actions/setup-go@v2
+        uses: actions/setup-go@v5
         with:
           go-version: "1.23"
 
       - name: Set up Python
-        uses: actions/setup-python@v2
+        uses: actions/setup-python@v5
         with:
           python-version: "3.11"
 
-      - name: Set up LLVM
+      - name: Install Homebrew dependencies
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: "1"
         run: |
-          wget https://apt.llvm.org/llvm.sh
-          chmod +x llvm.sh
-          sudo ./llvm.sh 18
-          sudo apt-get install -y lld-18 clang-18
-          if [ "${{ matrix.arch }}" != "x86_64" ]; then
-            sudo apt-get install -y libc6-i386 lib32gcc-s1 lib32stdc++6 gcc-multilib g++-multilib
-          fi
-          sudo update-alternatives --install /usr/bin/ld.lld ld.lld /usr/bin/ld.lld-18 100
+          brew install aria2 p7zip ccache
 
-      - name: Check disk space
-        run: df -h
-
-      - name: Install dependencies
+      - name: Check runner environment
         run: |
-          sudo apt-get update
-          sudo apt-get install -y msitools p7zip-full aria2
+          uname -a
+          df -h
+          xcode-select -p
+          xcrun --find actool
 
       - name: Fetch source
         env:
           CAMOUFOX_PASSWD: ${{ secrets.CAMOUFOX_PASSWD }}
-        run: |
-          make fetch
+          BROWSER_VERSION: ${{ needs.metadata.outputs.browser_version }}
+          BUILD_RELEASE: ${{ needs.metadata.outputs.build_release }}
+        run: make fetch version="$BROWSER_VERSION" release="$BUILD_RELEASE"
 
       - name: Setup and bootstrap
+        env:
+          BROWSER_VERSION: ${{ needs.metadata.outputs.browser_version }}
+          BUILD_RELEASE: ${{ needs.metadata.outputs.build_release }}
         run: |
-          make setup-minimal
-          make mozbootstrap
+          make setup-minimal version="$BROWSER_VERSION" release="$BUILD_RELEASE"
+          make mozbootstrap version="$BROWSER_VERSION" release="$BUILD_RELEASE"
           mkdir -p dist
 
-      - name: Create swap space
+      - name: Build and package macOS artifact
+        env:
+          BROWSER_VERSION: ${{ needs.metadata.outputs.browser_version }}
+          BUILD_RELEASE: ${{ needs.metadata.outputs.build_release }}
         run: |
-          sudo fallocate -l 16G /swapfile
-          sudo chmod 600 /swapfile
-          sudo mkswap /swapfile
-          sudo swapon /swapfile
-          free -h
-
-      - name: Build
-        run: python3 ./multibuild.py --target ${{ matrix.target }} --arch ${{ matrix.arch }}
+          export BUILD_TARGET="macos,${{ matrix.arch }}"
+          make build version="$BROWSER_VERSION" release="$BUILD_RELEASE"
+          make package-macos arch="${{ matrix.arch }}" version="$BROWSER_VERSION" release="$BUILD_RELEASE"
+          mv "camoufox-${BROWSER_VERSION}-${BUILD_RELEASE}-mac.${{ matrix.arch }}.zip" dist/
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: CamoufoxBuilds-${{ matrix.target }}-${{ matrix.arch }}
-          path: dist/*
+          name: Camoufox-${{ needs.metadata.outputs.bundled_version }}-mac.${{ matrix.arch }}
+          path: dist/camoufox-${{ needs.metadata.outputs.bundled_version }}-mac.${{ matrix.arch }}.zip
 
   release:
-    needs: build
+    needs: [metadata, build]
+    if: github.ref_type == 'tag'
     permissions:
       contents: write
     runs-on: ubuntu-latest
@@ -125,13 +136,12 @@ jobs:
         with:
           path: artifacts
 
-      - name: Create Release
-        uses: softprops/action-gh-release@v1
-        if: startsWith(github.ref, 'refs/tags/')
+      - name: Publish release assets
+        uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ github.ref_name }}
+          name: Camoufox ${{ needs.metadata.outputs.bundled_version }}
           files: artifacts/**/*
           generate_release_notes: true
-          draft: true
-          prerelease: false
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          fail_on_unmatched_files: true
+          overwrite_files: true
