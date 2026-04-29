@@ -13,11 +13,18 @@
 
 ## What is this?
 
-This Python library wraps around Playwright's API to help automatically generate & inject unique device characteristics (OS, CPU info, navigator, fonts, headers, screen dimensions, viewport size, WebGL, addons, etc.) into Camoufox.
+This Python library wraps around Playwright's API to help automatically generate and inject Firefox fingerprints into Camoufox.
 
-It uses [BrowserForge](https://github.com/daijro/browserforge) under the hood to generate fingerprints that mimic the statistical distribution of device characteristics in real-world traffic.
+It uses [BrowserForge](https://github.com/daijro/browserforge) under the hood to generate realistic Firefox skeletons, then constrains those fingerprints to the real host before launch.
 
-In addition, it will also calculate your target geolocation, timezone, and locale to avoid proxy protection ([see demo](https://i.imgur.com/UhSHfaV.png)).
+The active default flow is intentionally narrow:
+
+- BrowserForge supplies the Firefox user agent, navigator, and screen skeleton
+- Camoufox keeps GPU-facing values real
+- fonts and speech voices are filtered to what is actually present on the macOS host
+- each `NewContext()` call gets its own fingerprint identity
+
+In addition, it can also calculate your target geolocation, timezone, and locale to avoid proxy protection ([see demo](https://i.imgur.com/UhSHfaV.png)).
 
 ---
 
@@ -46,6 +53,53 @@ python3 -m camoufox fetch
 ```
 
 To uninstall, run `camoufox remove`.
+
+## Quick Start
+
+The default path is:
+
+1. launch the browser with `Camoufox` or `NewBrowser`
+2. create a context with `NewContext`
+3. use that context for pages
+
+`NewContext()` is where the per-context fingerprint is generated and applied.
+
+```python
+from camoufox import Camoufox, NewContext
+
+with Camoufox(headless=False) as browser:
+    context = NewContext(browser)
+    page = context.new_page()
+    page.goto("https://example.com")
+```
+
+By default this generates a BrowserForge-backed Firefox fingerprint and then filters it through the local host-compatibility layer before applying it to the context.
+
+## Local Development Against A Repo Build
+
+If you are developing Camoufox itself, you do not need to package and install a browser build every time. Point the Python launcher directly at your local build:
+
+```bash
+source upstream.sh
+export CAMOUFOX_EXECUTABLE_PATH="$PWD/camoufox-$version-$release/obj-aarch64-apple-darwin/dist/Camoufox.app/Contents/MacOS/camoufox"
+uv run --project pythonlib --group dev python -m camoufox test
+```
+
+`camoufox test` reads `CAMOUFOX_EXECUTABLE_PATH` automatically. On Intel macOS, replace `obj-aarch64-apple-darwin` with `obj-x86_64-apple-darwin`.
+
+If startup looks stuck, rerun with `--debug` to print browser-launch and fingerprint-generation logs:
+
+```bash
+uv run --project pythonlib --group dev python -m camoufox test --debug
+```
+
+If you want the Python package to use the normal installed-browser lookup instead, package the repo build and install it into the local Camoufox cache:
+
+```bash
+make package-macos arch=arm64
+./scripts/install-local-build.sh
+uv run --project pythonlib --group dev python -m camoufox test
+```
 
 ---
 

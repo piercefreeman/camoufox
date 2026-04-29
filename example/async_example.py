@@ -1,13 +1,19 @@
 """
-Async version of the example — useful for scraping multiple pages concurrently.
+Async Camoufox example for scraping multiple pages concurrently.
 
 Install deps:
-    pip install cloverlabs-camoufox
+    pip install camoufox
     python -m camoufox fetch
+
+Local repo development:
+    export CAMOUFOX_EXECUTABLE_PATH=/path/to/Camoufox.app/Contents/MacOS/camoufox
+    uv run --project pythonlib --group dev python example/async_example.py
 """
 
 import asyncio
-from camoufox.async_api import AsyncCamoufox
+import os
+
+from camoufox import AsyncCamoufox, AsyncNewContext
 
 URLS = [
     "https://httpbin.org/headers",
@@ -23,8 +29,12 @@ async def scrape(page, url: str) -> dict:
 
 
 async def main():
-    async with AsyncCamoufox(headless=True) as browser:
-        context = await browser.new_context()
+    launch_options = {"headless": True}
+    if os.getenv("CAMOUFOX_EXECUTABLE_PATH"):
+        launch_options["executable_path"] = os.environ["CAMOUFOX_EXECUTABLE_PATH"]
+
+    async with AsyncCamoufox(**launch_options) as browser:
+        context = await AsyncNewContext(browser)
 
         pages = [await context.new_page() for _ in URLS]
         results = await asyncio.gather(*[scrape(p, u) for p, u in zip(pages, URLS)])

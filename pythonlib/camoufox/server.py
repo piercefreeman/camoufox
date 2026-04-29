@@ -6,10 +6,10 @@ import base64
 import orjson
 from playwright._impl._driver import compute_driver_executable
 
-from camoufox.pkgman import LOCAL_DATA
+from camoufox.assets import get_asset_by_name
 from camoufox.utils import launch_options
 
-LAUNCH_SCRIPT: Path = LOCAL_DATA / "launchServer.js"
+LAUNCH_SCRIPT: Path = get_asset_by_name("launchServer.js")
 
 
 def camel_case(snake_str: str) -> str:

@@ -1,15 +1,26 @@
 """
-Quick example to test cloverlabs-camoufox.
+Quick example to test Camoufox.
 
 Install deps:
-    pip install cloverlabs-camoufox
+    pip install camoufox
     python -m camoufox fetch
+
+Local repo development:
+    export CAMOUFOX_EXECUTABLE_PATH=/path/to/Camoufox.app/Contents/MacOS/camoufox
+    uv run --project pythonlib --group dev python example/example.py
 """
 
-from camoufox.sync_api import Camoufox
+import os
 
-with Camoufox(headless=False) as browser:
-    page = browser.new_page()
+from camoufox import Camoufox, NewContext
+
+LAUNCH_OPTIONS = {"headless": False}
+if os.getenv("CAMOUFOX_EXECUTABLE_PATH"):
+    LAUNCH_OPTIONS["executable_path"] = os.environ["CAMOUFOX_EXECUTABLE_PATH"]
+
+with Camoufox(**LAUNCH_OPTIONS) as browser:
+    context = NewContext(browser)
+    page = context.new_page()
 
     # Visit a fingerprint test page
     page.goto("https://abrahamjuliot.github.io/creepjs/")

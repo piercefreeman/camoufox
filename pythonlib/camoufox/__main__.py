@@ -5,6 +5,7 @@ CLI package manager for Camoufox
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as pkg_version
 from os import environ
+from pathlib import Path
 from typing import Any, List, Optional, Tuple
 
 import rich_click as click
@@ -758,22 +759,66 @@ def remove(version_path, select, yes):
 
 @cli.command(name="test")
 @click.option("--executable-path", help="Path to the Camoufox executable", default=None)
+@click.option("--debug", is_flag=True, help="Print launch progress and fingerprint debug logs.")
 @click.argument("url", default=None, required=False)
-def test(url: Optional[str] = None, executable_path: Optional[str] = None) -> None:
+def test(
+    url: Optional[str] = None,
+    executable_path: Optional[str] = None,
+    debug: bool = False,
+) -> None:
     """
-    Open the Playwright inspector
+    Open a Playwright inspector session backed by a fingerprinted Camoufox context.
     """
-    from .sync_api import Camoufox
+    from .fingerprints import generate_fingerprint
+    from .sync_api import Camoufox, NewContext
+
+    executable_path = executable_path or environ.get("CAMOUFOX_EXECUTABLE_PATH")
+    if executable_path:
+        if not Path(executable_path).exists():
+            hint = ""
+            if "<version>" in executable_path or "<release>" in executable_path:
+                hint = (
+                    " The README placeholder was used literally. Run `source upstream.sh` first, "
+                    "then export a path built from `$version` and `$release`."
+                )
+            raise click.ClickException(f"Camoufox executable not found: {executable_path}.{hint}")
+        rprint(f"Using executable: {executable_path}", fg="cyan")
+    else:
+        rprint("Using installed Camoufox executable from the local cache.", fg="cyan")
+
+    ff_version = installed_verstr().split(".", 1)[0]
+    if executable_path:
+        application_ini = Path(executable_path).parent.parent / "Resources" / "application.ini"
+        if application_ini.exists():
+            from configparser import ConfigParser
+
+            parser = ConfigParser()
+            parser.read(application_ini, encoding="utf-8")
+            ff_version = parser.get("App", "Version", fallback=ff_version).split(".", 1)[0]
+
+    rprint("Generating shared BrowserForge fingerprint...", fg="yellow")
+    fingerprint = generate_fingerprint(debug=debug)
+    rprint("Shared fingerprint ready.", fg="green")
+    rprint("Launching Camoufox browser...", fg="yellow")
 
     with Camoufox(
         headless=False,
         env=environ,
         config={"showcursor": False},
         executable_path=executable_path,
+        fingerprint=fingerprint,
+        debug=debug,
     ) as browser:
-        page = browser.new_page()
+        rprint("Browser launched.", fg="green")
+        rprint("Creating fingerprinted context...", fg="yellow")
+        context = NewContext(browser, fingerprint=fingerprint, ff_version=ff_version, debug=debug)
+        rprint("Context ready.", fg="green")
+        page = context.new_page()
         if url:
+            rprint(f"Navigating to {url}...", fg="yellow")
             page.goto(url)
+            rprint("Navigation complete.", fg="green")
+        rprint("Opening Playwright inspector...", fg="yellow")
         page.pause()
 
 

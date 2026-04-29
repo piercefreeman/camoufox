@@ -3,6 +3,7 @@ import urllib.request
 from typing import Any, Dict, List, Optional, Union, overload
 from urllib.parse import urlparse
 
+from browserforge.fingerprints import Fingerprint
 from playwright.sync_api import (
     Browser,
     BrowserContext,
@@ -130,29 +131,39 @@ def _resolve_proxy_geo(proxy: Dict[str, str]) -> Dict[str, Optional[str]]:
 def NewContext(
     browser: Browser,
     *,
+    fingerprint: Optional[Fingerprint] = None,
     preset: Optional[Dict[str, Any]] = None,
     os: Optional[str] = None,
     ff_version: Optional[str] = None,
     webrtc_ip: Optional[str] = None,
     proxy: Optional[Dict[str, str]] = None,
     geolocation: Optional[Dict[str, float]] = None,
+    debug: Optional[bool] = None,
     **context_kwargs: Any,
 ) -> BrowserContext:
     """
     Creates a new browser context with a unique fingerprint identity.
 
-    Each context gets its own real fingerprint preset
-    with unique seeds for audio, canvas, and font spacing noise. All values are applied
-    via addInitScript so they self-destruct before page scripts can detect them.
+    Each context gets its own host-compatible Firefox fingerprint identity.
+    BrowserForge supplies the navigator/screen skeleton, while fonts and
+    voices are sampled directly from the real macOS host inventory. GPU-facing
+    values stay real. All values are applied via addInitScript so they
+    self-destruct before page scripts can detect them.
 
     Parameters:
         browser: A Browser instance from NewBrowser or Camoufox.
-        preset: A specific fingerprint preset dict to use. If None, picks randomly.
-        os: Target OS for preset selection ("windows", "macos", "linux").
+        fingerprint: A BrowserForge fingerprint to compile directly. Use this
+            when you need the browser launch and the page context to share the
+            same navigator and geometry skeleton.
+        preset: A specific fingerprint preset dict to compile. If None,
+            BrowserForge generates the fingerprint skeleton.
+        os: Target OS for BrowserForge/preset sampling. The default
+            host-compatible path currently supports only the real macOS host OS.
         ff_version: Firefox version string for UA patching.
         webrtc_ip: IPv4 address to spoof for WebRTC ICE candidates.
         proxy: Per-context proxy (Playwright format: {"server": "...", "username": "...", "password": "..."}).
         geolocation: Per-context geolocation ({"latitude": float, "longitude": float}).
+        debug: When True, print fingerprint generation diagnostics.
         **context_kwargs: Additional Playwright new_context() options.
     """
     # Auto-derive WebRTC IP and timezone from proxy's exit IP when not explicitly provided
@@ -163,7 +174,14 @@ def NewContext(
         if "timezone_id" not in context_kwargs and geo["timezone"]:
             context_kwargs["timezone_id"] = geo["timezone"]
 
-    fp = generate_context_fingerprint(preset=preset, os=os, ff_version=ff_version, webrtc_ip=webrtc_ip)
+    fp = generate_context_fingerprint(
+        fingerprint=fingerprint,
+        preset=preset,
+        os=os,
+        ff_version=ff_version,
+        webrtc_ip=webrtc_ip,
+        debug=bool(debug),
+    )
 
     # Merge generated context options with user overrides (user wins)
     opts: Dict[str, Any] = {**fp['context_options'], **context_kwargs}
