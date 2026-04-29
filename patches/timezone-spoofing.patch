@@ -81,7 +81,7 @@ new file mode 100644
 index 0000000000..a7f5735e53
 --- /dev/null
 +++ b/dom/base/TimezoneManager.h
-@@ -0,0 +1,28 @@
+@@ -0,0 +1,27 @@
 +#ifndef mozilla_dom_TimezoneManager_h
 +#define mozilla_dom_TimezoneManager_h
 +
@@ -196,13 +196,13 @@ index 5f9a11b0d3..3183172d29 100644
 --- a/dom/base/nsGlobalWindowInner.h
 +++ b/dom/base/nsGlobalWindowInner.h
 @@ -683,6 +683,7 @@ class nsGlobalWindowInner final : public mozilla::dom::EventTarget,
-
+ 
    // Font spacing seed for privacy-preserving font fingerprinting
    void SetFontSpacingSeed(uint32_t seed, mozilla::ErrorResult& aRv);
 +  void SetTimezone(const nsAString& timezone, mozilla::ErrorResult& aRv);
-
+ 
    void StoreSharedWorker(mozilla::dom::SharedWorker* aSharedWorker);
-
+ 
 diff --git a/dom/webidl/Window.webidl b/dom/webidl/Window.webidl
 index 7a076768d0..a6f0d96a36 100644
 --- a/dom/webidl/Window.webidl
@@ -210,13 +210,13 @@ index 7a076768d0..a6f0d96a36 100644
 @@ -892,6 +892,12 @@ partial interface Window {
    readonly attribute VisualViewport visualViewport;
  };
-
+ 
 +// Timezone interface for per-context timezone spoofing
 +partial interface Window {
 +  [Throws, Func="mozilla::dom::TimezoneManager::IsFunctionEnabledForWebIDL"]
 +  undefined setTimezone(DOMString timezone);
 +};
-+
++ 
  // Used to assign marks to appear on the scrollbar when
  // finding on a page.
  partial interface Window {
@@ -226,12 +226,12 @@ index 98d5b1176e..89c2942a68 100644
 +++ b/js/public/Date.h
 @@ -56,6 +56,9 @@ namespace JS {
  extern JS_PUBLIC_API void ResetTimeZone();
-
+ 
  extern JS_PUBLIC_API bool SetTimeZoneOverride(const char* timezoneId);
 +// Camoufox: per-context timezone override
 +extern JS_PUBLIC_API bool SetRealmTimeZoneOverride(JSContext* cx, const char* timezoneId);
-+
-
++ 
+ 
  class ClippedTime;
  inline ClippedTime TimeClip(double time);
 diff --git a/js/src/vm/DateTime.cpp b/js/src/vm/DateTime.cpp
@@ -243,13 +243,13 @@ index 709cd2b90d..af5abb38be 100644
  #include "vm/MutexIDs.h"
  #include "vm/Realm.h"
 +#include "jspubtd.h"
-
+ 
  static bool ComputeLocalTime(time_t local, struct tm* ptm) {
    // Neither localtime_s nor localtime_r are required to act as if tzset has
 @@ -257,6 +258,12 @@ js::DateTimeInfo::DateTimeInfo() {
-
+ 
  js::DateTimeInfo::~DateTimeInfo() = default;
-
+ 
 +js::DateTimeInfo::DateTimeInfo(const char* timezone) : DateTimeInfo() {
 +#if JS_HAS_INTL_API
 +  timeZoneOverride_ = timezone ? std::string(timezone) : std::string();
@@ -262,7 +262,7 @@ index 709cd2b90d..af5abb38be 100644
 @@ -587,6 +594,18 @@ JS_PUBLIC_API bool JS::SetTimeZoneOverride(const char* timeZoneId) {
    return true;
  }
-
+ 
 +JS_PUBLIC_API bool JS::SetRealmTimeZoneOverride(JSContext* cx, const char* timeZoneId) {
 +  if (!timeZoneId || !mozilla::intl::TimeZone::IsValidTimeZoneId(timeZoneId)) {
 +    return false;
@@ -283,11 +283,11 @@ index 110824439c..dfc88898f5 100644
 --- a/js/src/vm/DateTime.h
 +++ b/js/src/vm/DateTime.h
 @@ -154,6 +154,7 @@ class DateTimeInfo {
-
+ 
   public:
    ~DateTimeInfo();
 +  explicit DateTimeInfo(const char* timezone);
-
+ 
    // The spec implicitly assumes DST and time zone adjustment information
    // never change in the course of a function -- sometimes even across
 diff --git a/dom/base/nsGlobalWindowOuter.cpp b/dom/base/nsGlobalWindowOuter.cpp
@@ -332,7 +332,7 @@ index 81b4d13cdb..ca04167603 100644
 +++ b/js/src/vm/Realm.cpp
 @@ -545,10 +545,15 @@ void Realm::setLocaleOverride(const char* locale) {
  }
-
+ 
  js::DateTimeInfo* Realm::getDateTimeInfo() {
 -  // Playwright patch: Per-realm timezone overrides are disabled in favor of
 -  // global timezone overrides via JS::SetTimeZoneOverride().
@@ -347,9 +347,9 @@ index 81b4d13cdb..ca04167603 100644
 +    return dateTimeInfo_.get();
 +  }
 +#endif
-   return nullptr;
+  return nullptr;
  }
-
+ 
 diff --git a/dom/workers/WorkerPrivate.cpp b/dom/workers/WorkerPrivate.cpp
 index c8e44687b7..9a2bae61e7 100644
 --- a/dom/workers/WorkerPrivate.cpp
@@ -366,7 +366,7 @@ index c8e44687b7..9a2bae61e7 100644
 @@ -6350,6 +6352,19 @@ WorkerGlobalScope* WorkerPrivate::GetOrCreateGlobalScope(JSContext* aCx) {
      data->mScope->DisconnectGlobalTeardownObservers();
    }
-
+ 
 +  // Camoufox: Apply per-context timezone override to this worker's JS realm.
 +  // All worker types (dedicated, shared, service) inherit userContextId from
 +  // the parent BrowserContext via OriginAttributes. Firefox creates separate
@@ -379,7 +379,7 @@ index c8e44687b7..9a2bae61e7 100644
 +      JS::SetRealmTimeZoneOverride(aCx, tzASCII.get());
 +    }
 +  }
-+
++ 
    JS_FireOnNewGlobalObject(aCx, global);
-
+ 
    return data->mScope;

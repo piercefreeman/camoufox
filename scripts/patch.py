@@ -142,6 +142,7 @@ class Patcher:
 
         # After patch completes, search for any .rej files created during this patch
         rejects = []
+        reject_files = []
         if result.returncode != 0:
             rejects.append(f"patch exited with code {result.returncode}")
         for root, dirs, files in os.walk('.'):
@@ -152,9 +153,10 @@ class Patcher:
                         # Only include if created after this patch started
                         if os.path.getmtime(reject_path) >= start_time:
                             rejects.append(reject_path)
+                            reject_files.append(reject_path)
 
         # Clean up .rej files so they don't interfere with subsequent patches
-        for rej in rejects:
+        for rej in reject_files:
             os.remove(rej)
 
         return rejects
