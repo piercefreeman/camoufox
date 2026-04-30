@@ -22,9 +22,9 @@ jobs:
       matrix:
         include:
           - arch: arm64
-            runner: macos-15
+            runner: macos-26
           - arch: x86_64
-            runner: macos-15-intel
+            runner: macos-26-intel
 
     runs-on: ${{ matrix.runner }}
 
