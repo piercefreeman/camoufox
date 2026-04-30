@@ -11,21 +11,66 @@ on:
     types: [published]
 
 concurrency:
-  group: build-${{ github.event.release.tag_name || github.ref }}
+  group: build-${{ github.event.release.tag_name || github.ref_name || github.ref }}
   cancel-in-progress: true
 
 jobs:
-  build:
+  prepare-release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Ensure tag release exists
+        if: github.event_name == 'push' || github.event_name == 'release'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ github.event.release.tag_name || github.ref_name }}
+        run: |
+          set -euo pipefail
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            echo "Release $RELEASE_TAG already exists."
+            exit 0
+          fi
+
+          if [ "${{ github.event_name }}" != "push" ]; then
+            echo "Release $RELEASE_TAG does not exist for event ${{ github.event_name }}." >&2
+            exit 1
+          fi
+
+          gh release create "$RELEASE_TAG" --draft --generate-notes --verify-tag
+
+      - name: Skip release bootstrap
+        if: github.event_name != 'push' && github.event_name != 'release'
+        run: echo "Release bootstrap is not required for ${GITHUB_EVENT_NAME}."
+
+  build-test-release:
+    needs: prepare-release
     if: github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-build')
-    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
     strategy:
       fail-fast: false
       matrix:
-        target: [linux]
-        arch: [x86_64, arm64]
+        include:
+          - target: linux
+            arch: x86_64
+            runner: ubuntu-24.04
+          - target: linux
+            arch: arm64
+            runner: ubuntu-24.04-arm
+          - target: macos
+            arch: arm64
+            runner: macos-26
+          - target: macos
+            arch: x86_64
+            runner: macos-26-intel
+
+    runs-on: ${{ matrix.runner }}
 
     steps:
       - name: Maximize build space
+        if: matrix.target == 'linux'
         uses: AdityaGarg8/remove-unwanted-software@v4.1
         with:
           remove-dotnet: "true"
@@ -38,6 +83,7 @@ jobs:
           verbose: "false"
 
       - name: Remove unwanted tools
+        if: matrix.target == 'linux'
         # Originally from here: https://github.com/AdityaGarg8/remove-unwanted-software/blob/master/action.yml
         run: |
           sudo apt-get remove -y '^aspnetcore-.*' > /dev/null
@@ -54,7 +100,7 @@ jobs:
           sudo apt-get autoremove -y > /dev/null
           sudo apt-get clean > /dev/null
 
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 1
 
@@ -65,28 +111,44 @@ jobs:
         run: bash .github/scripts/resolve-release-version.sh
 
       - name: Set up Python
-        uses: actions/setup-python@v2
+        uses: actions/setup-python@v5
         with:
           python-version: "3.11"
 
       - name: Set up LLVM
+        if: matrix.target == 'linux'
         run: |
           wget https://apt.llvm.org/llvm.sh
           chmod +x llvm.sh
           sudo ./llvm.sh 18
           sudo apt-get install -y lld-18 clang-18
-          if [ "${{ matrix.arch }}" != "x86_64" ]; then
-            sudo apt-get install -y libc6-i386 lib32gcc-s1 lib32stdc++6 gcc-multilib g++-multilib
-          fi
           sudo update-alternatives --install /usr/bin/ld.lld ld.lld /usr/bin/ld.lld-18 100
 
-      - name: Check disk space
-        run: df -h
-
-      - name: Install dependencies
+      - name: Install Linux dependencies
+        if: matrix.target == 'linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y p7zip-full aria2 ccache unzip
+
+      - name: Install macOS dependencies
+        if: matrix.target == 'macos'
+        run: |
+          brew update
+          brew install aria2 ccache
+
+      - name: Check Linux disk space
+        if: matrix.target == 'linux'
+        run: df -h
+
+      - name: Check macOS native toolchain
+        if: matrix.target == 'macos'
+        run: |
+          uname -a
+          xcodebuild -version
+          macos_sdk="$(xcrun --sdk macosx --show-sdk-path)"
+          echo "$macos_sdk"
+          echo "MACOS_SDK_DIR=$macos_sdk" >> "$GITHUB_ENV"
+          df -h
 
       - name: Fetch source
         env:
@@ -94,13 +156,25 @@ jobs:
         run: |
           make fetch
 
-      - name: Setup and bootstrap
+      - name: Setup and bootstrap for Linux
+        if: matrix.target == 'linux'
         run: |
           make setup-minimal
           make mozbootstrap
           mkdir -p dist
 
+      - name: Setup and bootstrap for macOS
+        if: matrix.target == 'macos'
+        env:
+          BUILD_TARGET: ${{ matrix.target }},${{ matrix.arch }}
+        run: |
+          make setup-minimal
+          make set-target
+          make mozbootstrap
+          mkdir -p dist
+
       - name: Create swap space
+        if: matrix.target == 'linux'
         run: |
           sudo fallocate -l 16G /swapfile
           sudo chmod 600 /swapfile
@@ -111,42 +185,27 @@ jobs:
       - name: Build
         run: python3 ./multibuild.py --target ${{ matrix.target }} --arch ${{ matrix.arch }}
 
-      - name: Upload artifacts
+      - name: Inspect built archives
+        run: |
+          echo "PWD=$(pwd)"
+          echo "dist tree:"
+          find dist -maxdepth 3 -print | sort
+          echo ""
+          echo "dist listing:"
+          ls -lah dist
+          echo ""
+          echo "ZIP files:"
+          find dist -maxdepth 1 -type f -name '*.zip' -print | sort
+          echo ""
+          echo "SHA256:"
+          shasum -a 256 dist/*.zip
+
+      - name: Upload workflow artifact
         uses: actions/upload-artifact@v4
         with:
           name: CamoufoxBuilds-${{ matrix.target }}-${{ matrix.arch }}
-          path: dist/*
-
-      - name: Debug failed build over SSH
-        if: ${{ failure() }}
-        uses: mxschmitt/action-tmate@v3
-        timeout-minutes: 60
-        with:
-          limit-access-to-actor: true
-
-  integration-linux:
-    needs: build
-    if: github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-build')
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - arch: x86_64
-            runner: ubuntu-24.04
-          - arch: arm64
-            runner: ubuntu-24.04-arm
-
-    runs-on: ${{ matrix.runner }}
-
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          fetch-depth: 1
-
-      - name: Set up Python
-        uses: actions/setup-python@v6
-        with:
-          python-version: "3.12"
+          path: dist/*.zip
+          if-no-files-found: error
 
       - name: Set up uv
         uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
@@ -156,24 +215,19 @@ jobs:
             pyproject.toml
             uv.lock
 
-      - name: Download build artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: CamoufoxBuilds-linux-${{ matrix.arch }}
-          path: dist-artifact
-
       - name: Sync Playwright integration environment
         run: uv sync --group dev --group playwright-tests --locked
 
       - name: Install Linux runtime dependencies
+        if: matrix.target == 'linux'
         run: uv run --group dev --group playwright-tests --locked playwright install-deps firefox
 
       - name: Resolve Camoufox executable
         id: artifact
         run: |
           python3 scripts/resolve_ci_artifact.py \
-            --artifact dist-artifact \
-            --extract-dir .tmp/ci-artifacts/linux-${{ matrix.arch }} \
+            --artifact dist \
+            --extract-dir .tmp/ci-artifacts/${{ matrix.target }}-${{ matrix.arch }} \
             --github-output "$GITHUB_OUTPUT"
 
       - name: Run Playwright integration tests
@@ -185,51 +239,26 @@ jobs:
             --headless \
             __tests__/playwright/async/
 
-  release:
-    needs: [build, integration-linux]
-    if: github.event_name == 'push' || github.event_name == 'release'
-    permissions:
-      contents: write
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Download Linux artifacts
-        uses: actions/download-artifact@v4
-        with:
-          pattern: CamoufoxBuilds-linux-*
-          path: artifacts
-          merge-multiple: true
-
-      - name: Verify release assets
-        run: |
-          echo "PWD=$(pwd)"
-          echo "Artifacts directory tree:"
-          find artifacts -maxdepth 3 -print | sort
-          echo ""
-          echo "Artifacts directory listing:"
-          ls -lah artifacts || true
-          echo ""
-          echo "ZIP files that will be uploaded:"
-          find artifacts -maxdepth 1 -type f -name '*.zip' -print | sort
-          echo ""
-          echo "SHA256 for ZIP files:"
-          shasum -a 256 artifacts/*.zip || true
-
-      - name: Create Release
-        uses: softprops/action-gh-release@v1
-        with:
-          tag_name: ${{ github.event.release.tag_name || github.ref_name }}
-          files: artifacts/*.zip
-          generate_release_notes: true
-          draft: ${{ github.event_name == 'push' }}
-          prerelease: ${{ github.event_name == 'release' && github.event.release.prerelease || false }}
+      - name: Upload release asset
+        if: github.event_name == 'push' || github.event_name == 'release'
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Summarize uploaded asset inputs
-        if: always()
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ github.event.release.tag_name || github.ref_name }}
         run: |
-          echo "Release upload step completed."
-          echo "Expected upload glob: artifacts/*.zip"
-          echo "Final on-disk ZIP files:"
-          find artifacts -maxdepth 1 -type f -name '*.zip' -print | sort
+          set -euo pipefail
+          shopt -s nullglob
+          files=(dist/*.zip)
+          if [ ${#files[@]} -eq 0 ]; then
+            echo "No release assets found in dist." >&2
+            exit 1
+          fi
+          printf 'Uploading release assets for %s:\n' "$RELEASE_TAG"
+          printf '%s\n' "${files[@]}"
+          gh release upload "$RELEASE_TAG" "${files[@]}" --clobber
+
+      - name: Debug failed build over SSH
+        if: ${{ failure() }}
+        uses: mxschmitt/action-tmate@v3
+        timeout-minutes: 60
+        with:
+          limit-access-to-actor: true
