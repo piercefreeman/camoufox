@@ -6,7 +6,7 @@ from pathlib import Path
 TEST_DIR = Path(__file__).resolve().parent
 REPO_ROOT = TEST_DIR.parents[1]
 PROXIES_FILE = TEST_DIR / "proxies.txt"
-BUILD_TESTER_DIR = REPO_ROOT / "build-tester"
+BUILD_TESTER_DIR = REPO_ROOT / "__tests__" / "build-tester"
 
 # ─── Check category labels ────────────────────────────────────────────────────
 

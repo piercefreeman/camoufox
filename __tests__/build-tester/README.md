@@ -7,25 +7,31 @@ Tests a raw Camoufox binary (Firefox) directly against the same antibot-detectio
 - Python 3.9+
 - Node.js (for building the TypeScript checks bundle via `esbuild`, first run only)
 
-## Setup
+## Quick Start
 
 ```bash
-# Install npm deps (once — needed to build the checks bundle)
-npm install
+# Point the test at a Camoufox binary
+export CAMOUFOX_EXECUTABLE_PATH=/path/to/camoufox-bin
 
-# Install Python deps
-pip install -r requirements.txt
+# Run the pytest-gated integration test
+uv run --group dev --group playwright-tests --locked pytest \
+  --integration \
+  __tests__/build-tester/
 ```
 
-## Usage
+The first run will install `build-tester` npm dependencies automatically if the checks bundle has not been built yet.
+
+## Direct CLI Usage
 
 ```bash
-python scripts/run_tests.py <binary_path> [options]
+uv run --group dev --group playwright-tests --locked python \
+  __tests__/build-tester/scripts/run_tests.py <binary_path> [options]
 ```
 
 **Example:**
 ```bash
-python scripts/run_tests.py /path/to/camoufox-bin/camoufox
+uv run --group dev --group playwright-tests --locked python \
+  __tests__/build-tester/scripts/run_tests.py /path/to/camoufox-bin/camoufox
 ```
 
 ## Options
@@ -82,8 +88,9 @@ Each profile is scored across:
 `scripts/checks-bundle.js` is a compiled artifact built from the TypeScript sources in `src/lib/checks/`. It is built automatically on first run. To force a rebuild, delete it:
 
 ```bash
-rm scripts/checks-bundle.js
-python scripts/run_tests.py <binary_path>
+rm __tests__/build-tester/scripts/checks-bundle.js
+uv run --group dev --group playwright-tests --locked python \
+  __tests__/build-tester/scripts/run_tests.py <binary_path>
 ```
 
 Source files:

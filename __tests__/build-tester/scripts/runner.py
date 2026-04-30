@@ -241,8 +241,8 @@ async def run_tests(
     except ImportError:
         print(
             "ERROR: playwright Python package not installed.\n"
-            "  Run: pip install playwright && python -m playwright install firefox\n"
-            "  (or: bash scripts/setup.sh)",
+            "  Run from the repo root with uv, for example:\n"
+            "  uv sync --group dev --group playwright-tests --locked",
             file=sys.stderr,
         )
         return 1

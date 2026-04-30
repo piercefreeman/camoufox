@@ -224,6 +224,7 @@ tests:
 			--integration \
 			-vv \
 			$(if $(filter true,$(headful)),, --headless) \
+			__tests__/build-tester/ \
 			__tests__/playwright/async/ \
 			__tests__/service-tester/
 

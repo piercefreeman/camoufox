@@ -265,6 +265,13 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: __tests__/build-tester/package-lock.json
+
       - name: Set up uv
         uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
         with:
@@ -316,6 +323,7 @@ jobs:
           uv run --group dev --group playwright-tests --locked pytest \
             --integration \
             --headless \
+            __tests__/build-tester/ \
             __tests__/playwright/async/ \
             __tests__/service-tester/
 

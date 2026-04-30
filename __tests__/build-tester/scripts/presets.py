@@ -55,8 +55,8 @@ def generate_presets() -> dict:
     except ImportError:
         print(
             "ERROR: camoufox Python package not installed.\n"
-            "  Use the wrapper: ./run_tests.sh <binary_path>\n"
-            "  Or install manually: pip install -e ../pythonlib",
+            "  Run from the repo root with uv, for example:\n"
+            "  uv run --group dev --group playwright-tests --locked python __tests__/build-tester/scripts/run_tests.py <binary_path>",
             file=sys.stderr,
         )
         sys.exit(1)

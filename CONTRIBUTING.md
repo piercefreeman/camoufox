@@ -42,13 +42,13 @@ Tests the **raw binary** in isolation, bypassing the Python package entirely. Fi
 **Run this when you change:** browser patches, Firefox source modifications, WebGL/canvas/audio spoofing, WebRTC IP handling, or anything in the C++/JS browser layer.
 
 ```bash
-cd build-tester
-npm install          # first time only
-pip install -r requirements.txt
-python scripts/run_tests.py /path/to/camoufox-binary
+export CAMOUFOX_EXECUTABLE_PATH=/path/to/camoufox-binary
+uv run --group dev --group playwright-tests --locked pytest \
+  --integration \
+  __tests__/build-tester/
 ```
 
-See [`build-tester/README.md`](build-tester/README.md) for full details.
+See [`__tests__/build-tester/README.md`](__tests__/build-tester/README.md) for full details.
 
 ---
 
