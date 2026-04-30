@@ -12,7 +12,7 @@ RUN apt-get update && apt-get install -y \
     # Python
     python3 python3-dev python3-pip \
     # Camoufox build system tools
-    git p7zip-full golang-go aria2 curl rsync \
+    git p7zip-full aria2 curl rsync \
     # Platform-specific libraries for Linux builds
     libsqlite3-dev \
     # CA certificates

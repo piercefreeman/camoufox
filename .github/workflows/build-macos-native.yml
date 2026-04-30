@@ -39,11 +39,6 @@ jobs:
           GITHUB_EVENT_RELEASE_TAG_NAME: ${{ github.event.release.tag_name }}
         run: bash .github/scripts/resolve-release-version.sh
 
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: "1.23"
-
       - name: Set up Python
         uses: actions/setup-python@v5
         with:

@@ -126,7 +126,7 @@ Those Python files run at launch time on the client machine. If you only changed
 If you changed both sides, the split is simple:
 
 - rebuild the browser so binary-side changes are present
-- rerun the Python code so the new launcher/context logic is used
+- rerun the Python code so the new launch/context logic is used
 
 ## Launching The Python Fingerprint Flow
 
@@ -159,7 +159,7 @@ uv run --project pythonlib --group dev python -m camoufox test --debug
 - Camoufox constrains it to the real macOS host
 - `NewContext()` applies the per-context overrides
 
-If you want the Python CLI and default launcher path to pick up your local build without passing `executable_path`, package and install it into the local Camoufox cache:
+If you want the Python CLI and default executable resolution path to pick up your local build without passing `executable_path`, package and install it into the local Camoufox cache:
 
 ```bash
 make package-macos arch=arm64

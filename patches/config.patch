@@ -21,8 +21,7 @@ index e69de29bb2..5459e4ac36 100644
 @@ -0,0 +1,14 @@
 +FINAL_TARGET_FILES += [
 +  "camoufox.cfg",
-+  "chrome.css",
-+  "properties.json"
++  "chrome.css"
 +]
 +
 +FINAL_TARGET_FILES.distribution += [
