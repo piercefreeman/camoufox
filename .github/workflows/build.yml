@@ -104,12 +104,15 @@ jobs:
         env:
           BROWSER_VERSION: ${{ needs.metadata.outputs.browser_version }}
           BUILD_RELEASE: ${{ needs.metadata.outputs.build_release }}
-          MOZ_AUTOMATION: "1"
           MACH_BUILD_PYTHON_NATIVE_PACKAGE_SOURCE: "pip"
           MOZBOOTSTRAP_FLAGS: "--no-system-changes"
         run: |
           export BUILD_TARGET="macos,${{ matrix.arch }}"
-          make setup-minimal version="$BROWSER_VERSION" release="$BUILD_RELEASE"
+          export MACOS_SDK_DIR="$(xcrun --sdk macosx --show-sdk-path)"
+          echo "Using macOS SDK: $MACOS_SDK_DIR"
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          make setup version="$BROWSER_VERSION" release="$BUILD_RELEASE"
           make mozbootstrap version="$BROWSER_VERSION" release="$BUILD_RELEASE"
           mkdir -p dist
 
@@ -117,10 +120,11 @@ jobs:
         env:
           BROWSER_VERSION: ${{ needs.metadata.outputs.browser_version }}
           BUILD_RELEASE: ${{ needs.metadata.outputs.build_release }}
-          MOZ_AUTOMATION: "1"
           MACH_BUILD_PYTHON_NATIVE_PACKAGE_SOURCE: "pip"
         run: |
           export BUILD_TARGET="macos,${{ matrix.arch }}"
+          export MACOS_SDK_DIR="$(xcrun --sdk macosx --show-sdk-path)"
+          echo "Using macOS SDK: $MACOS_SDK_DIR"
           make build version="$BROWSER_VERSION" release="$BUILD_RELEASE"
           make package-macos arch="${{ matrix.arch }}" version="$BROWSER_VERSION" release="$BUILD_RELEASE"
           mv "camoufox-${BROWSER_VERSION}-${BUILD_RELEASE}-mac.${{ matrix.arch }}.zip" dist/
