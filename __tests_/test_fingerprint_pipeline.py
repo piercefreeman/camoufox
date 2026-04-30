@@ -2,21 +2,19 @@ from __future__ import annotations
 
 import importlib.util
 import json
-import shutil
 import sys
 import types
 import warnings
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
 import pytest
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 PACKAGE_ROOT = REPO_ROOT / "pythonlib" / "camoufox"
-PROPERTIES_PATH = REPO_ROOT / "settings" / "properties.json"
 
 
 @dataclass(frozen=True)
@@ -144,7 +142,7 @@ def _install_dependency_shims() -> None:
 
         pkgman.OS_NAME = "mac"
         pkgman.load_yaml = load_yaml
-        pkgman.get_path = lambda file: str(PROPERTIES_PATH) if file == "properties.json" else f"/tmp/{file}"
+        pkgman.get_path = lambda file: f"/tmp/{file}"
         pkgman.installed_verstr = lambda: "146.0.1-beta.25"
         pkgman.launch_path = lambda browser_path=None: "/tmp/camoufox"
         sys.modules["camoufox.pkgman"] = pkgman
@@ -212,15 +210,9 @@ def _install_dependency_shims() -> None:
             language, region = locale.split("-", 1)
             return Locale(language=language, region=region, script=None)
 
-        def handle_locales(locales_value: Any, config: Dict[str, Any]) -> None:
-            locale = normalize_locale(locales_value if isinstance(locales_value, str) else locales_value[0])
-            config["locale:language"] = locale.language
-            config["locale:region"] = locale.region
-            config["navigator.language"] = locale.as_string
-
         locales.Locale = Locale
         locales.normalize_locale = normalize_locale
-        locales.handle_locales = handle_locales
+        locales.handle_locale = lambda locale, ignore_region=False: normalize_locale(locale)
         sys.modules["camoufox.locales"] = locales
 
     if "camoufox.virtdisplay" not in sys.modules:
@@ -302,7 +294,7 @@ def stable_environment(
     monkeypatch.setattr(
         utils,
         "get_path",
-        lambda file: str(PROPERTIES_PATH) if file == "properties.json" else f"/tmp/{file}",
+        lambda file: f"/tmp/{file}",
     )
     monkeypatch.setattr(utils, "add_default_addons", lambda addons, exclude: None)
     monkeypatch.setattr(utils, "confirm_paths", lambda addons: None)
@@ -315,17 +307,17 @@ def test_from_browserforge_compiles_host_compatible_config(
     _, fingerprints, _ = modules
     config = fingerprints.from_browserforge(fake_fingerprint, ff_version="146")
 
-    assert config["navigator.userAgent"].endswith("Firefox/146.0")
-    assert config["navigator.appVersion"].startswith("5.0 (Macintosh; Intel Mac OS X 10.15")
-    assert config["navigator.platform"] == "MacIntel"
-    assert config["navigator.oscpu"] == "Intel Mac OS X 10.15"
-    assert config["screen.width"] == 1512
-    assert config["screen.height"] == 982
-    assert config["fonts"] == ["Helvetica Neue", "PingFang SC", "Fira Code", "IBM Plex Sans"]
-    assert config["voices"] == ["Alex", "Samantha", "Moira (Enhanced)", "Karen (Premium)"]
-    assert isinstance(config["fonts:spacing_seed"], int)
-    assert isinstance(config["audio:seed"], int)
-    assert isinstance(config["canvas:seed"], int)
+    assert config.navigator.user_agent.endswith("Firefox/146.0")
+    assert config.navigator.app_version.startswith("5.0 (Macintosh; Intel Mac OS X 10.15")
+    assert config.navigator.platform == "MacIntel"
+    assert config.navigator.oscpu == "Intel Mac OS X 10.15"
+    assert config.screen.width == 1512
+    assert config.screen.height == 982
+    assert config.fonts.families == ["Helvetica Neue", "PingFang SC", "Fira Code", "IBM Plex Sans"]
+    assert config.voices.items == ["Alex", "Samantha", "Moira (Enhanced)", "Karen (Premium)"]
+    assert isinstance(config.fonts.spacing_seed, int)
+    assert isinstance(config.audio.seed, int)
+    assert isinstance(config.canvas.seed, int)
 
 
 def test_from_preset_keeps_explicit_preset_path_host_safe(modules: tuple[Any, Any, Any]) -> None:
@@ -352,14 +344,14 @@ def test_from_preset_keeps_explicit_preset_path_host_safe(modules: tuple[Any, An
 
     config = fingerprints.from_preset(preset, ff_version="146")
 
-    assert config["navigator.userAgent"].endswith("Firefox/146.0")
-    assert config["navigator.oscpu"] == "Intel Mac OS X 10.15"
-    assert config["screen.width"] == 1728
-    assert config["screen.height"] == 1117
-    assert config["window.devicePixelRatio"] == 2.0
-    assert config["timezone"] == "America/New_York"
-    assert config["fonts"] == ["Helvetica Neue", "PingFang SC", "Fira Code", "IBM Plex Sans"]
-    assert config["voices"] == ["Alex", "Samantha", "Moira (Enhanced)", "Karen (Premium)"]
+    assert config.navigator.user_agent.endswith("Firefox/146.0")
+    assert config.navigator.oscpu == "Intel Mac OS X 10.15"
+    assert config.screen.width == 1728
+    assert config.screen.height == 1117
+    assert config.window.device_pixel_ratio == 2.0
+    assert config.timezone == "America/New_York"
+    assert config.fonts.families == ["Helvetica Neue", "PingFang SC", "Fira Code", "IBM Plex Sans"]
+    assert config.voices.items == ["Alex", "Samantha", "Moira (Enhanced)", "Karen (Premium)"]
 
 
 def test_generate_context_fingerprint_emits_debug_logs(
@@ -394,7 +386,7 @@ def test_generate_context_fingerprint_reuses_supplied_browserforge_fingerprint(
 
     result = fingerprints.generate_context_fingerprint(fingerprint=fake_fingerprint, ff_version="146")
 
-    assert result["config"]["navigator.userAgent"].endswith("Firefox/146.0")
+    assert result["config"].navigator.user_agent.endswith("Firefox/146.0")
     assert result["context_options"]["viewport"] == {"width": 1512, "height": 954}
 
 
@@ -428,7 +420,7 @@ def test_launch_options_generates_full_config_payload(
     monkeypatch.setattr(utils, "generate_fingerprint", lambda **_: fake_fingerprint)
 
     options = utils.launch_options(
-        config={"webGl:vendor": "spoofed"},
+        config={"webGl": {"vendor": "spoofed"}},
         env={"TEST_ENV": "1"},
         headless=True,
         locale="en-US",
@@ -438,14 +430,19 @@ def test_launch_options_generates_full_config_payload(
     assert options["executable_path"] == "/tmp/camoufox"
     assert options["headless"] is True
     assert options["env"]["TEST_ENV"] == "1"
-    assert payload["navigator.userAgent"].endswith("Firefox/146.0")
-    assert payload["navigator.language"] == "en-US"
-    assert payload["locale:language"] == "en"
-    assert payload["locale:region"] == "US"
-    assert payload["fonts"] == ["Helvetica Neue", "PingFang SC", "Fira Code", "IBM Plex Sans"]
-    assert payload["voices"] == ["Alex", "Samantha", "Moira (Enhanced)", "Karen (Premium)"]
-    assert "webGl:vendor" not in payload
-    assert 1 <= payload["window.history.length"] <= 5
+    assert payload["navigator"]["userAgent"].endswith("Firefox/146.0")
+    assert payload["navigator"]["language"] == "en-US"
+    assert payload["locale"]["language"] == "en"
+    assert payload["locale"]["region"] == "US"
+    assert payload["fonts"]["families"] == [
+        "Helvetica Neue",
+        "PingFang SC",
+        "Fira Code",
+        "IBM Plex Sans",
+    ]
+    assert payload["voices"]["items"] == ["Alex", "Samantha", "Moira (Enhanced)", "Karen (Premium)"]
+    assert "webGl" not in payload
+    assert 1 <= payload["window"]["history"]["length"] <= 5
 
 
 def test_launch_options_rejects_literal_readme_placeholder_path(
@@ -459,7 +456,7 @@ def test_launch_options_rejects_literal_readme_placeholder_path(
         )
 
 
-def test_launch_options_reads_properties_and_version_from_macos_bundle(
+def test_launch_options_reads_version_from_macos_bundle(
     modules: tuple[Any, Any, Any],
     fake_fingerprint: FakeFingerprint,
     monkeypatch: pytest.MonkeyPatch,
@@ -475,7 +472,6 @@ def test_launch_options_reads_properties_and_version_from_macos_bundle(
 
     resources = executable_path.parent.parent / "Resources"
     resources.mkdir(parents=True, exist_ok=True)
-    shutil.copyfile(PROPERTIES_PATH, resources / "properties.json")
     (resources / "application.ini").write_text(
         "[App]\nVersion=146.0.1-beta.25\n",
         encoding="utf-8",
@@ -485,7 +481,7 @@ def test_launch_options_reads_properties_and_version_from_macos_bundle(
     payload = _decode_camou_config(options["env"])
 
     assert options["executable_path"] == str(executable_path)
-    assert payload["navigator.userAgent"].endswith("Firefox/146.0")
+    assert payload["navigator"]["userAgent"].endswith("Firefox/146.0")
 
 
 def test_get_asset_by_name_returns_packaged_path(modules: tuple[Any, Any, Any]) -> None:
@@ -499,7 +495,5 @@ def test_get_asset_by_name_returns_packaged_path(modules: tuple[Any, Any, Any]) 
 
 
 def _decode_camou_config(env: Dict[str, Any]) -> Dict[str, Any]:
-    chunks: List[str] = []
-    for key in sorted(name for name in env if name.startswith("CAMOU_CONFIG_")):
-        chunks.append(env[key])
-    return json.loads("".join(chunks))
+    with open(env["CAMOU_CONFIG_PATH"], encoding="utf-8") as handle:
+        return json.load(handle)

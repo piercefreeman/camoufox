@@ -16,7 +16,17 @@ from browserforge.fingerprints import (
     ScreenFingerprint,
 )
 
-from camoufox.pkgman import load_yaml
+from ._generated_profile import (
+    AudioProfile,
+    CamoufoxProfile,
+    CanvasProfile,
+    FontsProfile,
+    LocaleProfile,
+    NavigatorProfile,
+    ScreenProfile,
+    VoicesProfile,
+    WindowProfile,
+)
 
 _GENERATED_FINGERPRINT_IDS: set[int] = set()
 
@@ -43,7 +53,7 @@ def generate_context_fingerprint(
     override and compiled through the same host-compatibility layer.
 
     Returns a dictionary with:
-    - `config`: the final CAMOU_CONFIG-style values
+    - `config`: the final generated CamoufoxProfile
     - `context_options`: the Playwright context kwargs derived from that config
     - `init_script`: the JavaScript initializer that applies per-context values
     """
@@ -68,7 +78,7 @@ def generate_context_fingerprint(
         screen = compiler.screen_from_preset(preset, config)
 
     if timezone:
-        config["timezone"] = timezone
+        config.timezone = timezone
     if locale:
         _apply_locale_override(config, locale)
 
@@ -77,9 +87,9 @@ def generate_context_fingerprint(
         debug,
         "Fingerprint ready: "
         f"screen={screen.width}x{screen.height}, "
-        f"fonts={len(config.get('fonts', []))}, "
-        f"voices={len(config.get('voices', []))}, "
-        f"timezone={config.get('timezone', 'system')}",
+        f"fonts={len(config.fonts.families) if config.fonts and config.fonts.families else 0}, "
+        f"voices={len(config.voices.items) if config.voices and config.voices.items else 0}, "
+        f"timezone={config.timezone or 'system'}",
     )
     _debug_log(debug, f"Context options ready: {context_options}")
 
@@ -110,9 +120,9 @@ def generate_fingerprint(
     return fingerprint
 
 
-def from_browserforge(fingerprint: Fingerprint, ff_version: str | None = None) -> dict[str, Any]:
+def from_browserforge(fingerprint: Fingerprint, ff_version: str | None = None) -> CamoufoxProfile:
     """
-    Compile a BrowserForge fingerprint into a host-compatible `CAMOU_CONFIG`.
+    Compile a BrowserForge fingerprint into a host-compatible `CamoufoxProfile`.
 
     Only a small set of values are carried forward: Firefox navigator fields,
     screen/window geometry, timezone/locale, noise seeds, and the sampled font
@@ -121,9 +131,9 @@ def from_browserforge(fingerprint: Fingerprint, ff_version: str | None = None) -
     return _FirefoxFingerprintCompiler.current().compile_browserforge(fingerprint, ff_version)
 
 
-def from_preset(preset: dict[str, Any], ff_version: str | None = None) -> dict[str, Any]:
+def from_preset(preset: dict[str, Any], ff_version: str | None = None) -> CamoufoxProfile:
     """
-    Compile an explicit caller-supplied preset into a host-compatible `CAMOU_CONFIG`.
+    Compile an explicit caller-supplied preset into a host-compatible `CamoufoxProfile`.
 
     This path exists for callers that already have a preset dictionary and want
     Camoufox to normalize it the same way as BrowserForge output. Camoufox no
@@ -143,42 +153,6 @@ def _debug_log(enabled: bool, message: str) -> None:
     if enabled:
         print(f"[camoufox:fingerprint] {message}")
 
-
-_BROWSERFORGE_MAPPING = load_yaml("browserforge.yml")
-
-_PUBLIC_CONFIG_KEYS = frozenset(
-    {
-        "audio:seed",
-        "canvas:seed",
-        "fonts",
-        "fonts:spacing_seed",
-        "locale:language",
-        "locale:region",
-        "locale:script",
-        "navigator.appVersion",
-        "navigator.language",
-        "navigator.oscpu",
-        "navigator.platform",
-        "navigator.userAgent",
-        "screen.availHeight",
-        "screen.availLeft",
-        "screen.availTop",
-        "screen.availWidth",
-        "screen.colorDepth",
-        "screen.height",
-        "screen.pixelDepth",
-        "screen.width",
-        "timezone",
-        "voices",
-        "window.devicePixelRatio",
-        "window.innerHeight",
-        "window.innerWidth",
-        "window.outerHeight",
-        "window.outerWidth",
-        "window.screenX",
-        "window.screenY",
-    }
-)
 
 _HOST_ARCH_MAP = {
     "aarch64": "arm64",
@@ -306,91 +280,85 @@ class _FirefoxFingerprintCompiler:
         self,
         fingerprint: Fingerprint,
         ff_version: str | None,
-    ) -> dict[str, Any]:
-        config: dict[str, Any] = {}
-        self._cast_to_config(config, _BROWSERFORGE_MAPPING, asdict(fingerprint), ff_version)
-        _copy_screen_offsets(config, fingerprint.screen)
+    ) -> CamoufoxProfile:
+        source = asdict(fingerprint)
+        navigator = source.get("navigator", {})
+        screen = asdict(fingerprint.screen)
 
-        user_agent = config.get("navigator.userAgent")
-        if isinstance(user_agent, str):
-            config["navigator.appVersion"] = _derive_app_version(user_agent)
+        profile = CamoufoxProfile(
+            navigator=_navigator_from_browserforge(navigator, ff_version),
+            screen=_screen_from_mapping(screen),
+            window=_window_from_mapping(screen),
+        )
+        _copy_screen_offsets(profile, fingerprint.screen)
+        self._finalize_config(profile)
+        return profile
 
-        self._finalize_config(config)
-        return _filter_public_config(config)
-
-    def compile_preset(self, preset: dict[str, Any], ff_version: str | None) -> dict[str, Any]:
+    def compile_preset(self, preset: dict[str, Any], ff_version: str | None) -> CamoufoxProfile:
         _normalize_target_os(_preset_target_os(preset))
 
-        config: dict[str, Any] = {}
         navigator = preset.get("navigator", {})
         screen = preset.get("screen", {})
 
+        profile = CamoufoxProfile(
+            navigator=NavigatorProfile(),
+            screen=ScreenProfile(),
+            window=WindowProfile(),
+        )
+
         user_agent = navigator.get("userAgent")
         if isinstance(user_agent, str):
-            config["navigator.userAgent"] = _patch_firefox_version(user_agent, ff_version)
-            config["navigator.appVersion"] = _derive_app_version(config["navigator.userAgent"])
+            profile.navigator.user_agent = _patch_firefox_version(user_agent, ff_version)
+            profile.navigator.app_version = _derive_app_version(profile.navigator.user_agent)
 
         if isinstance(navigator.get("platform"), str):
-            config["navigator.platform"] = navigator["platform"]
+            profile.navigator.platform = navigator["platform"]
         if isinstance(navigator.get("oscpu"), str):
-            config["navigator.oscpu"] = navigator["oscpu"]
+            profile.navigator.oscpu = navigator["oscpu"]
         if isinstance(preset.get("timezone"), str):
-            config["timezone"] = preset["timezone"]
+            profile.timezone = preset["timezone"]
 
-        for source_key, target_key in (
-            ("width", "screen.width"),
-            ("height", "screen.height"),
-            ("availWidth", "screen.availWidth"),
-            ("availHeight", "screen.availHeight"),
-            ("availLeft", "screen.availLeft"),
-            ("availTop", "screen.availTop"),
-            ("colorDepth", "screen.colorDepth"),
-            ("pixelDepth", "screen.pixelDepth"),
+        for source_key, target_attr in (
+            ("width", "width"),
+            ("height", "height"),
+            ("availWidth", "avail_width"),
+            ("availHeight", "avail_height"),
+            ("availLeft", "avail_left"),
+            ("availTop", "avail_top"),
+            ("colorDepth", "color_depth"),
+            ("pixelDepth", "pixel_depth"),
         ):
             value = screen.get(source_key)
             if isinstance(value, int):
-                config[target_key] = max(value, 0)
+                setattr(profile.screen, target_attr, max(value, 0))
 
         device_pixel_ratio = screen.get("devicePixelRatio")
-        if isinstance(device_pixel_ratio, (int, float)):
-            config["window.devicePixelRatio"] = float(device_pixel_ratio)
+        if isinstance(device_pixel_ratio, int | float):
+            profile.window.device_pixel_ratio = float(device_pixel_ratio)
 
-        self._finalize_config(config)
-        return _filter_public_config(config)
+        self._finalize_config(profile)
+        return profile
 
     def screen_from_browserforge(
         self,
         fingerprint: Fingerprint,
-        config: dict[str, Any],
+        config: CamoufoxProfile,
     ) -> _CompiledScreen:
         screen = asdict(fingerprint.screen)
-        return _CompiledScreen(
-            width=_as_optional_int(config.get("screen.width")) or _as_optional_int(screen.get("width")),
-            height=_as_optional_int(config.get("screen.height")) or _as_optional_int(screen.get("height")),
-            color_depth=_as_optional_int(config.get("screen.colorDepth"))
-            or _as_optional_int(screen.get("colorDepth")),
-            device_pixel_ratio=_extract_device_pixel_ratio(screen),
-        )
+        return _compiled_screen_from_profile(config, screen)
 
-    def screen_from_preset(self, preset: dict[str, Any], config: dict[str, Any]) -> _CompiledScreen:
+    def screen_from_preset(self, preset: dict[str, Any], config: CamoufoxProfile) -> _CompiledScreen:
         screen = preset.get("screen", {})
-        return _CompiledScreen(
-            width=_as_optional_int(config.get("screen.width")) or _as_optional_int(screen.get("width")),
-            height=_as_optional_int(config.get("screen.height")) or _as_optional_int(screen.get("height")),
-            color_depth=_as_optional_int(config.get("screen.colorDepth"))
-            or _as_optional_int(screen.get("colorDepth")),
-            device_pixel_ratio=_as_optional_float(config.get("window.devicePixelRatio"))
-            or _as_optional_float(screen.get("devicePixelRatio")),
-        )
+        return _compiled_screen_from_profile(config, screen)
 
     def build_context_options(
         self,
-        config: dict[str, Any],
+        config: CamoufoxProfile,
         screen: _CompiledScreen,
     ) -> dict[str, Any]:
         options: dict[str, Any] = {}
 
-        user_agent = config.get("navigator.userAgent")
+        user_agent = config.navigator.user_agent if config.navigator else None
         if isinstance(user_agent, str):
             options["user_agent"] = user_agent
 
@@ -403,11 +371,11 @@ class _FirefoxFingerprintCompiler:
         if screen.device_pixel_ratio:
             options["device_scale_factor"] = screen.device_pixel_ratio
 
-        timezone = config.get("timezone")
+        timezone = config.timezone
         if isinstance(timezone, str):
             options["timezone_id"] = timezone
 
-        language = config.get("navigator.language")
+        language = config.navigator.language if config.navigator else None
         if isinstance(language, str):
             options["locale"] = language
 
@@ -415,23 +383,23 @@ class _FirefoxFingerprintCompiler:
 
     def build_init_script(
         self,
-        config: dict[str, Any],
+        config: CamoufoxProfile,
         screen: _CompiledScreen,
         webrtc_ip: str | None,
     ) -> str:
         values = {
-            "audioFingerprintSeed": config.get("audio:seed"),
-            "canvasSeed": config.get("canvas:seed"),
-            "fontList": config.get("fonts"),
-            "fontSpacingSeed": config.get("fonts:spacing_seed"),
-            "navigatorOscpu": config.get("navigator.oscpu"),
-            "navigatorPlatform": config.get("navigator.platform"),
-            "navigatorUserAgent": config.get("navigator.userAgent"),
+            "audioFingerprintSeed": config.audio.seed if config.audio else None,
+            "canvasSeed": config.canvas.seed if config.canvas else None,
+            "fontList": config.fonts.families if config.fonts else None,
+            "fontSpacingSeed": config.fonts.spacing_seed if config.fonts else None,
+            "navigatorOscpu": config.navigator.oscpu if config.navigator else None,
+            "navigatorPlatform": config.navigator.platform if config.navigator else None,
+            "navigatorUserAgent": config.navigator.user_agent if config.navigator else None,
             "screenColorDepth": screen.color_depth,
             "screenHeight": screen.height,
             "screenWidth": screen.width,
-            "speechVoices": config.get("voices"),
-            "timezone": config.get("timezone"),
+            "speechVoices": config.voices.items if config.voices else None,
+            "timezone": config.timezone,
             "webrtcIP": webrtc_ip or "",
         }
 
@@ -489,48 +457,24 @@ class _FirefoxFingerprintCompiler:
         lines.append("})();")
         return "\n".join(lines)
 
-    def _finalize_config(self, config: dict[str, Any]) -> None:
+    def _finalize_config(self, config: CamoufoxProfile) -> None:
         _ensure_oscpu(config)
         _snap_screen_to_common_macos_sizes(config)
         _merge_host_inventories(config, _MacOSHostProfile.current())
         _merge_seed_values(config)
 
-    def _cast_to_config(
-        self,
-        target: dict[str, Any],
-        schema: dict[str, Any],
-        source: dict[str, Any],
-        ff_version: str | None,
-    ) -> None:
-        for key, value in source.items():
-            if value is None:
-                continue
 
-            mapped = schema.get(key)
-            if mapped is None:
-                continue
-
-            if isinstance(value, dict):
-                self._cast_to_config(target, mapped, value, ff_version)
-                continue
-
-            if isinstance(value, str) and ff_version:
-                value = _patch_firefox_version(value, ff_version)
-            if isinstance(value, int) and mapped.startswith("screen."):
-                value = max(value, 0)
-
-            target[mapped] = value
-
-
-def _apply_locale_override(config: dict[str, Any], locale: str) -> None:
+def _apply_locale_override(config: CamoufoxProfile, locale: str) -> None:
     from .locales import normalize_locale
 
     parsed = normalize_locale(locale)
-    config["locale:language"] = parsed.language
-    config["locale:region"] = parsed.region
-    config["navigator.language"] = parsed.as_string
+    config.locale = config.locale or LocaleProfile()
+    config.navigator = config.navigator or NavigatorProfile()
+    config.locale.language = parsed.language
+    config.locale.region = parsed.region
+    config.navigator.language = parsed.as_string
     if parsed.script:
-        config["locale:script"] = parsed.script
+        config.locale.script = parsed.script
 
 
 def _normalize_target_os(value: Any | None) -> str:
@@ -581,7 +525,7 @@ def _as_optional_int(value: Any) -> int | None:
 
 
 def _as_optional_float(value: Any) -> float | None:
-    if isinstance(value, (int, float)):
+    if isinstance(value, int | float):
         return float(value)
     return None
 
@@ -594,37 +538,139 @@ def _extract_device_pixel_ratio(screen: dict[str, Any]) -> float | None:
     return None
 
 
-def _merge_seed_values(config: dict[str, Any]) -> None:
-    config.setdefault("fonts:spacing_seed", randint(1, 4_294_967_295))  # nosec
-    config.setdefault("audio:seed", randint(1, 4_294_967_295))  # nosec
-    config.setdefault("canvas:seed", randint(1, 4_294_967_295))  # nosec
+def _navigator_from_browserforge(navigator: dict[str, Any], ff_version: str | None) -> NavigatorProfile:
+    profile = NavigatorProfile()
+    user_agent = navigator.get("userAgent")
+    if isinstance(user_agent, str):
+        profile.user_agent = _patch_firefox_version(user_agent, ff_version)
+        profile.app_version = _derive_app_version(profile.user_agent)
+
+    for source_key, target_attr in (
+        ("doNotTrack", "do_not_track"),
+        ("appCodeName", "app_code_name"),
+        ("appName", "app_name"),
+        ("oscpu", "oscpu"),
+        ("platform", "platform"),
+        ("hardwareConcurrency", "hardware_concurrency"),
+        ("product", "product"),
+        ("maxTouchPoints", "max_touch_points"),
+    ):
+        value = navigator.get(source_key)
+        if value is not None:
+            setattr(profile, target_attr, value)
+
+    extra = navigator.get("extraProperties", {})
+    if isinstance(extra, dict) and isinstance(extra.get("globalPrivacyControl"), bool):
+        profile.global_privacy_control = extra["globalPrivacyControl"]
+
+    return profile
 
 
-def _merge_host_inventories(config: dict[str, Any], host: _MacOSHostProfile) -> None:
-    config["fonts"] = host.sample_fonts()
-    config["voices"] = host.sample_voices()
+def _screen_from_mapping(screen: dict[str, Any]) -> ScreenProfile:
+    profile = ScreenProfile()
+    for source_key, target_attr in (
+        ("availLeft", "avail_left"),
+        ("availTop", "avail_top"),
+        ("availWidth", "avail_width"),
+        ("availHeight", "avail_height"),
+        ("height", "height"),
+        ("width", "width"),
+        ("colorDepth", "color_depth"),
+        ("pixelDepth", "pixel_depth"),
+        ("pageXOffset", "page_x_offset"),
+        ("pageYOffset", "page_y_offset"),
+    ):
+        value = screen.get(source_key)
+        if isinstance(value, int) and target_attr in {
+            "avail_left",
+            "avail_top",
+            "avail_width",
+            "avail_height",
+            "height",
+            "width",
+            "color_depth",
+            "pixel_depth",
+        }:
+            value = max(value, 0)
+        if value is not None:
+            setattr(profile, target_attr, value)
+    return profile
 
 
-def _filter_public_config(config: dict[str, Any]) -> dict[str, Any]:
-    return {key: value for key, value in config.items() if key in _PUBLIC_CONFIG_KEYS}
+def _window_from_mapping(screen: dict[str, Any]) -> WindowProfile:
+    profile = WindowProfile()
+    for source_key, target_attr in (
+        ("outerHeight", "outer_height"),
+        ("outerWidth", "outer_width"),
+        ("innerHeight", "inner_height"),
+        ("innerWidth", "inner_width"),
+        ("screenX", "screen_x"),
+        ("screenY", "screen_y"),
+    ):
+        value = screen.get(source_key)
+        if isinstance(value, int) and target_attr in {
+            "outer_height",
+            "outer_width",
+            "inner_height",
+            "inner_width",
+        }:
+            value = max(value, 0)
+        if value is not None:
+            setattr(profile, target_attr, value)
+
+    profile.device_pixel_ratio = _extract_device_pixel_ratio(screen)
+    return profile
 
 
-def _copy_screen_offsets(config: dict[str, Any], screen: ScreenFingerprint) -> None:
-    if "window.screenX" not in config:
-        config["window.screenX"] = max(getattr(screen, "screenX", 0), 0)
-    if "window.screenY" in config:
+def _compiled_screen_from_profile(config: CamoufoxProfile, source_screen: dict[str, Any]) -> _CompiledScreen:
+    return _CompiledScreen(
+        width=(config.screen.width if config.screen else None)
+        or _as_optional_int(source_screen.get("width")),
+        height=(config.screen.height if config.screen else None)
+        or _as_optional_int(source_screen.get("height")),
+        color_depth=(config.screen.color_depth if config.screen else None)
+        or _as_optional_int(source_screen.get("colorDepth")),
+        device_pixel_ratio=(config.window.device_pixel_ratio if config.window else None)
+        or _extract_device_pixel_ratio(source_screen),
+    )
+
+
+def _merge_seed_values(config: CamoufoxProfile) -> None:
+    config.fonts = config.fonts or FontsProfile()
+    config.audio = config.audio or AudioProfile()
+    config.canvas = config.canvas or CanvasProfile()
+    if config.fonts.spacing_seed is None:
+        config.fonts.spacing_seed = randint(1, 4_294_967_295)  # nosec
+    if config.audio.seed is None:
+        config.audio.seed = randint(1, 4_294_967_295)  # nosec
+    if config.canvas.seed is None:
+        config.canvas.seed = randint(1, 4_294_967_295)  # nosec
+
+
+def _merge_host_inventories(config: CamoufoxProfile, host: _MacOSHostProfile) -> None:
+    config.fonts = config.fonts or FontsProfile()
+    config.voices = config.voices or VoicesProfile()
+    config.fonts.families = host.sample_fonts()
+    config.voices.items = host.sample_voices()
+
+
+def _copy_screen_offsets(config: CamoufoxProfile, screen: ScreenFingerprint) -> None:
+    config.window = config.window or WindowProfile()
+    if config.window.screen_x is None:
+        config.window.screen_x = max(getattr(screen, "screenX", 0), 0)
+    if config.window.screen_y is not None:
         return
 
     screen_x = getattr(screen, "screenX", 0)
     if screen_x in range(-50, 51):
-        config["window.screenY"] = max(screen_x, 0)
+        config.window.screen_y = max(screen_x, 0)
         return
 
     avail_height = getattr(screen, "availHeight", 0) - getattr(screen, "outerHeight", 0)
     if avail_height <= 0:
-        config["window.screenY"] = 0
+        config.window.screen_y = 0
     else:
-        config["window.screenY"] = randrange(0, avail_height)  # nosec
+        config.window.screen_y = randrange(0, avail_height)  # nosec
 
 
 def _apply_window_override(fingerprint: Fingerprint, outer_width: int, outer_height: int) -> None:
@@ -640,13 +686,14 @@ def _apply_window_override(fingerprint: Fingerprint, outer_width: int, outer_hei
         cast(Any, screen).screenY = max((screen.height - outer_height) // 2, 0)
 
 
-def _ensure_oscpu(config: dict[str, Any]) -> None:
-    if config.get("navigator.oscpu"):
+def _ensure_oscpu(config: CamoufoxProfile) -> None:
+    if not config.navigator:
+        return
+    if config.navigator.oscpu:
         return
 
-    platform_name = config.get("navigator.platform")
-    if platform_name == "MacIntel":
-        config["navigator.oscpu"] = "Intel Mac OS X 10.15"
+    if config.navigator.platform == "MacIntel":
+        config.navigator.oscpu = "Intel Mac OS X 10.15"
 
 
 def _patch_firefox_version(value: str, ff_version: str | None) -> str:
@@ -664,9 +711,12 @@ def _derive_app_version(user_agent: str) -> str:
     return f"5.0 ({match.group(1)})"
 
 
-def _snap_screen_to_common_macos_sizes(config: dict[str, Any]) -> None:
-    width = _as_optional_int(config.get("screen.width"))
-    height = _as_optional_int(config.get("screen.height"))
+def _snap_screen_to_common_macos_sizes(config: CamoufoxProfile) -> None:
+    if not config.screen:
+        return
+
+    width = _as_optional_int(config.screen.width)
+    height = _as_optional_int(config.screen.height)
     if width is None or height is None:
         return
 
@@ -675,26 +725,29 @@ def _snap_screen_to_common_macos_sizes(config: dict[str, Any]) -> None:
         key=lambda size: abs(size[0] - width) + abs(size[1] - height),
     )
 
-    config["screen.width"] = snapped_width
-    config["screen.height"] = snapped_height
-    config["screen.availWidth"] = snapped_width
-    config["screen.availHeight"] = snapped_height
+    config.screen.width = snapped_width
+    config.screen.height = snapped_height
+    config.screen.avail_width = snapped_width
+    config.screen.avail_height = snapped_height
 
-    outer_width = _as_optional_int(config.get("window.outerWidth"))
-    inner_width = _as_optional_int(config.get("window.innerWidth"))
+    if not config.window:
+        return
+
+    outer_width = _as_optional_int(config.window.outer_width)
+    inner_width = _as_optional_int(config.window.inner_width)
     if outer_width is not None:
         width_delta = outer_width - inner_width if inner_width is not None else 0
-        config["window.outerWidth"] = min(outer_width, snapped_width)
+        config.window.outer_width = min(outer_width, snapped_width)
         if inner_width is not None:
-            config["window.innerWidth"] = max(config["window.outerWidth"] - width_delta, 0)
+            config.window.inner_width = max(config.window.outer_width - width_delta, 0)
 
-    outer_height = _as_optional_int(config.get("window.outerHeight"))
-    inner_height = _as_optional_int(config.get("window.innerHeight"))
+    outer_height = _as_optional_int(config.window.outer_height)
+    inner_height = _as_optional_int(config.window.inner_height)
     if outer_height is not None:
         height_delta = outer_height - inner_height if inner_height is not None else 0
-        config["window.outerHeight"] = min(outer_height, snapped_height)
+        config.window.outer_height = min(outer_height, snapped_height)
         if inner_height is not None:
-            config["window.innerHeight"] = max(config["window.outerHeight"] - height_delta, 0)
+            config.window.inner_height = max(config.window.outer_height - height_delta, 0)
 
 
 def _probe_gpu_family() -> tuple[str | None, str | None]:

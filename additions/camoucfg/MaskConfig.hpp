@@ -1,5 +1,5 @@
 /*
-Helper to extract values from the CAMOU_CONFIG environment variable(s).
+Helper to extract values from the CAMOU_CONFIG_PATH runtime profile.
 Written by daijro.
 */
 
@@ -13,9 +13,12 @@ Written by daijro.
 #include "mozilla/glue/Debug.h"
 #include <cstdlib>
 #include <cstdio>
+#include <fstream>
 #include <mutex>
 #include <variant>
 #include <cstddef>
+#include <sstream>
+#include <unordered_map>
 #include <vector>
 #include <algorithm>
 
@@ -51,32 +54,27 @@ inline const nlohmann::json& GetJson() {
   static nlohmann::json jsonConfig;
 
   std::call_once(initFlag, []() {
-    std::string jsonString;
-    int index = 1;
-
-    while (true) {
-      std::string envName = "CAMOU_CONFIG_" + std::to_string(index);
-      auto partialConfig = get_env_utf8(envName);
-      if (!partialConfig) break;
-
-      jsonString += *partialConfig;
-      index++;
-    }
-
-    if (jsonString.empty()) {
-      // Check for the original CAMOU_CONFIG as fallback
-      auto originalConfig = get_env_utf8("CAMOU_CONFIG");
-      if (originalConfig) jsonString = *originalConfig;
-    }
-
-    if (jsonString.empty()) {
+    auto configPath = get_env_utf8("CAMOU_CONFIG_PATH");
+    if (!configPath || configPath->empty()) {
       jsonConfig = nlohmann::json{};
       return;
     }
 
-    // Validate
+    std::ifstream configFile(*configPath, std::ios::in | std::ios::binary);
+    if (!configFile) {
+      printf_stderr("ERROR: Could not open CAMOU_CONFIG_PATH: %s\n",
+                    configPath->c_str());
+      jsonConfig = nlohmann::json{};
+      return;
+    }
+
+    std::ostringstream buffer;
+    buffer << configFile.rdbuf();
+    std::string jsonString = buffer.str();
+
     if (!nlohmann::json::accept(jsonString)) {
-      printf_stderr("ERROR: Invalid JSON passed to CAMOU_CONFIG!\n");
+      printf_stderr("ERROR: Invalid JSON passed to CAMOU_CONFIG_PATH: %s\n",
+                    configPath->c_str());
       jsonConfig = nlohmann::json{};
       return;
     }
@@ -87,21 +85,137 @@ inline const nlohmann::json& GetJson() {
   return jsonConfig;
 }
 
-inline bool HasKey(const std::string& key, const nlohmann::json& data) {
-  return data.contains(key);
+inline const std::unordered_map<std::string, std::vector<std::string>>&
+KeyPaths() {
+  static const std::unordered_map<std::string, std::vector<std::string>> paths = {
+      {"navigator.userAgent", {"navigator", "userAgent"}},
+      {"navigator.doNotTrack", {"navigator", "doNotTrack"}},
+      {"navigator.appCodeName", {"navigator", "appCodeName"}},
+      {"navigator.appName", {"navigator", "appName"}},
+      {"navigator.appVersion", {"navigator", "appVersion"}},
+      {"navigator.oscpu", {"navigator", "oscpu"}},
+      {"navigator.language", {"navigator", "language"}},
+      {"navigator.languages", {"navigator", "languages"}},
+      {"navigator.platform", {"navigator", "platform"}},
+      {"navigator.hardwareConcurrency", {"navigator", "hardwareConcurrency"}},
+      {"navigator.product", {"navigator", "product"}},
+      {"navigator.productSub", {"navigator", "productSub"}},
+      {"navigator.maxTouchPoints", {"navigator", "maxTouchPoints"}},
+      {"navigator.cookieEnabled", {"navigator", "cookieEnabled"}},
+      {"navigator.globalPrivacyControl", {"navigator", "globalPrivacyControl"}},
+      {"navigator.buildID", {"navigator", "buildID"}},
+      {"navigator.onLine", {"navigator", "onLine"}},
+      {"screen.availHeight", {"screen", "availHeight"}},
+      {"screen.availWidth", {"screen", "availWidth"}},
+      {"screen.availTop", {"screen", "availTop"}},
+      {"screen.availLeft", {"screen", "availLeft"}},
+      {"screen.height", {"screen", "height"}},
+      {"screen.width", {"screen", "width"}},
+      {"screen.colorDepth", {"screen", "colorDepth"}},
+      {"screen.pixelDepth", {"screen", "pixelDepth"}},
+      {"screen.pageXOffset", {"screen", "pageXOffset"}},
+      {"screen.pageYOffset", {"screen", "pageYOffset"}},
+      {"window.scrollMinX", {"window", "scrollMinX"}},
+      {"window.scrollMinY", {"window", "scrollMinY"}},
+      {"window.scrollMaxX", {"window", "scrollMaxX"}},
+      {"window.scrollMaxY", {"window", "scrollMaxY"}},
+      {"window.outerHeight", {"window", "outerHeight"}},
+      {"window.outerWidth", {"window", "outerWidth"}},
+      {"window.innerHeight", {"window", "innerHeight"}},
+      {"window.innerWidth", {"window", "innerWidth"}},
+      {"window.screenX", {"window", "screenX"}},
+      {"window.screenY", {"window", "screenY"}},
+      {"window.history.length", {"window", "history", "length"}},
+      {"window.devicePixelRatio", {"window", "devicePixelRatio"}},
+      {"document.body.clientWidth", {"document", "body", "clientWidth"}},
+      {"document.body.clientHeight", {"document", "body", "clientHeight"}},
+      {"document.body.clientTop", {"document", "body", "clientTop"}},
+      {"document.body.clientLeft", {"document", "body", "clientLeft"}},
+      {"headers.User-Agent", {"headers", "User-Agent"}},
+      {"headers.Accept-Language", {"headers", "Accept-Language"}},
+      {"headers.Accept-Encoding", {"headers", "Accept-Encoding"}},
+      {"webrtc:ipv4", {"webrtc", "ipv4"}},
+      {"webrtc:ipv6", {"webrtc", "ipv6"}},
+      {"webrtc:localipv4", {"webrtc", "localipv4"}},
+      {"webrtc:localipv6", {"webrtc", "localipv6"}},
+      {"battery:charging", {"battery", "charging"}},
+      {"battery:chargingTime", {"battery", "chargingTime"}},
+      {"battery:dischargingTime", {"battery", "dischargingTime"}},
+      {"battery:level", {"battery", "level"}},
+      {"fonts", {"fonts", "families"}},
+      {"fonts:spacing_seed", {"fonts", "spacingSeed"}},
+      {"audio:seed", {"audio", "seed"}},
+      {"canvas:seed", {"canvas", "seed"}},
+      {"canvas:aaOffset", {"canvas", "aaOffset"}},
+      {"canvas:aaCapOffset", {"canvas", "aaCapOffset"}},
+      {"geolocation:latitude", {"geolocation", "latitude"}},
+      {"geolocation:longitude", {"geolocation", "longitude"}},
+      {"geolocation:accuracy", {"geolocation", "accuracy"}},
+      {"locale:language", {"locale", "language"}},
+      {"locale:region", {"locale", "region"}},
+      {"locale:script", {"locale", "script"}},
+      {"locale:all", {"locale", "all"}},
+      {"humanize", {"humanize", "enabled"}},
+      {"humanize:maxTime", {"humanize", "maxTime"}},
+      {"humanize:minTime", {"humanize", "minTime"}},
+      {"AudioContext:sampleRate", {"audioContext", "sampleRate"}},
+      {"AudioContext:outputLatency", {"audioContext", "outputLatency"}},
+      {"AudioContext:maxChannelCount", {"audioContext", "maxChannelCount"}},
+      {"webGl:renderer", {"webGl", "renderer"}},
+      {"webGl:vendor", {"webGl", "vendor"}},
+      {"webGl:supportedExtensions", {"webGl", "supportedExtensions"}},
+      {"webGl:parameters", {"webGl", "parameters"}},
+      {"webGl:parameters:blockIfNotDefined",
+       {"webGl", "parametersBlockIfNotDefined"}},
+      {"webGl:shaderPrecisionFormats", {"webGl", "shaderPrecisionFormats"}},
+      {"webGl:shaderPrecisionFormats:blockIfNotDefined",
+       {"webGl", "shaderPrecisionFormatsBlockIfNotDefined"}},
+      {"webGl:contextAttributes", {"webGl", "contextAttributes"}},
+      {"webGl2:supportedExtensions", {"webGl2", "supportedExtensions"}},
+      {"webGl2:parameters", {"webGl2", "parameters"}},
+      {"webGl2:parameters:blockIfNotDefined",
+       {"webGl2", "parametersBlockIfNotDefined"}},
+      {"webGl2:shaderPrecisionFormats", {"webGl2", "shaderPrecisionFormats"}},
+      {"webGl2:shaderPrecisionFormats:blockIfNotDefined",
+       {"webGl2", "shaderPrecisionFormatsBlockIfNotDefined"}},
+      {"webGl2:contextAttributes", {"webGl2", "contextAttributes"}},
+      {"voices", {"voices", "items"}},
+      {"voices:blockIfNotDefined", {"voices", "blockIfNotDefined"}},
+      {"voices:fakeCompletion", {"voices", "fakeCompletion"}},
+      {"voices:fakeCompletion:charsPerSecond",
+       {"voices", "fakeCompletionCharsPerSecond"}},
+      {"mediaDevices:micros", {"mediaDevices", "micros"}},
+      {"mediaDevices:webcams", {"mediaDevices", "webcams"}},
+      {"mediaDevices:speakers", {"mediaDevices", "speakers"}},
+      {"mediaDevices:enabled", {"mediaDevices", "enabled"}},
+  };
+  return paths;
+}
+
+inline std::optional<nlohmann::json> GetValue(const std::string& key) {
+  const auto& data = GetJson();
+  auto path = KeyPaths().find(key);
+  if (path == KeyPaths().end()) return std::nullopt;
+
+  const nlohmann::json* cursor = &data;
+  for (const auto& part : path->second) {
+    if (!cursor->is_object() || !cursor->contains(part)) return std::nullopt;
+    cursor = &((*cursor)[part]);
+  }
+  return *cursor;
 }
 
 inline std::optional<std::string> GetString(const std::string& key) {
-  const auto& data = GetJson();
-  if (!HasKey(key, data)) return std::nullopt;
-  return data[key].get<std::string>();
+  auto value = GetValue(key);
+  if (!value) return std::nullopt;
+  return value->get<std::string>();
 }
 
 inline std::vector<std::string> GetStringList(const std::string& key) {
   std::vector<std::string> result;
-  const auto& data = GetJson();
-  if (!HasKey(key, data)) return {};
-  for (const auto& item : data[key]) {
+  auto value = GetValue(key);
+  if (!value) return {};
+  for (const auto& item : *value) {
     result.push_back(item.get<std::string>());
   }
   return result;
@@ -118,9 +232,9 @@ inline std::vector<std::string> GetStringListLower(const std::string& key) {
 
 template <typename T>
 inline std::optional<T> GetUintImpl(const std::string& key) {
-  const auto& data = GetJson();
-  if (!HasKey(key, data)) return std::nullopt;
-  if (data[key].is_number_unsigned()) return data[key].get<T>();
+  auto value = GetValue(key);
+  if (!value) return std::nullopt;
+  if (value->is_number_unsigned()) return value->get<T>();
   printf_stderr("ERROR: Value for key '%s' is not an unsigned integer\n",
                 key.c_str());
   return std::nullopt;
@@ -135,27 +249,27 @@ inline std::optional<uint32_t> GetUint32(const std::string& key) {
 }
 
 inline std::optional<int32_t> GetInt32(const std::string& key) {
-  const auto& data = GetJson();
-  if (!HasKey(key, data)) return std::nullopt;
-  if (data[key].is_number_integer()) return data[key].get<int32_t>();
+  auto value = GetValue(key);
+  if (!value) return std::nullopt;
+  if (value->is_number_integer()) return value->get<int32_t>();
   printf_stderr("ERROR: Value for key '%s' is not an integer\n", key.c_str());
   return std::nullopt;
 }
 
 inline std::optional<double> GetDouble(const std::string& key) {
-  const auto& data = GetJson();
-  if (!HasKey(key, data)) return std::nullopt;
-  if (data[key].is_number_float()) return data[key].get<double>();
-  if (data[key].is_number_unsigned() || data[key].is_number_integer())
-    return static_cast<double>(data[key].get<int64_t>());
+  auto value = GetValue(key);
+  if (!value) return std::nullopt;
+  if (value->is_number_float()) return value->get<double>();
+  if (value->is_number_unsigned() || value->is_number_integer())
+    return static_cast<double>(value->get<int64_t>());
   printf_stderr("ERROR: Value for key '%s' is not a double\n", key.c_str());
   return std::nullopt;
 }
 
 inline std::optional<bool> GetBool(const std::string& key) {
-  const auto& data = GetJson();
-  if (!HasKey(key, data)) return std::nullopt;
-  if (data[key].is_boolean()) return data[key].get<bool>();
+  auto value = GetValue(key);
+  if (!value) return std::nullopt;
+  if (value->is_boolean()) return value->get<bool>();
   printf_stderr("ERROR: Value for key '%s' is not a boolean\n", key.c_str());
   return std::nullopt;
 }
@@ -202,12 +316,12 @@ inline std::optional<std::array<int32_t, 4>> GetInt32Rect(
 
 inline std::optional<nlohmann::json> GetNested(const std::string& domain,
                                                std::string keyStr) {
-  auto data = GetJson();
-  if (!data.contains(domain)) return std::nullopt;
+  auto data = GetValue(domain);
+  if (!data || !data->is_object()) return std::nullopt;
 
-  if (!data[domain].contains(keyStr)) return std::nullopt;
+  if (!data->contains(keyStr)) return std::nullopt;
 
-  return data[domain][keyStr];
+  return (*data)[keyStr];
 }
 
 template <typename T>
@@ -287,14 +401,14 @@ inline std::optional<std::array<int32_t, 3UL>> MShaderData(
 inline std::optional<
     std::vector<std::tuple<std::string, std::string, std::string, bool, bool>>>
 MVoices() {
-  auto data = GetJson();
-  if (!data.contains("voices") || !data["voices"].is_array()) {
+  auto data = GetValue("voices");
+  if (!data || !data->is_array()) {
     return std::nullopt;
   }
 
   std::vector<std::tuple<std::string, std::string, std::string, bool, bool>>
       voices;
-  for (const auto& voice : data["voices"]) {
+  for (const auto& voice : *data) {
     // Check if voice has all required fields
     if (!voice.contains("lang") || !voice.contains("name") ||
         !voice.contains("voiceUri") || !voice.contains("isDefault") ||

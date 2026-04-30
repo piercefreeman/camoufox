@@ -11,7 +11,16 @@ pacman := python python-pip p7zip go msitools wget aria2 sqlite
 .PHONY: help fetch setup setup-minimal clean set-target distclean build package \
         build-launcher check-arch revert edits run bootstrap mozbootstrap dir \
         package-linux package-macos package-windows vcredist_arch patch unpatch \
-        workspace check-arg edit-cfg ff-dbg tests update-ubo-assets generate-assets-car
+        workspace check-arg edit-cfg ff-dbg tests update-ubo-assets generate-assets-car \
+        generate-openapi generate-openapi-python generate-openapi-cpp
+
+OPENAPI_SCHEMA := schemas/camoufox-profile.openapi.yaml
+PY_OPENAPI_MODELS := pythonlib/camoufox/_generated_profile.py
+CPP_OPENAPI_OUT := additions/camoucfg/generated/openapi
+OPENAPI_GENERATOR_IMAGE ?= openapitools/openapi-generator-cli:v7.22.0
+OPENAPI_GENERATOR ?= docker run --rm -v $(CURDIR):/local $(OPENAPI_GENERATOR_IMAGE)
+OPENAPI_SCHEMA_ARG ?= /local/$(OPENAPI_SCHEMA)
+CPP_OPENAPI_OUT_ARG ?= /local/$(CPP_OPENAPI_OUT)
 
 help:
 	@echo "Available targets:"
@@ -38,6 +47,7 @@ help:
 	@echo "  workspace       - Sets the workspace to a patch, assuming its applied"
 	@echo "  tests           - Runs the Playwright tests"
 	@echo "  update-ubo-assets - Update the uBOAssets.json file"
+	@echo "  generate-openapi - Generate Python and C++ profile models from OpenAPI schema"
 
 _ARGS := $(wordlist 2,$(words $(MAKECMDGOALS)),$(MAKECMDGOALS))
 $(eval $(_ARGS):;@:)
@@ -186,8 +196,8 @@ run-pw:
 run:
 	cd $(cf_source_dir) \
 	&& rm -rf ~/.camoufox obj-x86_64-pc-linux-gnu/tmp/profile-default \
-	&& CAMOU_CONFIG=$${CAMOU_CONFIG:-'{}'} \
-	&& CAMOU_CONFIG="$${CAMOU_CONFIG%?}, \"debug\": true}" ./mach run $(args)
+	&& printf '{"debug":true}\n' > /tmp/camoufox-debug-profile.json \
+	&& CAMOU_CONFIG_PATH=/tmp/camoufox-debug-profile.json ./mach run $(args)
 
 edit-cfg:
 	@if [ ! -f $(cf_source_dir)/obj-x86_64-pc-linux-gnu/dist/bin/camoufox.cfg ]; then \
@@ -243,5 +253,30 @@ update-ubo-assets:
 
 generate-assets-car:
 	bash ./scripts/generate-assets-car.sh
+
+generate-openapi: generate-openapi-python generate-openapi-cpp
+
+generate-openapi-python:
+	uvx --from datamodel-code-generator datamodel-codegen \
+		--input $(OPENAPI_SCHEMA) \
+		--input-file-type openapi \
+		--output $(PY_OPENAPI_MODELS) \
+		--output-model-type pydantic_v2.BaseModel \
+		--target-python-version 3.10 \
+		--use-standard-collections \
+		--use-union-operator \
+		--field-constraints \
+		--snake-case-field \
+		--extra-fields forbid \
+		--disable-timestamp
+
+generate-openapi-cpp:
+	rm -rf $(CPP_OPENAPI_OUT)
+	$(OPENAPI_GENERATOR) generate \
+		-i $(OPENAPI_SCHEMA_ARG) \
+		-g cpp-restsdk \
+		-o $(CPP_OPENAPI_OUT_ARG) \
+		--global-property models,supportingFiles \
+		--additional-properties hideGenerationTimestamp=true,modelPackage=camoucfg
 
 vcredist_arch := $(shell echo $(arch) | sed 's/x86_64/x64/' | sed 's/i686/x86/')

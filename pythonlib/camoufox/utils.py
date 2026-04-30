@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import configparser
 import os
+import tempfile
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 from os import environ
@@ -13,9 +14,22 @@ from typing import Any, Literal, TypeAlias, cast
 
 import orjson
 from browserforge.fingerprints import Fingerprint, Screen
+from pydantic import ValidationError
 from screeninfo import get_monitors
 from ua_parser import user_agent_parser
 
+from ._generated_profile import (
+    AudioProfile,
+    CamoufoxProfile,
+    CanvasProfile,
+    FontsProfile,
+    GeolocationProfile,
+    HistoryProfile,
+    HumanizeProfile,
+    LocaleProfile,
+    WebRtcProfile,
+    WindowProfile,
+)
 from ._warnings import LeakWarning
 from .addons import DefaultAddons, add_default_addons, confirm_paths
 from .exceptions import InvalidOS, InvalidPropertyType, NonFirefoxFingerprint
@@ -27,7 +41,7 @@ from .fingerprints import (
 )
 from .geolocation import geoip_allowed, get_geolocation
 from .ip import Proxy, public_ip, valid_ipv4, valid_ipv6
-from .locales import handle_locales
+from .locales import handle_locale
 from .pkgman import OS_NAME, get_path, installed_verstr, launch_path
 from .virtdisplay import VirtualDisplay
 
@@ -44,7 +58,7 @@ CACHE_PREFS = {
 
 def launch_options(
     *,
-    config: dict[str, Any] | None = None,
+    config: CamoufoxProfile | dict[str, Any] | None = None,
     os: ListOrString | None = None,
     block_images: bool | None = None,
     block_webrtc: bool | None = None,
@@ -178,21 +192,26 @@ def sync_attach_vd(
 
 
 def get_env_vars(
-    config_map: dict[str, Any],
+    config: CamoufoxProfile | dict[str, Any],
     user_agent_os: str,
 ) -> dict[str, str | float | bool]:
     """
-    Serialize a config map into the `CAMOU_CONFIG_N` environment variables.
+    Validate and serialize a config map into a runtime profile JSON file.
 
-    The browser bootstrap code reads these chunks and reconstructs the final
-    JSON payload before Firefox starts.
+    The browser bootstrap code reads `CAMOU_CONFIG_PATH` before Firefox starts.
     """
-    encoded = orjson.dumps(config_map).decode("utf-8")
-    chunk_size = 2047 if OS_NAME == "win" else 32767
+    profile = _build_runtime_profile(config)
 
-    env_vars: dict[str, str | float | bool] = {}
-    for index, start in enumerate(range(0, len(encoded), chunk_size), start=1):
-        env_vars[f"CAMOU_CONFIG_{index}"] = encoded[start : start + chunk_size]
+    with tempfile.NamedTemporaryFile(
+        mode="wb",
+        prefix="camoufox-profile-",
+        suffix=".json",
+        delete=False,
+    ) as handle:
+        handle.write(orjson.dumps(profile))
+        config_path = handle.name
+
+    env_vars: dict[str, str | float | bool] = {"CAMOU_CONFIG_PATH": config_path}
 
     if OS_NAME == "lin":
         directory_map = {"lin": "linux", "mac": "macos", "win": "windows"}
@@ -207,51 +226,32 @@ def get_env_vars(
     return env_vars
 
 
-def validate_config(config_map: dict[str, Any], path: Path | None = None) -> None:
+def validate_config(config: CamoufoxProfile | dict[str, Any], path: Path | None = None) -> None:
     """
-    Validate a config map against the browser `properties.json` schema.
+    Validate a profile payload against the generated Camoufox profile schema.
 
-    Unknown keys are ignored so newer Python code can still talk to slightly
-    older browser builds without failing hard on unsupported properties.
+    `path` is accepted for backward compatibility with older callers.
     """
-    property_types = _load_properties(path=path)
-    for key, value in config_map.items():
-        expected_type = property_types.get(key)
-        if not expected_type:
-            print(f"Skipping unknown patch {key} : {value}")
-            continue
-        if not validate_type(value, expected_type):
-            raise InvalidPropertyType(
-                f"Invalid type for property {key}. Expected {expected_type}, got {type(value).__name__}"
-            )
+    _ = path
+    _build_runtime_profile(config)
 
 
-def validate_type(value: Any, expected_type: str) -> bool:
-    """
-    Validate a single value against the browser property type schema.
-    """
-    if expected_type == "str":
-        return isinstance(value, str)
-    if expected_type == "int":
-        return isinstance(value, int) or (isinstance(value, float) and value.is_integer())
-    if expected_type == "uint":
-        return (
-            isinstance(value, int) or (isinstance(value, float) and value.is_integer())
-        ) and value >= 0
-    if expected_type == "double":
-        return isinstance(value, (float, int))
-    if expected_type == "bool":
-        return isinstance(value, bool)
-    if expected_type == "array":
-        return isinstance(value, list)
-    if expected_type == "dict":
-        return isinstance(value, dict)
-    return False
+def _build_runtime_profile(config: CamoufoxProfile | dict[str, Any]) -> dict[str, Any]:
+    try:
+        profile_data = (
+            config.model_dump(by_alias=True, exclude_none=True, mode="json")
+            if isinstance(config, CamoufoxProfile)
+            else config
+        )
+        profile = CamoufoxProfile.model_validate(profile_data)
+    except ValidationError as exc:
+        raise InvalidPropertyType(str(exc)) from exc
+    return profile.model_dump(by_alias=True, exclude_none=True, mode="json")
 
 
 @dataclass
 class _LaunchOptionBuilder:
-    config: dict[str, Any] | None
+    config: CamoufoxProfile | dict[str, Any] | None
     requested_os: ListOrString | None
     block_images: bool | None
     block_webrtc: bool | None
@@ -288,9 +288,10 @@ class _LaunchOptionBuilder:
     _manual_fonts: list[str] = field(init=False, repr=False)
 
     def __post_init__(self) -> None:
-        original_config = dict(self.config or {})
+        original_config = _coerce_profile(self.config)
+        configured_fonts = original_config.fonts.families if original_config.fonts else None
         self._manual_fonts = _unique_strings(
-            [*_string_list(original_config.get("fonts")), *(self.fonts or [])]
+            [*_string_list(configured_fonts), *(self.fonts or [])]
         )
 
         self.config = original_config
@@ -311,9 +312,10 @@ class _LaunchOptionBuilder:
         if isinstance(self.executable_path, str):
             self.executable_path = Path(abspath(self.executable_path))
 
-    def _config_map(self) -> dict[str, Any]:
+    def _profile(self) -> CamoufoxProfile:
         config = self.config
         assert config is not None
+        assert isinstance(config, CamoufoxProfile)
         return config
 
     def _addons_list(self) -> list[str]:
@@ -337,7 +339,7 @@ class _LaunchOptionBuilder:
         return prefs
 
     def build(self) -> dict[str, Any]:
-        config = self._config_map()
+        config = self._profile()
         env = self._env_map()
         args = self._launch_args()
         firefox_user_prefs = self._firefox_prefs()
@@ -359,7 +361,8 @@ class _LaunchOptionBuilder:
         ff_version_str = self._resolve_firefox_version(resolved_executable)
         _debug_log(self.debug, f"Resolved Firefox version: {ff_version_str}")
         generated_config = self._build_generated_config(target_os, ff_version_str)
-        _merge_missing(config, generated_config)
+        config = _merge_profile_missing(config, generated_config)
+        self.config = config
         _strip_gpu_overrides(config)
 
         self._apply_fonts()
@@ -373,14 +376,14 @@ class _LaunchOptionBuilder:
             print("[DEBUG] Config:")
             pprint(config)
 
-        _debug_log(self.debug, "Validating generated config against browser properties.json.")
+        _debug_log(self.debug, "Validating generated config against Camoufox profile schema.")
         validate_config(config, path=resolved_executable)
 
         result = {
             "args": args,
             "env": {
-                **get_env_vars(config, _user_agent_os(config)),
                 **env,
+                **get_env_vars(config, _user_agent_os(config)),
             },
             "executable_path": resolved_executable_path,
             "firefox_user_prefs": firefox_user_prefs,
@@ -393,14 +396,14 @@ class _LaunchOptionBuilder:
 
     def _configure_addons(self) -> None:
         addons = self._addons_list()
-        config = self._config_map()
+        config = self._profile()
 
         add_default_addons(addons, self.exclude_addons)
         if not addons:
             return
 
         confirm_paths(addons)
-        config["addons"] = addons
+        config.addons = addons
 
     def _resolve_firefox_version(self, executable_path: Path) -> str:
         if self.ff_version is None:
@@ -412,7 +415,7 @@ class _LaunchOptionBuilder:
         LeakWarning.warn("ff_version", self.i_know_what_im_doing)
         return str(self.ff_version)
 
-    def _build_generated_config(self, target_os: str, ff_version: str) -> dict[str, Any]:
+    def _build_generated_config(self, target_os: str, ff_version: str) -> CamoufoxProfile:
         env = self._env_map()
 
         if self.fingerprint is not None:
@@ -445,38 +448,52 @@ class _LaunchOptionBuilder:
         return self.fingerprint_preset
 
     def _apply_fonts(self) -> None:
-        config = self._config_map()
+        config = self._profile()
         firefox_user_prefs = self._firefox_prefs()
 
         if self.custom_fonts_only:
             firefox_user_prefs["gfx.bundled-fonts.activate"] = 0
             if not self._manual_fonts:
                 raise ValueError("No custom fonts were passed, but `custom_fonts_only` is enabled.")
-            config["fonts"] = self._manual_fonts
+            config.fonts = config.fonts or FontsProfile()
+            config.fonts.families = self._manual_fonts
             return
 
         if self._manual_fonts:
-            config["fonts"] = _unique_strings(
-                [*_string_list(config.get("fonts")), *self._manual_fonts]
+            config.fonts = config.fonts or FontsProfile()
+            config.fonts.families = _unique_strings(
+                [*_string_list(config.fonts.families), *self._manual_fonts]
             )
 
     def _apply_launch_defaults(self) -> None:
-        config = self._config_map()
+        config = self._profile()
 
-        _set_if_missing(config, "window.history.length", randrange(1, 6))  # nosec
-        _set_if_missing(config, "fonts:spacing_seed", randint(1, 4_294_967_295))  # nosec
-        _set_if_missing(config, "audio:seed", randint(1, 4_294_967_295))  # nosec
-        _set_if_missing(config, "canvas:seed", randint(1, 4_294_967_295))  # nosec
+        config.window = config.window or WindowProfile()
+        config.window.history = config.window.history or HistoryProfile()
+        if config.window.history.length is None:
+            config.window.history.length = randrange(1, 6)  # nosec
+
+        config.fonts = config.fonts or FontsProfile()
+        if config.fonts.spacing_seed is None:
+            config.fonts.spacing_seed = randint(1, 4_294_967_295)  # nosec
+
+        config.audio = config.audio or AudioProfile()
+        if config.audio.seed is None:
+            config.audio.seed = randint(1, 4_294_967_295)  # nosec
+
+        config.canvas = config.canvas or CanvasProfile()
+        if config.canvas.seed is None:
+            config.canvas.seed = randint(1, 4_294_967_295)  # nosec
 
     def _apply_geoip(self) -> None:
-        config = self._config_map()
+        config = self._profile()
         firefox_user_prefs = self._firefox_prefs()
 
         if not self.geoip:
             if (
                 self.proxy
                 and "localhost" not in self.proxy.get("server", "")
-                and not _is_domain_set(config, "geolocation")
+                and config.geolocation is None
             ):
                 LeakWarning.warn("proxy_without_geoip")
             return
@@ -490,32 +507,63 @@ class _LaunchOptionBuilder:
 
         if not self.block_webrtc:
             if valid_ipv4(ip_address):
-                _set_if_missing(config, "webrtc:ipv4", ip_address)
+                config.webrtc = config.webrtc or WebRtcProfile()
+                if config.webrtc.ipv4 is None:
+                    config.webrtc.ipv4 = ip_address
                 firefox_user_prefs["network.dns.disableIPv6"] = True
             elif valid_ipv6(ip_address):
-                _set_if_missing(config, "webrtc:ipv6", ip_address)
+                config.webrtc = config.webrtc or WebRtcProfile()
+                if config.webrtc.ipv6 is None:
+                    config.webrtc.ipv6 = ip_address
 
         geolocation = get_geolocation(ip_address, geoip_db=self.geoip_db)
-        for key, value in geolocation.as_config().items():
-            if key in {"timezone", "locale:language", "locale:region", "locale:script"}:
-                config.setdefault(key, value)
-            else:
-                config[key] = value
+        config.geolocation = GeolocationProfile(
+            latitude=geolocation.latitude,
+            longitude=geolocation.longitude,
+            accuracy=geolocation.accuracy,
+        )
+        if config.timezone is None:
+            config.timezone = geolocation.timezone
+        config.locale = config.locale or LocaleProfile()
+        if config.locale.language is None:
+            config.locale.language = geolocation.locale.language
+        if config.locale.region is None:
+            config.locale.region = geolocation.locale.region
+        if config.locale.script is None:
+            config.locale.script = geolocation.locale.script
 
     def _apply_locale(self) -> None:
         if self.locale:
-            handle_locales(self.locale, self._config_map())
+            locales = (
+                [loc.strip() for loc in self.locale.split(",")]
+                if isinstance(self.locale, str)
+                else list(self.locale)
+            )
+            intl_locale = handle_locale(locales[0])
+            config = self._profile()
+            config.locale = config.locale or LocaleProfile()
+            config.locale.language = intl_locale.language
+            config.locale.region = intl_locale.region
+            config.locale.script = intl_locale.script
+            if len(locales) > 1:
+                config.locale.all = _join_unique(
+                    handle_locale(locale, ignore_region=True).as_string for locale in locales
+                )
+            if config.navigator is not None:
+                config.navigator.language = intl_locale.as_string
 
     def _apply_humanize(self) -> None:
-        config = self._config_map()
+        config = self._profile()
 
         if self.humanize:
-            _set_if_missing(config, "humanize", True)
-            if isinstance(self.humanize, (int, float)):
-                _set_if_missing(config, "humanize:maxTime", self.humanize)
+            config.humanize = config.humanize or HumanizeProfile()
+            if config.humanize.enabled is None:
+                config.humanize.enabled = True
+            if isinstance(self.humanize, int | float) and config.humanize.max_time is None:
+                config.humanize.max_time = self.humanize
 
-        if self.main_world_eval:
-            _set_if_missing(config, "allowMainWorld", True)
+        if self.main_world_eval and config.allow_main_world is None:
+            config.allow_main_world = True
 
     def _apply_firefox_preferences(self) -> None:
         firefox_user_prefs = self._firefox_prefs()
@@ -597,19 +645,6 @@ def _generate_fontconfig(fontconfig_path: str) -> str:
     return runtime_conf
 
 
-def _load_properties(path: Path | None = None) -> dict[str, str]:
-    if path:
-        prop_file = _resolve_bundle_resource(path, "properties.json")
-        if not prop_file.exists():
-            prop_file = Path(get_path("properties.json"))
-    else:
-        prop_file = Path(get_path("properties.json"))
-
-    with open(prop_file, "rb") as handle:
-        properties = orjson.loads(handle.read())
-    return {item["property"]: item["type"] for item in properties}
-
-
 def _normalize_requested_os(requested_os: ListOrString | None) -> str:
     if requested_os is None:
         return "macos"
@@ -621,9 +656,9 @@ def _normalize_requested_os(requested_os: ListOrString | None) -> str:
     return "macos"
 
 
-def _user_agent_os(config: dict[str, Any]) -> Literal["mac", "win", "lin"]:
-    user_agent = config.get("navigator.userAgent")
-    if isinstance(user_agent, str):
+def _user_agent_os(config: CamoufoxProfile) -> Literal["mac", "win", "lin"]:
+    user_agent = config.navigator.user_agent if config.navigator else None
+    if user_agent:
         return _determine_ua_os(user_agent)
     return OS_NAME
 
@@ -688,43 +723,71 @@ def _merge_missing(target: dict[str, Any], source: dict[str, Any]) -> None:
         target.setdefault(key, value)
 
 
-def _set_if_missing(target: dict[str, Any], key: str, value: Any) -> None:
-    target.setdefault(key, value)
+def _coerce_profile(config: CamoufoxProfile | dict[str, Any] | None) -> CamoufoxProfile:
+    try:
+        if isinstance(config, CamoufoxProfile):
+            profile_data = config.model_dump(by_alias=True, exclude_none=True, mode="json")
+        else:
+            profile_data = config or {}
+        return CamoufoxProfile.model_validate(profile_data)
+    except ValidationError as exc:
+        raise InvalidPropertyType(str(exc)) from exc
 
 
-def _strip_gpu_overrides(config: dict[str, Any]) -> None:
-    for key in list(config):
-        if key.startswith(("webGl:", "webGl2:")):
-            del config[key]
+def _merge_profile_missing(target: CamoufoxProfile, source: CamoufoxProfile) -> CamoufoxProfile:
+    target_data = target.model_dump(by_alias=True, exclude_none=True, mode="json")
+    source_data = source.model_dump(by_alias=True, exclude_none=True, mode="json")
+    _merge_missing_nested(target_data, source_data)
+    return CamoufoxProfile.model_validate(target_data)
 
 
-def _warn_manual_config(config: dict[str, Any]) -> None:
-    if _is_domain_set(config, "navigator.language", "navigator.languages", "headers.Accept-Language", "locale:"):
+def _merge_missing_nested(target: dict[str, Any], source: dict[str, Any]) -> None:
+    for key, value in source.items():
+        current = target.get(key)
+        if isinstance(current, dict) and isinstance(value, dict):
+            _merge_missing_nested(current, value)
+        elif key not in target:
+            target[key] = value
+
+
+def _strip_gpu_overrides(config: CamoufoxProfile) -> None:
+    config.web_gl = None
+    config.web_gl2 = None
+
+
+def _warn_manual_config(config: CamoufoxProfile) -> None:
+    if (
+        config.locale is not None
+        or (config.navigator is not None and (config.navigator.language or config.navigator.languages))
+        or (config.headers is not None and config.headers.accept_language)
+    ):
         LeakWarning.warn("locale", False)
-    if _is_domain_set(config, "geolocation:", "timezone"):
+    if config.geolocation is not None or config.timezone is not None:
         LeakWarning.warn("geolocation", False)
-    if _is_domain_set(config, "headers.User-Agent"):
+    if config.headers is not None and config.headers.user_agent:
         LeakWarning.warn("header-ua", False)
-    if _is_domain_set(config, "navigator."):
+    if _profile_section_set(config.navigator):
         LeakWarning.warn("navigator", False)
-    if _is_domain_set(config, "screen.", "window.", "document.body."):
+    if (
+        _profile_section_set(config.screen)
+        or _profile_section_set(config.window)
+        or _profile_section_set(config.document)
+    ):
         LeakWarning.warn("viewport", False)
 
 
-def _is_domain_set(config: dict[str, Any], *properties: str) -> bool:
-    for prop in properties:
-        if prop[-1] in (".", ":"):
-            if any(key.startswith(prop) for key in config):
-                return True
-        elif prop in config:
-            return True
-    return False
+def _profile_section_set(section: Any) -> bool:
+    if section is None:
+        return False
+    if hasattr(section, "model_dump"):
+        return bool(section.model_dump(exclude_none=True))
+    return True
 
 
 def _string_list(value: Any) -> list[str]:
     if isinstance(value, str):
         return [value]
-    if isinstance(value, (list, tuple)):
+    if isinstance(value, list | tuple):
         return [item for item in value if isinstance(item, str)]
     return []
 
@@ -738,6 +801,10 @@ def _unique_strings(values: Iterable[str]) -> list[str]:
         seen.add(value)
         result.append(value)
     return result
+
+
+def _join_unique(values: Iterable[str]) -> str:
+    return ", ".join(_unique_strings(values))
 
 
 def _resolve_bundle_resource(executable_path: Path, filename: str) -> Path:
