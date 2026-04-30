@@ -82,3 +82,10 @@ jobs:
         with:
           name: CamoufoxBuilds-macos-${{ matrix.arch }}
           path: dist/*
+
+      - name: Debug failed build over SSH
+        if: ${{ failure() }}
+        uses: mxschmitt/action-tmate@v3
+        timeout-minutes: 30
+        with:
+          limit-access-to-actor: true
