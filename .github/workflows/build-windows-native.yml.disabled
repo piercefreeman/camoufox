@@ -1,0 +1,136 @@
+name: Build Windows Native
+
+on:
+  workflow_dispatch:
+  pull_request:
+    types: [opened, reopened, synchronize, labeled]
+  push:
+    tags:
+      - "*"
+  release:
+    types: [published]
+
+concurrency:
+  group: build-windows-native-${{ github.event.release.tag_name || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-windows:
+    if: github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-build')
+    runs-on: windows-2025
+    env:
+      MOZILLABUILD: C:\mozilla-build
+    defaults:
+      run:
+        shell: msys2 {0}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [x86_64, i686]
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Install MozillaBuild
+        shell: pwsh
+        run: |
+          choco install mozillabuild -y --no-progress
+          Add-Content $env:GITHUB_PATH "C:\mozilla-build\bin"
+
+      - name: Set up MSYS2
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: true
+          install: >-
+            aria2
+            base-devel
+            git
+            make
+            patch
+            p7zip
+            python
+            unzip
+            zip
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.23"
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Resolve Camoufox release version
+        id: camoufox-release
+        env:
+          GITHUB_EVENT_RELEASE_TAG_NAME: ${{ github.event.release.tag_name }}
+        run: bash .github/scripts/resolve-release-version.sh
+
+      - name: Check native toolchain
+        run: |
+          uname -a
+          python3 --version
+          go version
+          test "$MOZILLABUILD" = "C:\\mozilla-build"
+          test -d /c/mozilla-build
+          df -h
+
+      - name: Fetch source
+        env:
+          CAMOUFOX_PASSWD: ${{ secrets.CAMOUFOX_PASSWD }}
+        run: make fetch
+
+      - name: Setup and bootstrap
+        env:
+          BUILD_TARGET: windows,${{ matrix.arch }}
+        run: |
+          make setup-minimal
+          make set-target
+          make mozbootstrap
+          mkdir -p dist
+
+      - name: Build
+        run: python3 ./multibuild.py --target windows --arch ${{ matrix.arch }}
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: CamoufoxBuilds-windows-${{ matrix.arch }}
+          path: dist/*
+
+      - name: Debug failed build over SSH
+        if: ${{ failure() }}
+        uses: mxschmitt/action-tmate@v3
+        timeout-minutes: 60
+        with:
+          limit-access-to-actor: true
+
+  release-windows:
+    needs: build-windows
+    if: github.event_name == 'push' || github.event_name == 'release'
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ github.event.release.tag_name || github.ref_name }}
+          files: artifacts/**/*
+          generate_release_notes: true
+          draft: ${{ github.event_name == 'push' }}
+          prerelease: ${{ github.event_name == 'release' && github.event.release.prerelease || false }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

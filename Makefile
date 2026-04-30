@@ -1,4 +1,13 @@
 include upstream.sh
+
+ifneq ($(strip $(CAMOUFOX_RELEASE)),)
+release := $(CAMOUFOX_RELEASE)
+endif
+
+ifneq ($(strip $(CAMOUFOX_FIREFOX_VERSION)),)
+version := $(CAMOUFOX_FIREFOX_VERSION)
+endif
+
 export
 
 cf_source_dir := camoufox-$(version)-$(release)

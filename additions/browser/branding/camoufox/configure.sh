@@ -9,6 +9,3 @@ MOZ_APP_NAME=camoufox
 MOZ_APP_BASENAME=Camoufox
 MOZ_APP_DISPLAYNAME=Camoufox
 MOZ_APP_REMOTINGNAME=camoufox
-# Keep the default UA on the Firefox token so Gecko does not append
-# a second app token like "Camoufox/<version>" to navigator.userAgent.
-MOZ_APP_UA_NAME=Firefox

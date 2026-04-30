@@ -22,7 +22,7 @@ ac_add_options --with-branding=browser/branding/camoufox
 
 ac_add_options --with-unsigned-addon-scopes=app,system
 
-ac_add_options --enable-bootstrap
+ac_add_options --enable-bootstrap=no-update
 
 # Use ccache for faster incremental rebuilds (install: brew install ccache)
 # Safe no-op if ccache is not installed — build proceeds without caching.
