@@ -139,10 +139,10 @@ The easiest local-dev path is:
 From the repo root:
 
 ```bash
-uv sync --project pythonlib --group dev
+uv sync --group dev
 source upstream.sh
 export CAMOUFOX_EXECUTABLE_PATH="$PWD/camoufox-$version-$release/obj-aarch64-apple-darwin/dist/Camoufox.app/Contents/MacOS/camoufox"
-uv run --project pythonlib --group dev python -m camoufox test
+uv run --group dev python -m camoufox test
 ```
 
 On Intel macOS, replace `obj-aarch64-apple-darwin` with `obj-x86_64-apple-darwin`.
@@ -150,7 +150,7 @@ On Intel macOS, replace `obj-aarch64-apple-darwin` with `obj-x86_64-apple-darwin
 If startup looks stuck, rerun with `--debug` to print browser-launch and fingerprint-generation logs:
 
 ```bash
-uv run --project pythonlib --group dev python -m camoufox test --debug
+uv run --group dev python -m camoufox test --debug
 ```
 
 `camoufox test` now opens a controllable Playwright inspector session using the active fingerprint flow:
@@ -164,7 +164,7 @@ If you want the Python CLI and default executable resolution path to pick up you
 ```bash
 make package-macos arch=arm64
 ./scripts/install-local-build.sh
-uv run --project pythonlib --group dev python -m camoufox test
+uv run --group dev python -m camoufox test
 ```
 
 That is only needed if you want the Python package to resolve the browser through its normal installed-browser lookup. For fast iteration on `pythonlib/`, pointing `CAMOUFOX_EXECUTABLE_PATH` at the repo build is simpler.
@@ -174,10 +174,10 @@ That is only needed if you want the Python package to resolve the browser throug
 If you want to verify that saved persona files fully capture the browser identity over time, run the persona consistency script from the repo root:
 
 ```bash
-uv sync --project pythonlib --group dev
+uv sync --group dev
 source upstream.sh
 export CAMOUFOX_EXECUTABLE_PATH="$PWD/camoufox-$version-$release/obj-aarch64-apple-darwin/dist/Camoufox.app/Contents/MacOS/camoufox"
-uv run --project pythonlib --group dev python example/persona_consistency.py
+uv run --group dev python example/persona_consistency.py
 ```
 
 What it does:
@@ -190,7 +190,7 @@ What it does:
 If you want to watch the browsers during the check:
 
 ```bash
-uv run --project pythonlib --group dev python example/persona_consistency.py --headful
+uv run --group dev python example/persona_consistency.py --headful
 ```
 
 ## Fast Path

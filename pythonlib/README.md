@@ -82,7 +82,7 @@ If you are developing Camoufox itself, you do not need to package and install a 
 ```bash
 source upstream.sh
 export CAMOUFOX_EXECUTABLE_PATH="$PWD/camoufox-$version-$release/obj-aarch64-apple-darwin/dist/Camoufox.app/Contents/MacOS/camoufox"
-uv run --project pythonlib --group dev python -m camoufox test
+uv run --group dev python -m camoufox test
 ```
 
 `camoufox test` reads `CAMOUFOX_EXECUTABLE_PATH` automatically. On Intel macOS, replace `obj-aarch64-apple-darwin` with `obj-x86_64-apple-darwin`.
@@ -90,7 +90,7 @@ uv run --project pythonlib --group dev python -m camoufox test
 If startup looks stuck, rerun with `--debug` to print browser-launch and fingerprint-generation logs:
 
 ```bash
-uv run --project pythonlib --group dev python -m camoufox test --debug
+uv run --group dev python -m camoufox test --debug
 ```
 
 If you want the Python package to use the normal installed-browser lookup instead, package the repo build and install it into the local Camoufox cache:
@@ -98,7 +98,7 @@ If you want the Python package to use the normal installed-browser lookup instea
 ```bash
 make package-macos arch=arm64
 ./scripts/install-local-build.sh
-uv run --project pythonlib --group dev python -m camoufox test
+uv run --group dev python -m camoufox test
 ```
 
 ---

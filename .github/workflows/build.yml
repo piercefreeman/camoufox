@@ -153,8 +153,8 @@ jobs:
         with:
           enable-cache: true
           cache-dependency-glob: |
-            __tests__/playwright/pyproject.toml
-            __tests__/playwright/uv.lock
+            pyproject.toml
+            uv.lock
 
       - name: Download build artifact
         uses: actions/download-artifact@v4
@@ -163,10 +163,10 @@ jobs:
           path: dist-artifact
 
       - name: Sync Playwright integration environment
-        run: uv sync --project __tests__/playwright --locked
+        run: uv sync --group dev --group playwright-tests --locked
 
       - name: Install Linux runtime dependencies
-        run: uv run --project __tests__/playwright --locked playwright install-deps firefox
+        run: uv run --group dev --group playwright-tests --locked playwright install-deps firefox
 
       - name: Resolve Camoufox executable
         id: artifact
@@ -180,7 +180,7 @@ jobs:
         env:
           CAMOUFOX_EXECUTABLE_PATH: ${{ steps.artifact.outputs.executable_path }}
         run: |
-          uv run --project __tests__/playwright --locked pytest \
+          uv run --group dev --group playwright-tests --locked pytest \
             --integration \
             --headless \
             __tests__/playwright/async/

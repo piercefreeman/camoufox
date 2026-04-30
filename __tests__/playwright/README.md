@@ -18,11 +18,11 @@ It has been modified to skip tests that use the following features:
 
 ### Setting up the environment
 
-`cd` to this directory and sync the local `uv` environment:
+From the repo root, sync the shared `pythonlib`-backed `uv` environment:
 
 ```bash
-uv sync --locked
-uv run python -m playwright install firefox
+uv sync --group dev --group playwright-tests --locked
+uv run --group dev --group playwright-tests python -m playwright install firefox
 ```
 
 ### Running the tests
@@ -30,13 +30,17 @@ uv run python -m playwright install firefox
 Run the Playwright async suite directly through `uv`:
 
 ```bash
-CAMOUFOX_EXECUTABLE_PATH=/path/to/camoufox-bin uv run --locked pytest --integration --headless async/
+CAMOUFOX_EXECUTABLE_PATH=/path/to/camoufox-bin \
+  uv run --group dev --group playwright-tests \
+  pytest --integration --headless __tests__/playwright/async/
 ```
 
 For a headful run:
 
 ```bash
-CAMOUFOX_EXECUTABLE_PATH=/path/to/camoufox-bin uv run --locked pytest --integration async/
+CAMOUFOX_EXECUTABLE_PATH=/path/to/camoufox-bin \
+  uv run --group dev --group playwright-tests \
+  pytest --integration __tests__/playwright/async/
 ```
 
 Or through the repo `Makefile`:

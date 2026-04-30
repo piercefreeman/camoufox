@@ -220,7 +220,7 @@ workspace:
 
 tests:
 	CAMOUFOX_EXECUTABLE_PATH=$(CURDIR)/$(cf_source_dir)/obj-x86_64-pc-linux-gnu/dist/bin/camoufox-bin \
-		uv run --project __tests__/playwright --locked pytest \
+		uv run --group dev --group playwright-tests --locked pytest \
 			--integration \
 			-vv \
 			$(if $(filter true,$(headful)),, --headless) \
@@ -267,7 +267,7 @@ generate-openapi-cpp:
 		--additional-properties hideGenerationTimestamp=true,modelPackage=camoucfg
 
 validate-fingerprint-example:
-	uv run --project pythonlib python scripts/validate_fingerprint_example.py
+	uv run python scripts/validate_fingerprint_example.py
 
 verify-patches:
 	uv run scripts/verify_firefox_patches.py

@@ -9,7 +9,7 @@ persona JSON files as the source of truth for browser identity over time.
 
 Example:
     export CAMOUFOX_EXECUTABLE_PATH="$PWD/camoufox-146.0.1-beta.25/obj-aarch64-apple-darwin/dist/Camoufox.app/Contents/MacOS/camoufox"
-    uv run --project pythonlib --group dev python example/persona_consistency.py
+    uv run --group dev python example/persona_consistency.py
 """
 
 from __future__ import annotations

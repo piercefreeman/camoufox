@@ -7,7 +7,7 @@ Install deps:
 
 Local repo development:
     export CAMOUFOX_EXECUTABLE_PATH=/path/to/Camoufox.app/Contents/MacOS/camoufox
-    uv run --project pythonlib --group dev python example/example.py
+    uv run --group dev python example/example.py
 """
 
 import os
