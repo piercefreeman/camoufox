@@ -1,0 +1,104 @@
+{{#models}}{{#model}}/*
+ * {{classname}}.h
+ *
+ * Generated from schemas/camoufox-profile.openapi.yaml.
+ * Do not edit by hand.
+ */
+
+#ifndef CAMOUFOX_PROFILE_{{classname}}_H_
+#define CAMOUFOX_PROFILE_{{classname}}_H_
+
+#include <cstdint>
+#include <optional>
+#include <string>
+
+#include "json.hpp"
+{{#vars}}
+{{^isContainer}}
+{{^isPrimitiveType}}
+#include "{{baseType}}.h"
+{{/isPrimitiveType}}
+{{/isContainer}}
+{{/vars}}
+
+namespace camoucfg {
+
+class {{classname}} {
+ public:
+  {{classname}}() = default;
+  explicit {{classname}}(const nlohmann::json& json) { fromJson(json); }
+
+  bool fromJson(const nlohmann::json& json) {
+    if (!json.is_object()) {
+      return false;
+    }
+    m_IsSet = true;
+{{#vars}}
+    if (json.contains("{{baseName}}") && !json.at("{{baseName}}").is_null()) {
+{{#isContainer}}
+      m_{{name}} = json.at("{{baseName}}");
+{{/isContainer}}
+{{^isContainer}}
+{{#isPrimitiveType}}
+      const auto& value = json.at("{{baseName}}");
+      if ({{#isString}}!value.is_string(){{/isString}}{{#isBoolean}}!value.is_boolean(){{/isBoolean}}{{#isInteger}}!value.is_number_integer() && !value.is_number_unsigned(){{/isInteger}}{{#isLong}}!value.is_number_integer() && !value.is_number_unsigned(){{/isLong}}{{#isNumber}}!value.is_number(){{/isNumber}}) {
+        return false;
+      }
+      m_{{name}} = value.get<{{#isString}}std::string{{/isString}}{{#isBoolean}}bool{{/isBoolean}}{{#isInteger}}int32_t{{/isInteger}}{{#isLong}}int64_t{{/isLong}}{{#isNumber}}double{{/isNumber}}>();
+{{/isPrimitiveType}}
+{{^isPrimitiveType}}
+      {{baseType}} value;
+      if (!value.fromJson(json.at("{{baseName}}"))) {
+        return false;
+      }
+      m_{{name}} = value;
+{{/isPrimitiveType}}
+{{/isContainer}}
+    }
+{{/vars}}
+    return true;
+  }
+
+  nlohmann::json toJson() const {
+    nlohmann::json json = nlohmann::json::object();
+{{#vars}}
+    if (m_{{name}}.has_value()) {
+{{#isContainer}}
+      json["{{baseName}}"] = *m_{{name}};
+{{/isContainer}}
+{{^isContainer}}
+{{#isPrimitiveType}}
+      json["{{baseName}}"] = *m_{{name}};
+{{/isPrimitiveType}}
+{{^isPrimitiveType}}
+      json["{{baseName}}"] = m_{{name}}->toJson();
+{{/isPrimitiveType}}
+{{/isContainer}}
+    }
+{{/vars}}
+    return json;
+  }
+
+  bool isSet() const { return m_IsSet; }
+
+{{#vars}}
+  bool {{name}}IsSet() const { return m_{{name}}.has_value(); }
+  std::optional<{{#isContainer}}nlohmann::json{{/isContainer}}{{^isContainer}}{{#isString}}std::string{{/isString}}{{#isBoolean}}bool{{/isBoolean}}{{#isInteger}}int32_t{{/isInteger}}{{#isLong}}int64_t{{/isLong}}{{#isNumber}}double{{/isNumber}}{{^isPrimitiveType}}{{baseType}}{{/isPrimitiveType}}{{/isContainer}}> {{getter}}() const {
+    return m_{{name}};
+  }
+  void {{setter}}(const {{#isContainer}}nlohmann::json{{/isContainer}}{{^isContainer}}{{#isString}}std::string{{/isString}}{{#isBoolean}}bool{{/isBoolean}}{{#isInteger}}int32_t{{/isInteger}}{{#isLong}}int64_t{{/isLong}}{{#isNumber}}double{{/isNumber}}{{^isPrimitiveType}}{{baseType}}{{/isPrimitiveType}}{{/isContainer}}& value) {
+    m_{{name}} = value;
+  }
+
+{{/vars}}
+ private:
+  bool m_IsSet = false;
+{{#vars}}
+  std::optional<{{#isContainer}}nlohmann::json{{/isContainer}}{{^isContainer}}{{#isString}}std::string{{/isString}}{{#isBoolean}}bool{{/isBoolean}}{{#isInteger}}int32_t{{/isInteger}}{{#isLong}}int64_t{{/isLong}}{{#isNumber}}double{{/isNumber}}{{^isPrimitiveType}}{{baseType}}{{/isPrimitiveType}}{{/isContainer}}> m_{{name}};
+{{/vars}}
+};
+
+}  // namespace camoucfg
+
+#endif  // CAMOUFOX_PROFILE_{{classname}}_H_
+{{/model}}{{/models}}

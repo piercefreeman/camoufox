@@ -33,7 +33,7 @@ from camoufox.utils import get_env_vars, launch_options, validate_config
 DEFAULT_PERSONA_COUNT = 5
 DEFAULT_TIMEOUT_MS = 120_000
 DEFAULT_URL = "https://abrahamjuliot.github.io/creepjs/"
-CAMOU_CONFIG_PREFIX = "CAMOU_CONFIG_"
+CAMOU_CONFIG_PATH = "CAMOU_CONFIG_PATH"
 FINGERPRINT_ID_PATTERN = re.compile(r"FP ID:\s*([a-f0-9]{16,})\b", re.IGNORECASE)
 
 
@@ -199,7 +199,7 @@ def create_persona_files(
             "launch_args": list(launch_payload.get("args", [])),
             "launch_config": decode_camou_config(launch_payload["env"]),
             "firefox_user_prefs": dict(launch_payload.get("firefox_user_prefs", {})),
-            "context_config": dict(context_payload["config"]),
+            "context_config": serialize_profile(context_payload["config"]),
             "context_options": dict(context_payload["context_options"]),
             "init_script": context_payload["init_script"],
         }
@@ -218,7 +218,14 @@ def serialize_fingerprint(fingerprint: Any) -> Dict[str, Any]:
     model_dump = getattr(fingerprint, "model_dump", None)
     if callable(model_dump):
         return model_dump()
-    raise TypeError(f"Unsupported fingerprint object for serialization: {type(fingerprint).__name__}")
+    return dict(fingerprint)
+
+
+def serialize_profile(profile: Any) -> Dict[str, Any]:
+    model_dump = getattr(profile, "model_dump", None)
+    if callable(model_dump):
+        return model_dump(by_alias=True, exclude_none=True, mode="json")
+    return dict(profile)
 
 
 def run_round(
@@ -335,12 +342,13 @@ def parse_fp_id(text: str) -> str | None:
 
 
 def decode_camou_config(env: Dict[str, Any]) -> Dict[str, Any]:
-    chunks = [env[name] for name in sorted(key for key in env if key.startswith(CAMOU_CONFIG_PREFIX))]
-    return json.loads("".join(chunks))
+    with open(env[CAMOU_CONFIG_PATH], encoding="utf-8") as handle:
+        return json.load(handle)
 
 
 def user_agent_os(config: Dict[str, Any]) -> str:
-    user_agent = config.get("navigator.userAgent", "")
+    navigator = config.get("navigator", {})
+    user_agent = navigator.get("userAgent", "") if isinstance(navigator, dict) else ""
     if "Windows" in user_agent:
         return "win"
     if "Macintosh" in user_agent:

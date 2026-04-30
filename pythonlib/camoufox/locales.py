@@ -32,18 +32,15 @@ class Locale:
             return f"{self.language}-{self.region}"
         return self.language
 
-    def as_config(self) -> dict[str, str]:
+    def as_config(self) -> dict[str, Any]:
         """
-        Converts the locale to a intl config dictionary.
+        Converts the locale to a nested profile dictionary.
         """
         assert self.region
-        data = {
-            'locale:region': self.region,
-            'locale:language': self.language,
-        }
+        data = {'region': self.region, 'language': self.language}
         if self.script:
-            data['locale:script'] = self.script
-        return data
+            data['script'] = self.script
+        return {'locale': data}
 
 
 @dataclass(frozen=True)
@@ -60,16 +57,18 @@ class Geolocation:
 
     def as_config(self) -> dict[str, Any]:
         """
-        Converts the geolocation to a config dictionary.
+        Converts the geolocation to a nested profile dictionary.
         """
         data = {
-            'geolocation:longitude': self.longitude,
-            'geolocation:latitude': self.latitude,
+            'geolocation': {
+                'longitude': self.longitude,
+                'latitude': self.latitude,
+            },
             'timezone': self.timezone,
             **self.locale.as_config(),
         }
         if self.accuracy:
-            data['geolocation:accuracy'] = self.accuracy
+            data['geolocation']['accuracy'] = self.accuracy
         return data
 
 
@@ -141,7 +140,7 @@ def handle_locale(locale: str, ignore_region: bool = False) -> Locale:
     raise InvalidLocale.invalid_input(locale)
 
 
-def handle_locales(locales: str | list[str], config: dict[str, Any]) -> None:
+def handle_locales(locales: str | list[str], config: Any) -> None:
     """
     Handles a list of locales.
     """
@@ -150,16 +149,31 @@ def handle_locales(locales: str | list[str], config: dict[str, Any]) -> None:
 
     # First, handle the first locale. This will be used for the intl api.
     intl_locale = handle_locale(locales[0])
-    config.update(intl_locale.as_config())
+    if hasattr(config, 'locale'):
+        from ._generated_profile import LocaleProfile, NavigatorProfile
+
+        config.locale = config.locale or LocaleProfile()
+        config.navigator = config.navigator or NavigatorProfile()
+        config.locale.language = intl_locale.language
+        config.locale.region = intl_locale.region
+        config.locale.script = intl_locale.script
+        config.navigator.language = intl_locale.as_string
+    else:
+        config.setdefault('locale', {})
+        config['locale'].update(intl_locale.as_config()['locale'])
+        config.setdefault('navigator', {})
+        config['navigator']['language'] = intl_locale.as_string
 
     if len(locales) < 2:
         return
 
     # If additional locales were passed, validate them.
     # Note: in this case, we do not need the region.
-    config['locale:all'] = _join_unique(
-        handle_locale(locale, ignore_region=True).as_string for locale in locales
-    )
+    all_locales = _join_unique(handle_locale(locale, ignore_region=True).as_string for locale in locales)
+    if hasattr(config, 'locale'):
+        config.locale.all = all_locales
+    else:
+        config['locale']['all'] = all_locales
 
 
 def _join_unique(seq: Iterable[str]) -> str:

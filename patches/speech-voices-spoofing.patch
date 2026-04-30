@@ -123,7 +123,7 @@ index xxxxxxxxxx..yyyyyyyyyy 100644
 @@ -534,5 +534,13 @@
      "nsPluginArray.cpp",
  ]
-
+ 
 +# SpeechVoicesManager compiled separately to avoid unified build scope issues
 +# (includes RoverfoxStorageManager.h which can affect compilation units)
 +SOURCES += ["SpeechVoicesManager.cpp"]
@@ -139,9 +139,9 @@ index xxxxxxxxxx..yyyyyyyyyy 100644
 --- a/dom/base/nsGlobalWindowInner.h
 +++ b/dom/base/nsGlobalWindowInner.h
 @@ -685,6 +685,9 @@
-
+ 
    void ForgetSharedWorker(mozilla::dom::SharedWorker* aSharedWorker);
-
+ 
 +  // Per-context speech voices
 +  void SetSpeechVoices(const nsAString& aVoices, mozilla::ErrorResult& aRv);
 +
@@ -160,7 +160,7 @@ index xxxxxxxxxx..yyyyyyyyyy 100644
 @@ -7477,6 +7478,25 @@
    mSharedWorkers.RemoveElement(aSharedWorker);
  }
-
+ 
 +void nsGlobalWindowInner::SetSpeechVoices(const nsAString& aVoices,
 +                                           ErrorResult& aRv) {
 +  uint32_t userContextId = 0;
@@ -190,7 +190,7 @@ index xxxxxxxxxx..yyyyyyyyyy 100644
 @@ -892,6 +892,12 @@ partial interface Window {
    readonly attribute VisualViewport visualViewport;
  };
-
+ 
 +// Per-context speech voices
 +partial interface Window {
 +  [Throws, Func="mozilla::dom::SpeechVoicesManager::IsFunctionEnabledForWebIDL"]
@@ -235,7 +235,7 @@ index xxxxxxxxxx..yyyyyyyyyy 100644
        NS_WARNING("Failed to retrieve voice from registry");
        continue;
      }
-
+ 
 +    // Per-context voice filtering: skip voices not in allowed list
 +    if (mozilla::dom::SpeechVoicesManager::HasVoices(speechVoiceCtxId)) {
 +      nsAutoString voiceName;
@@ -247,7 +247,7 @@ index xxxxxxxxxx..yyyyyyyyyy 100644
 +    }
 +
      SpeechSynthesisVoice* voice = mVoiceCache.GetWeak(uri);
-
+ 
      if (!voice) {
 diff --git a/dom/media/webspeech/synth/moz.build b/dom/media/webspeech/synth/moz.build
 index xxxxxxxxxx..yyyyyyyyyy 100644

@@ -10,19 +10,22 @@ index bc0e123f85..52ec46f76b 100644
  
  #include "GeckoProfiler.h"
  #include "nsCRT.h"
-@@ -303,6 +304,16 @@ gfxPlatformFontList::gfxPlatformFontList(bool aNeedFullnamePostscriptNames)
+@@ -303,6 +304,19 @@ gfxPlatformFontList::gfxPlatformFontList(bool aNeedFullnamePostscriptNames)
  
    mFontPrefs = MakeUnique<FontPrefs>();
  
 +  // Hijack the kFontSystemWhitelistPref pref
-+  if (std::vector<std::string> fontValues = MaskConfig::GetStringList("fonts");
-+      !fontValues.empty()) {
-+    std::string fontValuesJoined =
-+        std::accumulate(fontValues.begin(), fontValues.end(), std::string(),
-+                        [](const std::string& acc, const std::string& s) {
-+                          return acc.empty() ? s : acc + "," + s;
-+                        });
-+    Preferences::SetCString(kFontSystemWhitelistPref, fontValuesJoined.data());
++  if (auto fonts = MaskConfig::Profile().getFonts()) {
++    std::vector<std::string> fontValues =
++        MaskConfig::JsonStringList(fonts->getFamilies());
++    if (!fontValues.empty()) {
++      std::string fontValuesJoined =
++          std::accumulate(fontValues.begin(), fontValues.end(), std::string(),
++                          [](const std::string& acc, const std::string& s) {
++                            return acc.empty() ? s : acc + "," + s;
++                          });
++      Preferences::SetCString(kFontSystemWhitelistPref, fontValuesJoined.data());
++    }
 +  }
    gfxFontUtils::GetPrefsFontList(kFontSystemWhitelistPref, mEnabledFontsList);
    mFontFamilyWhitelistActive = !mEnabledFontsList.IsEmpty();
@@ -33,7 +36,7 @@ index 3d99906827..a9d1191688 100644
 +++ b/gfx/thebes/moz.build
 @@ -301,3 +301,6 @@ DEFINES["GRAPHITE2_STATIC"] = True
  CXXFLAGS += ["-Werror=switch"]
-
+ 
  include("/tools/fuzzing/libfuzzer-config.mozbuild")
 +
 +# DOM Mask
@@ -122,18 +125,21 @@ index 70c06609e9..66b2666621 100644
  #include "mozilla/dom/FontFaceBinding.h"
 +#include "MaskConfig.hpp"
  #include "nsTHashSet.h"
-
+ 
  class gfxFontFaceBufferSource;
-
-@@ -33,6 +34,20 @@
+ 
+@@ -33,6 +34,23 @@
  
  namespace mozilla::dom {
  
 +// Helper function to check if a font is in the allowed list
 +inline bool IsFontAllowed(const nsACString& aFontName) {
-+  if (std::vector<std::string> maskValues =
-+          MaskConfig::GetStringListLower("fonts");
-+      !maskValues.empty()) {
++  if (auto fonts = MaskConfig::Profile().getFonts()) {
++    std::vector<std::string> maskValues =
++        MaskConfig::JsonStringListLower(fonts->getFamilies());
++    if (maskValues.empty()) {
++      return true;
++    }
 +    std::string fontName(aFontName.BeginReading(), aFontName.EndReading());
 +    std::transform(fontName.begin(), fontName.end(), fontName.begin(),
 +                   ::tolower);

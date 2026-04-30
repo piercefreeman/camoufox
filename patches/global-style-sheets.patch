@@ -15,7 +15,7 @@ index 13d65c2d3e..c51f1da030 100644
    if (!Preferences::GetBool(PREF_LEGACY_STYLESHEET_CUSTOMIZATION)) {
      return;
    }
-+  if (MaskConfig::GetBool("disableTheming")) {
++  if (MaskConfig::Profile().isDisableTheming().value_or(false)) {
 +    return;
 +  }
  

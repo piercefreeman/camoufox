@@ -1,6 +1,6 @@
 # Per-Context Fingerprint Patches
 
-Camoufox spoofs fingerprints globally via `CAMOU_CONFIG` — every browser context shares the same identity. These patches add **per-context isolation**, so each Playwright context can have a unique, deterministic fingerprint. This lets you run multiple concurrent sessions from a single Camoufox process without cross-context correlation.
+Camoufox spoofs fingerprints globally via the runtime profile — every browser context shares the same identity. These patches add **per-context isolation**, so each Playwright context can have a unique, deterministic fingerprint. This lets you run multiple concurrent sessions from a single Camoufox process without cross-context correlation.
 
 ### What's New
 
@@ -278,7 +278,7 @@ Covering all 6 is critical — Brave was bypassed in 2024 because they only prot
 
 **Worker support:** The 4 AnalyserNode hooks include an explicit `WorkerPrivate` fallback for resolving `userContextId` when running in Web Worker contexts. The 2 AudioBuffer hooks (`getChannelData`, `copyFromChannel`) rely on the ucid=0 global fallback instead — `SetAudioFingerprintSeed()` stores the seed under both the real `userContextId` AND ucid=0, so workers without a window reference still find the correct seed.
 
-**MaskConfig fallback:** If no per-context seed is set, checks `MaskConfig::GetUint32("audio:seed")` from `CAMOU_CONFIG`. This enables the Camoufox Python package to set a global audio seed without per-context JavaScript.
+**MaskConfig fallback:** If no per-context seed is set, checks the `audio.seed` value from the `CAMOU_CONFIG_PATH` runtime profile. This enables the Camoufox Python package to set a global audio seed without per-context JavaScript.
 
 **API:**
 ```javascript
@@ -318,11 +318,11 @@ window.setTimezone('America/New_York'); // IANA timezone ID
 
 **Controls:** `screen.width`, `screen.height`, `screen.colorDepth`, and related CSS media queries.
 
-**How it works:** Stores dimensions per context, then hooks `nsScreen::GetRect()` with a three-tier fallback: per-context values -> global `CAMOU_CONFIG` -> vanilla Firefox.
+**How it works:** Stores dimensions per context, then hooks `nsScreen::GetRect()` with a three-tier fallback: per-context values -> global runtime profile -> vanilla Firefox.
 
 Also hooks `nsMediaFeatures.cpp` so CSS media queries like `matchMedia('(device-width: 1920px)')` return results consistent with `screen.width`. Without this, fingerprinters can detect a mismatch between the JavaScript API and CSS media queries.
 
-This replaces the old `screen-hijacker.patch` (which only supported global config). It includes the same global `CAMOU_CONFIG` fallback, so it works for both single-context and multi-context use cases.
+This replaces the old `screen-hijacker.patch` (which only supported global config). It includes the same global runtime profile fallback, so it works for both single-context and multi-context use cases.
 
 **API:**
 ```javascript
@@ -366,9 +366,9 @@ window.setWebRTCIPv6('2001:db8::1');   // proxy exit IPv6 (optional)
 
 ### 6. navigator-spoofing.patch
 
-**Controls:** `navigator.platform`, `navigator.oscpu`, `navigator.hardwareConcurrency`, `navigator.userAgent`, and `navigator.appVersion` — per-context with global `CAMOU_CONFIG` fallback.
+**Controls:** `navigator.platform`, `navigator.oscpu`, `navigator.hardwareConcurrency`, `navigator.userAgent`, and `navigator.appVersion` — per-context with global runtime profile fallback.
 
-**How it works:** Stores values per context via `NavigatorManager`, then hooks these Navigator methods with a three-tier fallback: per-context values -> global `CAMOU_CONFIG` -> vanilla Firefox:
+**How it works:** Stores values per context via `NavigatorManager`, then hooks these Navigator methods with a three-tier fallback: per-context values -> global runtime profile -> vanilla Firefox:
 
 | Hook | Per-context | Global fallback | Worker hook |
 |------|-------------|-----------------|-------------|
@@ -378,11 +378,11 @@ window.setWebRTCIPv6('2001:db8::1');   // proxy exit IPv6 (optional)
 | `Navigator::GetUserAgent()` | YES | YES (MaskConfig) | `WorkerNavigator::GetUserAgent()` |
 | `Navigator::GetAppVersion()` | No | YES (MaskConfig) | No |
 
-**`setNavigatorUserAgent`:** Stores a per-context User-Agent string so workers report the correct UA. Without this, workers on Linux would read the global `CAMOU_CONFIG` UA (which may be a Linux UA) even when the per-context fingerprint specifies macOS. The WorkerNavigator hook checks `NavigatorManager` BEFORE `MaskConfig`, ensuring workers match the main page.
+**`setNavigatorUserAgent`:** Stores a per-context User-Agent string so workers report the correct UA. Without this, workers on Linux would read the global runtime profile UA (which may be a Linux UA) even when the per-context fingerprint specifies macOS. The WorkerNavigator hook checks `NavigatorManager` BEFORE `MaskConfig`, ensuring workers match the main page.
 
 **Worker propagation:** Hooks `WorkerNavigator::GetPlatform()`, `WorkerNavigator::HardwareConcurrency()`, and `WorkerNavigator::GetUserAgent()` so Web Workers inherit per-context values. Workers resolve `userContextId` via `WorkerPrivate::GetOriginAttributes()`.
 
-**Lazy timezone init:** Also adds `EnsureGlobalTimezoneInitialized()` — a lazy initializer that reads `timezone` from `CAMOU_CONFIG` on first access to `GetPlatform()` or `HardwareConcurrency()`. This replaced a static initializer that caused SIGSEGV crashes because SpiderMonkey wasn't ready at init time.
+**Lazy timezone init:** Also adds `EnsureGlobalTimezoneInitialized()` — a lazy initializer that reads `timezone` from the runtime profile on first access to `GetPlatform()` or `HardwareConcurrency()`. This replaced a static initializer that caused SIGSEGV crashes because SpiderMonkey wasn't ready at init time.
 
 **API:**
 ```javascript
@@ -406,11 +406,11 @@ window.setNavigatorUserAgent('Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:1
 
 **Controls:** `UNMASKED_VENDOR_WEBGL` and `UNMASKED_RENDERER_WEBGL` — the WebGL debug extension parameters that reveal GPU hardware. These are one of the strongest fingerprint vectors since GPU model + driver version is highly unique.
 
-**How it works:** Stores vendor and renderer strings per context via `WebGLParamsManager`, then hooks `ClientWebGLContext::GetParameter()` to intercept `WEBGL_debug_renderer_info` queries. Three-tier fallback: per-context values -> global `CAMOU_CONFIG` -> real hardware values.
+**How it works:** Stores vendor and renderer strings per context via `WebGLParamsManager`, then hooks `ClientWebGLContext::GetParameter()` to intercept `WEBGL_debug_renderer_info` queries. Three-tier fallback: per-context values -> global runtime profile -> real hardware values.
 
 Note: `GL_VENDOR` and `GL_RENDERER` (without the debug extension) already return `"Mozilla"` universally in Firefox — those don't need spoofing.
 
-**Global MaskConfig scope:** Beyond per-context vendor/renderer, this patch also includes comprehensive global `CAMOU_CONFIG` spoofing for many other WebGL parameters — context attributes, shader precision, extensions, enabled states, and array parameters. These global overrides apply to all contexts equally and don't require per-context JavaScript.
+**Global MaskConfig scope:** Beyond per-context vendor/renderer, this patch also includes comprehensive global runtime profile spoofing for many other WebGL parameters — context attributes, shader precision, extensions, enabled states, and array parameters. These global overrides apply to all contexts equally and don't require per-context JavaScript.
 
 **Worker support:** Includes a `WorkerPrivate` fallback (via a `GetUserContextId()` helper on `ClientWebGLContext`) for resolving `userContextId` when `GetParameter()` is called from an OffscreenCanvas context in a Web Worker.
 
@@ -443,7 +443,7 @@ The noise algorithm is **format-agnostic**: for each selected pixel, it iterates
 
 **Worker support:** Includes a `WorkerPrivate` fallback for resolving `userContextId` when canvas operations happen in a Web Worker via OffscreenCanvas.
 
-**MaskConfig fallback:** If no per-context seed is set, checks `MaskConfig::GetUint32("canvas:seed")` from `CAMOU_CONFIG`.
+**MaskConfig fallback:** If no per-context seed is set, checks the `canvas.seed` value from the `CAMOU_CONFIG_PATH` runtime profile.
 
 **API:**
 ```javascript
@@ -536,7 +536,7 @@ When `window.setXxx()` stores a value, `RoverfoxStorageManager` writes it locall
 
 ## Global-Only Patches (No JavaScript API)
 
-These patches read from `CAMOU_CONFIG` at startup and apply to all contexts equally. They don't expose any `window.setXxx()` functions.
+These patches read from the nested `CAMOU_CONFIG_PATH` runtime profile at startup and apply to all contexts equally. They don't expose any `window.setXxx()` functions.
 
 ### geolocation-spoofing.patch
 
@@ -545,7 +545,7 @@ These patches read from `CAMOU_CONFIG` at startup and apply to all contexts equa
 For per-context geolocation, use Playwright's built-in `context.setGeolocation()` instead — it's already per-context via Juggler.
 
 ```json
-{ "geolocation:latitude": 40.7128, "geolocation:longitude": -74.006, "geolocation:accuracy": 100 }
+{ "geolocation": { "latitude": 40.7128, "longitude": -74.006, "accuracy": 100 } }
 ```
 
 **Modified:** `Geolocation.cpp`, `GeolocationPosition.cpp`, `NetworkGeolocationProvider.sys.mjs`, `moz.build`
@@ -555,7 +555,7 @@ For per-context geolocation, use Playwright's built-in `context.setGeolocation()
 **What it adds:** Overrides `navigator.language`, `Accept-Language` header, and `Intl` locale APIs. Hooks `browser-init.js` (sets `intl.accept_languages` pref), `Locale.cpp/h` (language/script/region getters), and `OSPreferences.cpp` (system locale).
 
 ```json
-{ "navigator.language": "en-US", "locale:all": "en-US", "locale:language": "en", "locale:region": "US" }
+{ "navigator": { "language": "en-US" }, "locale": { "all": "en-US", "language": "en", "region": "US" } }
 ```
 
 **Modified:** `browser-init.js`, `Locale.cpp`, `Locale.h`, `OSPreferences.cpp`
@@ -614,7 +614,7 @@ bundle/
 
 ## Python Library Changes
 
-The Camoufox Python package (`pythonlib/`) generates fingerprints for both `NewBrowser` (global CAMOU_CONFIG) and `NewContext` (per-context init script). **BrowserForge is still the default skeleton generator for both paths.** Camoufox now combines that with a real macOS host profile so GPU-facing values stay real and the advertised font/voice inventories are filtered to what the host actually supports.
+The Camoufox Python package (`pythonlib/`) generates fingerprints for both `NewBrowser` (global runtime profile) and `NewContext` (per-context init script). **BrowserForge is still the default skeleton generator for both paths.** Camoufox now combines that with a real macOS host profile so GPU-facing values stay real and the advertised font/voice inventories are filtered to what the host actually supports.
 
 ### Fingerprint Source Priority
 
@@ -643,20 +643,20 @@ The Camoufox Python package (`pythonlib/`) generates fingerprints for both `NewB
 
 **`fingerprints.py`** — Per-context fingerprint generation:
 - `generate_context_fingerprint()` — main API. Returns `{init_script, context_options, config, preset}`
-- `from_preset()` — compiles an explicit caller-supplied preset dict into the same host-compatible config format
-- `from_browserforge()` — converts BrowserForge Fingerprint to CAMOU_CONFIG using `browserforge.yml` mappings
+- `from_preset()` — compiles an explicit caller-supplied preset dict into the same host-compatible `CamoufoxProfile`
+- `from_browserforge()` — converts a BrowserForge Fingerprint into the generated nested `CamoufoxProfile` model
 - `_build_init_script()` — generates the JavaScript IIFE for the remaining per-context overrides (`setWebRTCIPv6` is not included — IPv6 is optional and rarely set)
 - `_MacOSHostProfile` — probes the real macOS host for GPU family, installed fonts, and installed voices
 - `_sample_extras()` — adds a small random sample of extra installed fonts or voices on top of the bundled baseline
 
 **`utils.py`** — Global browser launch configuration:
-- `launch_options()` — builds CAMOU_CONFIG env var, Playwright args, and Firefox prefs
+- `launch_options()` — builds the `CAMOU_CONFIG_PATH` profile file, Playwright args, and Firefox prefs
 - Font inventory generated from the real host inventory
 - Voice inventory generated from the real host inventory
 - WebGL uses the real host GPU; spoofing overrides are stripped before serialization
-- Config validated against `properties.json` before serialization
+- Config validated against the generated Pydantic profile model before serialization
 
-**`properties.json`** — Includes `audio:seed` and `canvas:seed` as `CAMOU_CONFIG` properties (uint type). These enable the MaskConfig fallback in the audio and canvas patches when using global config without per-context JavaScript.
+**`camoufox-profile.openapi.yaml`** — Canonical schema for the nested runtime profile. Python and C++ profile models are generated from this schema.
 
 **`camoufox.cfg`** — Sets `fission.autostart=true` and `dom.ipc.processPrelaunch.enabled=false`. No `dom.ipc.processCount` override needed with cross-process storage.
 

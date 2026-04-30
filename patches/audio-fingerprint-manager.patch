@@ -3,7 +3,7 @@ new file mode 100644
 index 0000000000..f47a35b2e3
 --- /dev/null
 +++ b/dom/base/AudioFingerprintManager.cpp
-@@ -0,0 +1,106 @@
+@@ -0,0 +1,108 @@
 +#include "AudioFingerprintManager.h"
 +#include "nsTHashMap.h"  // Must come before RoverfoxStorageManager.h for template defs
 +#include "nsHashKeys.h"  // For nsStringHashKey
@@ -46,9 +46,11 @@ index 0000000000..f47a35b2e3
 +  if (RoverfoxStorageManager::GetUint(key, seed) && seed != 0) {
 +    return seed;
 +  }
-+  // Fallback to CAMOU_CONFIG for Workers in separate processes
-+  if (auto val = MaskConfig::GetUint32("audio:seed")) {
-+    return val.value();
++  // Fallback to the profile config for Workers in separate processes.
++  if (auto audio = MaskConfig::Profile().getAudio()) {
++    if (auto seed = audio->getSeed()) {
++      return *seed;
++    }
 +  }
 +  return 0;
 +}
@@ -164,7 +166,7 @@ index cd9090cda3..a1b2c3d4e5 100644
 @@ -326,4 +326,9 @@ SOURCES += [
      "nsWindowSizes.cpp",
  ]
-
+ 
 +# AudioFingerprintManager compiled separately to avoid namespace pollution
 +# in unified builds (it includes RoverfoxStorageManager.h which can affect
 +# alphabetically-later files like BarProps.cpp)
@@ -186,7 +188,7 @@ index 748ae6cf83..b2c3d4e5f6 100644
 @@ -7477,6 +7478,29 @@ void nsGlobalWindowInner::ForgetSharedWorker(SharedWorker* aSharedWorker) {
    mSharedWorkers.RemoveElement(aSharedWorker);
  }
-
+ 
 +
 +void nsGlobalWindowInner::SetAudioFingerprintSeed(uint32_t seed,
 +                                                    ErrorResult& aRv) {
@@ -219,14 +221,14 @@ index 3183172d29..c4d5e6f7a8 100644
 --- a/dom/base/nsGlobalWindowInner.h
 +++ b/dom/base/nsGlobalWindowInner.h
 @@ -676,6 +676,9 @@ class nsGlobalWindowInner final : public mozilla::dom::EventTarget,
-
+ 
    mozilla::dom::Worklet* GetPaintWorklet(mozilla::ErrorResult& aRv);
-
+ 
 +  // Audio fingerprint seed for per-context audio fingerprinting
 +  void SetAudioFingerprintSeed(uint32_t seed, mozilla::ErrorResult& aRv);
 +
    void GetRegionalPrefsLocales(nsTArray<nsString>& aLocales);
-
+ 
    void GetWebExposedLocales(nsTArray<nsString>& aLocales);
 
 diff --git a/dom/media/webaudio/AudioBuffer.cpp b/dom/media/webaudio/AudioBuffer.cpp
@@ -240,9 +242,9 @@ index f59d01944a..d21c86e030 100644
 +#include "AudioFingerprintManager.h"
 +#include "nsPIDOMWindow.h"
 +#include "mozilla/dom/BrowsingContext.h"
-
+ 
  namespace mozilla::dom {
-
+ 
 @@ -303,5 +306,26 @@ bool AudioBuffer::RestoreJSChannelData(JSContext* aJSContext) {
        MOZ_ASSERT(!isShared);  // Was created as unshared above
        CopyChannelDataToFloat(mSharedChannels, i, 0, jsData, Length());
@@ -309,12 +311,12 @@ index 4fd7c8be9a..e5f6a7b8c9 100644
 +#include "nsIGlobalObject.h"
 +#include "mozilla/dom/BrowsingContext.h"
 +#include "mozilla/dom/WorkerPrivate.h"
-
+ 
  namespace mozilla {
 @@ -216,4 +221,22 @@ void AnalyserNode::GetFloatFrequencyData(const Float32Array& aArray) {
      return;
    }
-
+ 
 +  // Apply audio fingerprint transformation to frequency data
 +  {
 +    uint32_t userContextId = 0;
@@ -337,7 +339,7 @@ index 4fd7c8be9a..e5f6a7b8c9 100644
 @@ -232,4 +254,22 @@ void AnalyserNode::GetByteFrequencyData(const Uint8Array& aArray) {
      return;
    }
-
+ 
 +  // Apply audio fingerprint transformation to frequency data
 +  {
 +    uint32_t userContextId = 0;
@@ -359,7 +361,7 @@ index 4fd7c8be9a..e5f6a7b8c9 100644
    const double rangeScaleFactor = 1.0 / (mMaxDecibels - mMinDecibels);
 @@ -255,5 +295,23 @@ void AnalyserNode::GetFloatTimeDomainData(const Float32Array& aArray) {
      size_t length = std::min(aData.Length(), size_t(FftSize()));
-
+ 
      GetTimeDomainData(aData.Elements(), length);
 +    // Apply audio fingerprint transformation to time domain data
 +    {
@@ -382,9 +384,9 @@ index 4fd7c8be9a..e5f6a7b8c9 100644
    });
  }
 @@ -269,6 +325,24 @@ void AnalyserNode::GetByteTimeDomainData(const Uint8Array& aArray) {
-
+ 
      GetTimeDomainData(tmpBuffer.Elements(), length);
-
+ 
 +    // Apply audio fingerprint transformation before byte conversion
 +    {
 +      uint32_t userContextId = 0;
@@ -413,7 +415,7 @@ index 3ee8c0aa76..4cf10f3039 100644
 @@ -152,5 +152,8 @@ include("/ipc/chromium/chromium-config.mozbuild")
  FINAL_LIBRARY = "xul"
  LOCAL_INCLUDES += [".."]
-
+ 
  # DOM Mask
  LOCAL_INCLUDES += ["/camoucfg"]
 +
@@ -426,7 +428,7 @@ index 7c509eb87e..7a076768d1 100644
 @@ -892,6 +892,12 @@ partial interface Window {
    readonly attribute VisualViewport visualViewport;
  };
-
+ 
 +// Audio fingerprint seed for per-context audio fingerprinting
 +partial interface Window {
 +  [Throws, Func="mozilla::dom::AudioFingerprintManager::IsFunctionEnabledForWebIDL"]

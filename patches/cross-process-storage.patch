@@ -83,7 +83,7 @@ diff --git a/modules/libpref/Preferences.cpp b/modules/libpref/Preferences.cpp
 index aaaaaa0000..bbbbbb0000 100644
 --- a/modules/libpref/Preferences.cpp
 +++ b/modules/libpref/Preferences.cpp
-@@ -6364,6 +6364,8 @@ static const PrefListEntry sDynamicPrefOverrideList[]{
+@@ -6364,4 +6364,6 @@ static const PrefListEntry sDynamicPrefOverrideList[]{
      PREF_LIST_ENTRY("toolkit.mozprotocol.url"),
      PREF_LIST_ENTRY("toolkit.telemetry.log.level"),
      PREF_LIST_ENTRY("ui."),

@@ -35,6 +35,7 @@ dependencies = [
     "orjson",
     "platformdirs",
     "playwright",
+    "pydantic>=2,<3",
     "pysocks",
     "pyyaml",
     "requests",

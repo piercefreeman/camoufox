@@ -3,7 +3,7 @@ new file mode 100644
 index 0000000000..fe74a1f432
 --- /dev/null
 +++ b/dom/base/FontSpacingSeedManager.cpp
-@@ -0,0 +1,91 @@
+@@ -0,0 +1,93 @@
 +#include "FontSpacingSeedManager.h"
 +#include "nsPrintfCString.h"
 +#include "MaskConfig.hpp"
@@ -49,9 +49,11 @@ index 0000000000..fe74a1f432
 +  if (RoverfoxStorageManager::GetUint(key, seed) && seed != 0) {
 +    return seed;
 +  }
-+  // Fallback to CAMOU_CONFIG for Workers in separate processes
-+  if (auto val = MaskConfig::GetUint32("fonts:spacing_seed")) {
-+    return val.value();
++  // Fallback to the profile config for Workers in separate processes.
++  if (auto fonts = MaskConfig::Profile().getFonts()) {
++    if (auto seed = fonts->getSpacingSeed()) {
++      return *seed;
++    }
 +  }
 +  return 0;
 +}
@@ -718,7 +720,7 @@ index 6f02e3a566..ca3b60d550 100644
 +      aKey.mUserContextId != aLookup.mUserContextId) {
      return false;
    }
-
+ 
 @@ -3420,7 +3425,7 @@ bool gfxFont::ProcessSingleSpaceShapedWord(
    return ProcessShapedWordInternal(
        aDrawTarget, &space, 1, gfxShapedWord::HashMix(0, ' '), Script::LATIN,
@@ -726,7 +728,7 @@ index 6f02e3a566..ca3b60d550 100644
 -      aRounding, nullptr, aCallback);
 +      aRounding, nullptr, 0 /* pbid */, aCallback);
  }
-
+ 
  bool gfxFont::ShapeText(DrawTarget* aDrawTarget, const uint8_t* aText,
 @@ -3778,6 +3784,7 @@ bool gfxFont::SplitAndInitTextRun(
        bool processed = ProcessShapedWordInternal(
@@ -799,7 +801,7 @@ index 4601fc3f17..78c2f1116c 100644
 +                                  gfxTextPerfMetrics* aTextPerf,
 +                                  uint32_t aUserContextId,
 +                                  Func aCallback);
-
+ 
    // whether a given feature is included in feature settings from both the
    // font and the style. aFeatureOn set if resolved feature value is non-zero
 @@ -2127,11 +2141,12 @@ class gfxFont {
@@ -807,7 +809,7 @@ index 4601fc3f17..78c2f1116c 100644
      bool mTextIs8Bit;
 +    uint32_t mUserContextId;
      RoundingFlags mRounding;
-
+ 
      WordCacheKey(const uint8_t* aText, uint32_t aLength, uint32_t aStringHash,
                   Script aScriptCode, nsAtom* aLanguage,
                   int32_t aAppUnitsPerDevUnit, ShapedTextFlags aFlags,
@@ -922,7 +924,7 @@ index de9a9661a1..f878bdb36c 100644
  #include "TextDrawTarget.h"
 +#include "mozilla/dom/BrowsingContext.h"
 +#include "nsPIDOMWindow.h"
-
+ 
  #ifdef XP_WIN
  #  include "gfxWindowsPlatform.h"
 @@ -145,25 +147,26 @@ void* gfxTextRun::AllocateStorageForTextRun(size_t aSize, uint32_t aLength) {

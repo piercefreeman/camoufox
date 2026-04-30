@@ -17,13 +17,13 @@ index 2456c5b4c6..826404b1b7 100644
      TabsInTitlebar.init();
  
 +    // If a list of languages were passed, use them.
-+    let camouLocale = ChromeUtils.camouGetString("locale:all")
++    let camouLocale = ChromeUtils.camouGetString("locale.all")
 +      || ChromeUtils.camouGetString("navigator.language");
-+    // If locale:all was NOT passed, but locale:language and locale:region was,
++    // If locale.all was NOT passed, but locale.language and locale.region was,
 +    // fall back to it instead.
 +    if (!camouLocale) {
-+      let language = ChromeUtils.camouGetString("locale:language");
-+      let region = ChromeUtils.camouGetString("locale:region");
++      let language = ChromeUtils.camouGetString("locale.language");
++      let region = ChromeUtils.camouGetString("locale.region");
 +      if (language && region) {
 +        camouLocale = language + "-" + region + ", " + language;
 +      }
@@ -39,7 +39,7 @@ diff --git a/intl/components/src/Locale.cpp b/intl/components/src/Locale.cpp
 index 9a043518cf..a8d3733212 100644
 --- a/intl/components/src/Locale.cpp
 +++ b/intl/components/src/Locale.cpp
-@@ -24,11 +24,56 @@
+@@ -24,11 +24,78 @@
  
  #include "unicode/uloc.h"
  #include "unicode/utypes.h"
@@ -53,20 +53,35 @@ index 9a043518cf..a8d3733212 100644
 +// Helper methods for header file
 +
 +const char* Locale::GetCamouLanguage() {
-+  if (auto lang = MaskConfig::GetString("locale:language"))
-+    return lang.value().c_str();
++  static std::string language;
++  if (auto locale = MaskConfig::Profile().getLocale()) {
++    if (auto value = locale->getLanguage()) {
++      language = *value;
++      return language.c_str();
++    }
++  }
 +  return nullptr;
 +}
 +
 +const char* Locale::GetCamouRegion() {
-+  if (auto region = MaskConfig::GetString("locale:region"))
-+    return region.value().c_str();
++  static std::string region;
++  if (auto locale = MaskConfig::Profile().getLocale()) {
++    if (auto value = locale->getRegion()) {
++      region = *value;
++      return region.c_str();
++    }
++  }
 +  return nullptr;
 +}
 +
 +const char* Locale::GetCamouScript() {
-+  if (auto script = MaskConfig::GetString("locale:script"))
-+    return script.value().c_str();
++  static std::string script;
++  if (auto locale = MaskConfig::Profile().getLocale()) {
++    if (auto value = locale->getScript()) {
++      script = *value;
++      return script.c_str();
++    }
++  }
 +  return nullptr;
 +}
 +
@@ -75,11 +90,18 @@ index 9a043518cf..a8d3733212 100644
 +const char* Locale::GetCamouLocale() {
 +  static std::string locale;
 +
-+  if (auto lang = MaskConfig::GetString("locale:language"))
-+    if (auto region = MaskConfig::GetString("locale:region"))
-+      locale = (lang.value() + "-" + region.value());
-+  if (auto value = MaskConfig::GetString("navigator.language"))
-+    locale = value.value();
++  if (auto localeProfile = MaskConfig::Profile().getLocale()) {
++    if (auto lang = localeProfile->getLanguage()) {
++      if (auto region = localeProfile->getRegion()) {
++        locale = (*lang + "-" + *region);
++      }
++    }
++  }
++  if (auto navigator = MaskConfig::Profile().getNavigator()) {
++    if (auto value = navigator->getLanguage()) {
++      locale = *value;
++    }
++  }
 +  if (locale.empty())
 +    return nullptr;
 +  return locale.c_str();

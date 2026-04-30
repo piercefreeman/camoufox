@@ -276,7 +276,7 @@ index cd9090cda3..93cea20206 100644
 @@ -326,4 +327,8 @@ SOURCES += [
      "nsWindowSizes.cpp",
  ]
-
+ 
 +# WebRTCIPManager compiled separately to avoid unified build errors
 +# (it includes RoverfoxStorageManager.h which causes template issues)
 +SOURCES += ["WebRTCIPManager.cpp"]
@@ -384,9 +384,9 @@ index ca237977cd..abfc081ae7 100644
 +  }
 +
 +  mLocalRequestedSDP = sanitizedSDP;
-
+ 
    SyncToJsep();
-
+ 
 @@ -1760,11 +1772,41 @@ already_AddRefed<dom::Promise> PeerConnectionImpl::GetStats(
    }
  
@@ -735,7 +735,7 @@ index 7c509eb87e..0a9010c2d1 100644
 @@ -892,6 +892,17 @@ partial interface Window {
    readonly attribute VisualViewport visualViewport;
  };
-
+ 
 +// WebRTC IP interfaces for privacy-preserving IP spoofing
 +partial interface Window {
 +  [Throws, Func="mozilla::dom::WebRTCIPManager::IsIPv4FunctionEnabledForWebIDL"]

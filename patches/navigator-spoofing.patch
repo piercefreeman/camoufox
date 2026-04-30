@@ -211,7 +211,7 @@ index 318d2edba8..12feb91573 100644
 +  static bool sInitialized = false;
 +  if (sInitialized) return;
 +  sInitialized = true;
-+  if (auto tz = MaskConfig::GetString("timezone")) {
++  if (auto tz = MaskConfig::Profile().getTimezone()) {
 +    nsJSUtils::SetTimeZoneOverride(tz.value().c_str());
 +  }
 +}
@@ -235,22 +235,24 @@ index 318d2edba8..12feb91573 100644
 +    }
 +  }
    nsCOMPtr<nsPIDOMWindowInner> window;
-
+ 
    if (mWindow) {
-@@ -308,6 +336,11 @@ void Navigator::GetAppCodeName(nsAString& aAppCodeName, ErrorResult& aRv) {
+@@ -308,6 +336,13 @@ void Navigator::GetAppCodeName(nsAString& aAppCodeName, ErrorResult& aRv) {
  
  void Navigator::GetAppVersion(nsAString& aAppVersion, CallerType aCallerType,
                                ErrorResult& aRv) const {
 +  // Camoufox: global config fallback for appVersion
-+  if (auto value = MaskConfig::GetString("navigator.appVersion")) {
-+    aAppVersion.Assign(NS_ConvertUTF8toUTF16(value.value()));
-+    return;
++  if (auto navigator = MaskConfig::Profile().getNavigator()) {
++    if (auto value = navigator->getAppVersion()) {
++      aAppVersion.Assign(NS_ConvertUTF8toUTF16(*value));
++      return;
++    }
 +  }
    nsCOMPtr<Document> doc = mWindow->GetExtantDoc();
  
    nsresult rv = GetAppVersion(
-@@ -423,6 +456,24 @@
-
+@@ -423,6 +456,26 @@
+ 
  void Navigator::GetPlatform(nsAString& aPlatform, CallerType aCallerType,
                              ErrorResult& aRv) const {
 +  EnsureGlobalTimezoneInitialized();
@@ -267,14 +269,16 @@ index 318d2edba8..12feb91573 100644
 +    }
 +  }
 +  // Camoufox: global config fallback
-+  if (auto value = MaskConfig::GetString("navigator.platform")) {
-+    aPlatform.Assign(NS_ConvertUTF8toUTF16(value.value()));
-+    return;
++  if (auto navigator = MaskConfig::Profile().getNavigator()) {
++    if (auto value = navigator->getPlatform()) {
++      aPlatform.Assign(NS_ConvertUTF8toUTF16(*value));
++      return;
++    }
 +  }
    if (mWindow) {
      BrowsingContext* bc = mWindow->GetBrowsingContext();
      nsString customPlatform;
-@@ -448,6 +482,23 @@ void Navigator::GetPlatform(nsAString& aPlatform, CallerType aCallerType,
+@@ -448,6 +482,25 @@ void Navigator::GetPlatform(nsAString& aPlatform, CallerType aCallerType,
  
  void Navigator::GetOscpu(nsAString& aOSCPU, CallerType aCallerType,
                           ErrorResult& aRv) const {
@@ -291,14 +295,16 @@ index 318d2edba8..12feb91573 100644
 +    }
 +  }
 +  // Camoufox: global config fallback
-+  if (auto value = MaskConfig::GetString("navigator.oscpu")) {
-+    aOSCPU.Assign(NS_ConvertUTF8toUTF16(value.value()));
-+    return;
++  if (auto navigator = MaskConfig::Profile().getNavigator()) {
++    if (auto value = navigator->getOscpu()) {
++      aOSCPU.Assign(NS_ConvertUTF8toUTF16(*value));
++      return;
++    }
 +  }
    if (aCallerType != CallerType::System) {
      // If fingerprinting resistance is on, we will spoof this value. See
      // nsRFPService.h for details about spoofed values.
-@@ -683,6 +729,22 @@ bool Navigator::GlobalPrivacyControl() {
+@@ -683,6 +729,24 @@ bool Navigator::GlobalPrivacyControl() {
  }
  
  uint64_t Navigator::HardwareConcurrency() {
@@ -315,8 +321,10 @@ index 318d2edba8..12feb91573 100644
 +    }
 +  }
 +  // Camoufox: global config fallback
-+  if (auto value = MaskConfig::GetUint64("navigator.hardwareConcurrency")) {
-+    return value.value();
++  if (auto navigator = MaskConfig::Profile().getNavigator()) {
++    if (auto value = navigator->getHardwareConcurrency()) {
++      return static_cast<uint64_t>(*value);
++    }
 +  }
    workerinternals::RuntimeService* rts =
        workerinternals::RuntimeService::GetOrCreateService();
@@ -336,7 +344,7 @@ index f0854f7ca6..6a1438dbac 100644
 @@ -553,5 +554,9 @@ SOURCES += [
      "nsPluginArray.cpp",
  ]
-
+ 
 +# NavigatorManager compiled separately to avoid unified build scope issues
 +# (includes RoverfoxStorageManager.h which can affect compilation units)
 +SOURCES += ["NavigatorManager.cpp"]
@@ -453,9 +461,9 @@ index 87f1e92cec..4991123b64 100644
 --- a/dom/base/nsGlobalWindowInner.h
 +++ b/dom/base/nsGlobalWindowInner.h
 @@ -700,5 +700,13 @@ class nsGlobalWindowInner final : public mozilla::dom::EventTarget,
-
+ 
    void ForgetSharedWorker(mozilla::dom::SharedWorker* aSharedWorker);
-
+ 
 +  // Per-context navigator property spoofing
 +  void SetNavigatorPlatform(const nsAString& platform,
 +                            mozilla::ErrorResult& aRv);
@@ -515,7 +523,7 @@ index c9a65ff013..d8268dd9ce 100644
  
  #include <utility>
  
-@@ -153,6 +155,18 @@ void WorkerNavigator::GetAppVersion(nsString& aAppVersion,
+@@ -153,9 +155,21 @@ void WorkerNavigator::GetAppVersion(nsString& aAppVersion,
  
  void WorkerNavigator::GetPlatform(nsString& aPlatform, CallerType aCallerType,
                                    ErrorResult& aRv) const {
@@ -531,10 +539,13 @@ index c9a65ff013..d8268dd9ce 100644
 +      }
 +    }
 +  }
-   if (auto value = MaskConfig::GetString("navigator.platform"))
-     return aPlatform.Assign(NS_ConvertUTF8toUTF16(value.value()));
+   if (auto navigator = MaskConfig::Profile().getNavigator()) {
+     if (auto value = navigator->getPlatform()) {
+       return aPlatform.Assign(NS_ConvertUTF8toUTF16(*value));
+     }
+   }
    WorkerPrivate* workerPrivate = GetCurrentThreadWorkerPrivate();
-@@ -215,6 +229,18 @@ class GetUserAgentRunnable final : public WorkerMainThreadRunnable {
+@@ -215,9 +229,21 @@ class GetUserAgentRunnable final : public WorkerMainThreadRunnable {
  
  void WorkerNavigator::GetUserAgent(nsString& aUserAgent, CallerType aCallerType,
                                     ErrorResult& aRv) const {
@@ -550,10 +561,13 @@ index c9a65ff013..d8268dd9ce 100644
 +      }
 +    }
 +  }
-   if (auto value = MaskConfig::GetString("navigator.userAgent"))
-     return aUserAgent.Assign(NS_ConvertUTF8toUTF16(value.value()));
+   if (auto navigator = MaskConfig::Profile().getNavigator()) {
+     if (auto value = navigator->getUserAgent()) {
+       return aUserAgent.Assign(NS_ConvertUTF8toUTF16(*value));
+     }
+   }
    WorkerPrivate* workerPrivate = GetCurrentThreadWorkerPrivate();
-@@ -228,6 +254,17 @@ void WorkerNavigator::GetUserAgent(nsString& aUserAgent, CallerType aCallerType,
+@@ -228,9 +254,20 @@ void WorkerNavigator::GetUserAgent(nsString& aUserAgent, CallerType aCallerType,
  }
  
  uint64_t WorkerNavigator::HardwareConcurrency() const {
@@ -568,6 +582,9 @@ index c9a65ff013..d8268dd9ce 100644
 +      }
 +    }
 +  }
-   if (auto value = MaskConfig::GetUint64("navigator.hardwareConcurrency"))
-     return value.value();
+   if (auto navigator = MaskConfig::Profile().getNavigator()) {
+     if (auto value = navigator->getHardwareConcurrency()) {
+       return static_cast<uint64_t>(*value);
+     }
+   }
    RuntimeService* rts = RuntimeService::GetService();

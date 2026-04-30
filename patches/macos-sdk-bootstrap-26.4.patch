@@ -24,10 +24,10 @@ diff --git a/build/moz.configure/toolchain.configure b/build/moz.configure/toolc
 diff --git a/taskcluster/kinds/openh264-plugin/kind.yml b/taskcluster/kinds/openh264-plugin/kind.yml
 --- a/taskcluster/kinds/openh264-plugin/kind.yml
 +++ b/taskcluster/kinds/openh264-plugin/kind.yml
-@@ -129 +129 @@ tasks:
+@@ -129,1 +129,1 @@ tasks:
 -                - macosx64-sdk-26.1
 +                - macosx64-sdk-26.4
-@@ -153 +153 @@ tasks:
+@@ -153,1 +153,1 @@ tasks:
 -                - macosx64-sdk-26.1
 +                - macosx64-sdk-26.4
 diff --git a/taskcluster/kinds/toolchain/macos-sdk.yml b/taskcluster/kinds/toolchain/macos-sdk.yml
