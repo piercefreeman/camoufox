@@ -98,7 +98,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y msitools p7zip-full aria2 ccache
+          sudo apt-get install -y msitools p7zip-full aria2 ccache unzip
 
       - name: Fetch source
         env:
@@ -120,6 +120,51 @@ jobs:
           sudo swapon /swapfile
           free -h
 
+      - name: Prepare Windows App SDK
+        if: ${{ matrix.target == 'windows' }}
+        run: |
+          set -euxo pipefail
+
+          case "${{ matrix.arch }}" in
+            i686)
+              wasdk_arch=x86
+              moz_cpu=x86
+              ;;
+            x86_64)
+              wasdk_arch=x64
+              moz_cpu=x86_64
+              ;;
+            arm64)
+              wasdk_arch=arm64
+              moz_cpu=aarch64
+              ;;
+            *)
+              echo "Unsupported Windows arch: ${{ matrix.arch }}" >&2
+              exit 1
+              ;;
+          esac
+
+          wasdk_root="$HOME/.mozbuild/winappsdk-${moz_cpu}-pc-windows-msvc"
+          wasdk_tmp="$RUNNER_TEMP/windows-app-sdk"
+          rm -rf "$wasdk_root" "$wasdk_tmp"
+          mkdir -p "$wasdk_root" "$wasdk_tmp"
+
+          curl -L \
+            -o "$wasdk_tmp/Microsoft.WindowsAppRuntime.Redist.2.0.1.zip" \
+            "https://aka.ms/windowsappsdk/2.0/2.0.1/Microsoft.WindowsAppRuntime.Redist.2.0.zip"
+
+          unzip -q \
+            "$wasdk_tmp/Microsoft.WindowsAppRuntime.Redist.2.0.1.zip" \
+            "MSIX/win10-${wasdk_arch}/*.msix" \
+            -d "$wasdk_tmp"
+
+          for msix in "$wasdk_tmp"/MSIX/win10-"${wasdk_arch}"/*.msix; do
+            unzip -oq "$msix" -d "$wasdk_root"
+          done
+
+          test -n "$(find "$wasdk_root" -maxdepth 1 -name '*.dll' -print -quit)"
+          echo "MOZ_WINDOWS_APP_SDK_DIR=$wasdk_root" >> "$GITHUB_ENV"
+
       - name: Build
         run: python3 ./multibuild.py --target ${{ matrix.target }} --arch ${{ matrix.arch }}
 
@@ -128,6 +173,13 @@ jobs:
         with:
           name: CamoufoxBuilds-${{ matrix.target }}-${{ matrix.arch }}
           path: dist/*
+
+      - name: Debug failed build over SSH
+        if: ${{ failure() }}
+        uses: mxschmitt/action-tmate@v3
+        timeout-minutes: 30
+        with:
+          limit-access-to-actor: true
 
   release:
     needs: build
