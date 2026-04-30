@@ -1,4 +1,5 @@
 import http.server
+import shutil
 import socketserver
 import subprocess
 import sys
@@ -8,15 +9,34 @@ from pathlib import Path
 from _constants import BUILD_TESTER_DIR
 
 
+def ensure_node_modules() -> None:
+    node_modules = BUILD_TESTER_DIR / "node_modules"
+    if node_modules.exists():
+        return
+
+    npm = shutil.which("npm")
+    if not npm:
+        print("ERROR: npm is required to build the service tester bundle.", file=sys.stderr)
+        sys.exit(1)
+
+    print("Installing build-tester npm dependencies...")
+    result = subprocess.run(
+        [npm, "install", "--silent"],
+        cwd=BUILD_TESTER_DIR,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        print(f"ERROR: npm install failed:\n{result.stderr}", file=sys.stderr)
+        sys.exit(1)
+
+
 def ensure_bundle() -> Path:
     bundle_path = BUILD_TESTER_DIR / "scripts" / "checks-bundle.js"
     if bundle_path.exists():
         return bundle_path
 
-    node_modules = BUILD_TESTER_DIR / "node_modules"
-    if not node_modules.exists():
-        print("ERROR: build-tester/node_modules not found. Run 'npm install' in build-tester/ first.", file=sys.stderr)
-        sys.exit(1)
+    ensure_node_modules()
 
     esbuild = BUILD_TESTER_DIR / "node_modules" / ".bin" / "esbuild"
     print("Building checks bundle (first run)...")

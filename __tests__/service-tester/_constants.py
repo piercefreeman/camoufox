@@ -3,8 +3,10 @@ from pathlib import Path
 
 # ─── Paths ────────────────────────────────────────────────────────────────────
 
-PROXIES_FILE = Path(__file__).parent / "proxies.txt"
-BUILD_TESTER_DIR = Path(__file__).parent.parent / "build-tester"
+TEST_DIR = Path(__file__).resolve().parent
+REPO_ROOT = TEST_DIR.parents[1]
+PROXIES_FILE = TEST_DIR / "proxies.txt"
+BUILD_TESTER_DIR = REPO_ROOT / "build-tester"
 
 # ─── Check category labels ────────────────────────────────────────────────────
 

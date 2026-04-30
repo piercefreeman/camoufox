@@ -294,7 +294,7 @@ jobs:
           echo "SHA256:"
           shasum -a 256 dist-artifact/*.zip
 
-      - name: Sync Playwright integration environment
+      - name: Sync integration test environment
         run: uv sync --group dev --group playwright-tests --locked
 
       - name: Install Linux runtime dependencies
@@ -309,14 +309,15 @@ jobs:
             --extract-dir .tmp/ci-artifacts/${{ matrix.target }}-${{ matrix.arch }} \
             --github-output "$GITHUB_OUTPUT"
 
-      - name: Run Playwright integration tests
+      - name: Run integration tests
         env:
           CAMOUFOX_EXECUTABLE_PATH: ${{ steps.artifact.outputs.executable_path }}
         run: |
           uv run --group dev --group playwright-tests --locked pytest \
             --integration \
             --headless \
-            __tests__/playwright/async/
+            __tests__/playwright/async/ \
+            __tests__/service-tester/
 
       - name: Debug failed integration over SSH
         if: ${{ failure() }}

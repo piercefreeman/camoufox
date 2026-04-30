@@ -59,13 +59,16 @@ Tests the **full stack** — the binary and the Python package together — usin
 **Run this when you change:** `pythonlib/` (fingerprint generation, `AsyncNewContext`, `NewContext`), proxy handling, or any behaviour that affects how the Python package interacts with the binary.
 
 ```bash
-cd service-tester
 # Add proxies (one per line, format: user:pass@domain:port)
-cp proxies.txt.example proxies.txt   # or create manually
-./run_tests.sh
+$EDITOR __tests__/service-tester/proxies.txt
+
+# Run the pytest-gated integration wrapper
+uv run --group dev --group playwright-tests --locked pytest \
+  --integration \
+  __tests__/service-tester/
 ```
 
-See [`service-tester/README.md`](service-tester/README.md) for full details.
+See [`__tests__/service-tester/README.md`](__tests__/service-tester/README.md) for full details.
 
 ---
 

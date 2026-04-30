@@ -55,7 +55,7 @@ help:
 	@echo "  patch           - Apply a patch"
 	@echo "  unpatch         - Remove a patch"
 	@echo "  workspace       - Sets the workspace to a patch, assuming its applied"
-	@echo "  tests           - Runs the Playwright integration tests"
+	@echo "  tests           - Runs the Python integration test suites"
 	@echo "  update-ubo-assets - Update the uBOAssets.json file"
 	@echo "  generate-openapi - Generate Python and C++ profile models from OpenAPI schema"
 	@echo "  validate-fingerprint-example - Validate example/fingerprint.json against the OpenAPI schema"
@@ -224,7 +224,8 @@ tests:
 			--integration \
 			-vv \
 			$(if $(filter true,$(headful)),, --headless) \
-			__tests__/playwright/async/
+			__tests__/playwright/async/ \
+			__tests__/service-tester/
 
 unbusy:
 	rm -rf $(cf_source_dir)/obj-x86_64-pc-linux-gnu/dist/bin/camoufox-bin \

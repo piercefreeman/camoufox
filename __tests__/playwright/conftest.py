@@ -211,12 +211,6 @@ def skip_by_platform(request: pytest.FixtureRequest) -> None:
 def pytest_addoption(parser: pytest.Parser) -> None:
     group = parser.getgroup("playwright", "Playwright")
     group.addoption(
-        "--integration",
-        action="store_true",
-        default=False,
-        help="Run the Playwright integration test suite.",
-    )
-    group.addoption(
         "--headless",
         action="store_true",
         default=False,

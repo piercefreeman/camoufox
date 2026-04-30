@@ -12,16 +12,18 @@ End-to-end antibot-detection tests that verify a pip-installed camoufox release 
 
 ```bash
 # 1. Add your proxies (see format below)
-# 2. Run the test script — it handles everything else automatically
-./run_tests.sh
+$EDITOR __tests__/service-tester/proxies.txt
+
+# 2. Point the test at a Camoufox binary
+export CAMOUFOX_EXECUTABLE_PATH=/path/to/camoufox-bin
+
+# 3. Run the pytest-gated integration test
+uv run --group dev --group playwright-tests --locked pytest \
+  --integration \
+  __tests__/service-tester/
 ```
 
-`run_tests.sh` will:
-1. Install npm deps in `../build-tester/` (for `esbuild`, first run only)
-2. Create a `.venv` virtualenv (first run only)
-3. Install `camoufox` from the local `../pythonlib` source
-4. Download the camoufox browser binary
-5. Run the full test suite
+The first run will install `build-tester` npm dependencies automatically if the checks bundle has not been built yet.
 
 ## Proxies
 
@@ -49,33 +51,29 @@ alice:secret123@proxy1.example.com:10001
 If you prefer to run steps individually:
 
 ```bash
-# Install build-tester deps (once)
-cd ../build-tester && npm install && cd ../service-tester
+# Use the Python CLI directly instead of pytest
+uv run --group dev --group playwright-tests --locked python \
+  __tests__/service-tester/run_tests.py \
+  --executable-path /path/to/camoufox-bin
 
-# Create and activate virtualenv
-python3 -m venv .venv
-source .venv/bin/activate
-
-# Install camoufox from local source
-pip install -e ../pythonlib
-
-# Download the browser binary
-python -m camoufox fetch
-
-# Run tests
-python run_tests.py
+# Or install/download a browser through the Python package first
+uv run --group dev camoufox set official/stable
+uv run --group dev camoufox fetch
+uv run --group dev --group playwright-tests --locked python \
+  __tests__/service-tester/run_tests.py
 ```
 
 ## Options
 
 ```
-./run_tests.sh [options]
-python run_tests.py [options]
+pytest --integration __tests__/service-tester/
+python __tests__/service-tester/run_tests.py [options]
 
   --browser-version VER   Camoufox version specifier (default: official/stable)
                           e.g. official/prerelease/146.0.1-beta.50
   --profile-count N       Number of profiles to test (1-6, default: 6)
   --proxies PATH          Path to proxies file (default: proxies.txt)
+  --executable-path PATH  Path to a built or installed Camoufox executable
   --headful               Run with visible browser window
   --no-cert               Skip certificate generation
   --save-cert PATH        Save certificate text to a file
