@@ -61,26 +61,32 @@ def test_order_patch_paths_moves_roverfox_to_the_end() -> None:
     ]
 
 
-def test_choose_best_candidate_prefers_nearby_paths() -> None:
-    candidates = [
-        "intl/components/src/string.h",
-        "xpcom/string/nsString.h",
-        "dom/base/nsString.h",
+def test_unique_paths_normalizes_deduplicates_and_sorts() -> None:
+    assert verifier.unique_paths(
+        [
+            "browser/../dom/base/File.cpp",
+            "dom/base/File.cpp",
+            "dom\\base\\Other.cpp",
+        ]
+    ) == [
+        "dom/base/File.cpp",
+        "dom/base/Other.cpp",
     ]
 
-    chosen = verifier.choose_best_candidate(
-        candidates,
-        "dom/base/FontSpacingSeedManager.h",
+
+def test_parse_patch_entries_requires_complete_header_pairs(tmp_path: Path) -> None:
+    patch_path = tmp_path / "broken.patch"
+    patch_path.write_text(
+        """\
+diff --git a/foo.cpp b/foo.cpp
+--- a/foo.cpp
+""",
+        encoding="utf-8",
     )
 
-    assert chosen == "dom/base/nsString.h"
-
-
-def test_header_classifiers_cover_generated_and_nonportable_cases() -> None:
-    assert verifier.is_generated_header("mozilla/dom/WindowBinding.h")
-    assert verifier.is_generated_header("mozilla/StaticPrefs_media.h")
-    assert not verifier.is_generated_header("mozilla/Assertions.h")
-
-    assert verifier.is_nonportable_header("windows.h")
-    assert verifier.is_nonportable_header("Cocoa/Cocoa.h")
-    assert not verifier.is_nonportable_header("mozilla/Assertions.h")
+    try:
+        verifier.parse_patch_entries(patch_path)
+    except ValueError as exc:
+        assert "Unterminated patch header sequence" in str(exc)
+    else:
+        raise AssertionError("Expected parse_patch_entries to reject unterminated headers")

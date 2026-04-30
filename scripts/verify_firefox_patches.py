@@ -10,7 +10,10 @@
 from __future__ import annotations
 
 import os
+import posixpath
+import random
 import re
+import shlex
 import shutil
 import subprocess
 import tempfile
@@ -42,58 +45,9 @@ FIREFOX_TARBALL_URL = (
 )
 
 PATCH_PATH_RE = re.compile(r"^(---|\+\+\+) ((?:[ab]/).+|/dev/null)$")
-INCLUDE_RE = re.compile(r'^\s*#\s*include\s*([<"])([^">]+)[">]')
-MISSING_HEADER_RE = re.compile(r"fatal error: '([^']+)' file not found")
 
 SOURCE_EXTENSIONS = {".cc", ".cpp", ".cxx"}
-HEADER_EXTENSIONS = {".h", ".hh", ".hpp", ".hxx"}
-SCANNABLE_EXTENSIONS = SOURCE_EXTENSIONS | HEADER_EXTENSIONS | {".inc", ".inl"}
 SKIPPED_SOURCE_EXTENSIONS = {".m", ".mm"}
-GENERATED_HEADER_PATTERNS = (
-    re.compile(r"mozilla/dom/.+Binding\.h$"),
-    re.compile(r"mozilla/StaticPrefs_.+\.h$"),
-)
-NONPORTABLE_HEADERS = {
-    "windows.h",
-}
-NONPORTABLE_PREFIXES = (
-    "AppKit/",
-    "ApplicationServices/",
-    "Cocoa/",
-    "CoreFoundation/",
-    "CoreGraphics/",
-    "Foundation/",
-    "IOKit/",
-    "dbus/",
-    "gdk/",
-    "gtk/",
-    "objc/",
-)
-COMMON_DEFINES = (
-    "MOZILLA_CLIENT",
-    "MOZILLA_INTERNAL_API",
-    "IMPL_LIBXUL",
-    "MOZ_HAS_MOZGLUE",
-    "STATIC_EXPORTABLE_JS_API",
-    "TRIMMED=1",
-    "NDEBUG=1",
-)
-STUB_HEADERS = {
-    "mozilla-config.h": textwrap.dedent(
-        """\
-        #pragma once
-        #define MOZILLA_CLIENT 1
-        #define MOZILLA_INTERNAL_API 1
-        #define IMPL_LIBXUL 1
-        #define MOZ_HAS_MOZGLUE 1
-        #define STATIC_EXPORTABLE_JS_API 1
-        #define TRIMMED 1
-        #define NDEBUG 1
-        """
-    ),
-    "js-confdefs.h": "#pragma once\n",
-    "js/src/js-confdefs.h": "#pragma once\n",
-}
 HELPER_SEEDED_PATHS = {
     "build/vs/pack_vs.py",
     "browser/config/version.txt",
@@ -120,6 +74,8 @@ class VerifierOptions:
     cache_dir: Path
     tarball: Path | None
     workspace: Path | None
+    source_tree: Path | None
+    compile_commands_dir: Path | None
     keep_workdir: bool
     skip_syntax: bool
     jobs: int
@@ -155,6 +111,7 @@ class PreparedTarget:
     display_path: str
     compile_path: Path
     command: list[str]
+    working_directory: Path
 
 
 @dataclass(frozen=True)
@@ -163,6 +120,22 @@ class SyntaxResult:
     status: str
     reason: str | None = None
     output: str | None = None
+
+
+@dataclass(frozen=True)
+class SyntaxScope:
+    changed_repo_files: list[str]
+    changed_patch_files: list[Path]
+    overlay_paths: list[str]
+    syntax_targets: list[str]
+    sampled_patch: Path | None = None
+
+
+@dataclass(frozen=True)
+class CompileCommandContext:
+    source_tree: Path
+    compile_commands_dir: Path
+    commands_by_relative_path: dict[str, tuple[Path, list[str]]]
 
 
 def parse_upstream_metadata(upstream_path: Path = UPSTREAM_SH) -> BuildMetadata:
@@ -230,44 +203,7 @@ def collect_patch_entries(patch_paths: list[Path]) -> dict[Path, list[PatchEntry
 
 
 def normalize_posix(path: str) -> str:
-    return PurePosixPath(path).as_posix()
-
-
-def common_prefix_len(left: tuple[str, ...], right: tuple[str, ...]) -> int:
-    count = 0
-    for left_part, right_part in zip(left, right):
-        if left_part != right_part:
-            break
-        count += 1
-    return count
-
-
-def score_candidate(candidate: str, current_file: str) -> tuple[int, int, int, int]:
-    candidate_parts = PurePosixPath(candidate).parent.parts
-    current_parts = PurePosixPath(current_file).parent.parts
-    same_top_level = 0 if candidate_parts[:1] == current_parts[:1] else 1
-    shared_prefix = -common_prefix_len(candidate_parts, current_parts)
-    depth_distance = abs(len(candidate_parts) - len(current_parts))
-    length = len(candidate)
-    return (same_top_level, shared_prefix, depth_distance, length)
-
-
-def choose_best_candidate(candidates: list[str], current_file: str) -> str | None:
-    if not candidates:
-        return None
-
-    scored = sorted((score_candidate(candidate, current_file), candidate) for candidate in candidates)
-    if len(scored) > 1 and scored[0][0] == scored[1][0]:
-        return None
-    return scored[0][1]
-
-
-def is_generated_header(path: str) -> bool:
-    return any(pattern.match(path) for pattern in GENERATED_HEADER_PATTERNS)
-
-
-def is_nonportable_header(path: str) -> bool:
-    return path in NONPORTABLE_HEADERS or path.startswith(NONPORTABLE_PREFIXES)
+    return posixpath.normpath(path.replace("\\", "/"))
 
 
 def chunked(items: list[str], size: int) -> list[list[str]]:
@@ -276,6 +212,10 @@ def chunked(items: list[str], size: int) -> list[list[str]]:
 
 def repo_relative(path: Path) -> str:
     return path.relative_to(REPO_ROOT).as_posix()
+
+
+def unique_paths(paths: list[str]) -> list[str]:
+    return sorted({normalize_posix(path) for path in paths})
 
 
 class TarIndex:
@@ -343,13 +283,8 @@ class PatchVerifier:
         self.tarball_path = self._resolve_tarball_path()
         self.tar_index = TarIndex(self.tarball_path)
         self.workdir = self._prepare_workdir()
-        self.stub_dir = self.workdir / "__generated_stubs__"
-        self.wrapper_dir = self.workdir / "__verify_wrappers__"
         self.workspace_paths: set[str] = set()
-        self.workspace_paths_by_basename: dict[str, list[str]] = defaultdict(list)
         self.extracted_paths: set[str] = set()
-        self.include_cache: dict[str, list[tuple[bool, str]]] = {}
-        self.include_resolution_cache: dict[tuple[str, str, bool], str | None] = {}
 
     @staticmethod
     def progress() -> Progress:
@@ -402,7 +337,6 @@ class PatchVerifier:
         if normalized in self.workspace_paths:
             return
         self.workspace_paths.add(normalized)
-        self.workspace_paths_by_basename[PurePosixPath(normalized).name].append(normalized)
 
     def workspace_file(self, relative_path: str) -> Path:
         return self.workdir / PurePosixPath(relative_path)
@@ -437,12 +371,6 @@ class PatchVerifier:
             if path.is_file():
                 relative_path = path.relative_to(source_root).as_posix()
                 self.register_workspace_file(relative_path)
-
-    def create_stub_headers(self) -> None:
-        for relative_path, contents in STUB_HEADERS.items():
-            destination = self.stub_dir / PurePosixPath(relative_path)
-            destination.parent.mkdir(parents=True, exist_ok=True)
-            destination.write_text(contents, encoding="utf-8")
 
     def is_locally_seeded(self, relative_path: str) -> bool:
         normalized = normalize_posix(relative_path)
@@ -510,8 +438,6 @@ class PatchVerifier:
         for relative_path in new_paths:
             self.workspace_file(relative_path).parent.mkdir(parents=True, exist_ok=True)
 
-        self.create_stub_headers()
-
     def apply_patches(self) -> None:
         console.print(f"[bold cyan]Applying[/bold cyan] {len(self.patch_paths)} patches")
         console.print(f"[cyan]Using patch binary:[/cyan] {self.patch_bin}")
@@ -557,222 +483,404 @@ class PatchVerifier:
                 if path.is_file():
                     self.register_workspace_file(entry.target_path)
 
-    def collect_syntax_targets(self) -> list[str]:
-        targets: dict[str, None] = {}
-
-        for path in ADDITIONS_DIR.rglob("*"):
-            if not path.is_file():
-                continue
-            relative_path = path.relative_to(ADDITIONS_DIR).as_posix()
-            suffix = path.suffix.lower()
-            if suffix in SOURCE_EXTENSIONS | HEADER_EXTENSIONS | SKIPPED_SOURCE_EXTENSIONS:
-                targets[relative_path] = None
-
-        for entries in self.patch_entries_by_path.values():
-            for entry in entries:
-                target_path = entry.target_path
-                if target_path is None or entry.is_deleted:
-                    continue
-                suffix = PurePosixPath(target_path).suffix.lower()
-                if suffix not in SOURCE_EXTENSIONS | HEADER_EXTENSIONS | SKIPPED_SOURCE_EXTENSIONS:
-                    continue
-                if self.workspace_file(target_path).is_file():
-                    targets[normalize_posix(target_path)] = None
-
-        return sorted(targets)
-
-    def parse_includes(self, relative_path: str) -> list[tuple[bool, str]]:
-        cached = self.include_cache.get(relative_path)
-        if cached is not None:
-            return cached
-
-        includes: list[tuple[bool, str]] = []
-        file_path = self.workspace_file(relative_path)
-        for line in file_path.read_text(encoding="utf-8", errors="ignore").splitlines():
-            match = INCLUDE_RE.match(line)
-            if match is None:
-                continue
-            delimiter, include_path = match.groups()
-            includes.append((delimiter == '"', include_path))
-        self.include_cache[relative_path] = includes
-        return includes
-
-    def candidate_exists(self, relative_path: str) -> bool:
-        return relative_path in self.workspace_paths or self.tar_index.has(relative_path)
-
-    def ensure_candidate(self, relative_path: str) -> bool:
-        normalized = normalize_posix(relative_path)
-        if normalized in self.workspace_paths:
-            return True
-        if not self.tar_index.has(normalized):
-            return False
-        self.extract_paths([normalized])
-        return True
-
-    def resolve_include(self, current_file: str, include_path: str, quoted: bool) -> str | None:
-        cache_key = (current_file, include_path, quoted)
-        if cache_key in self.include_resolution_cache:
-            return self.include_resolution_cache[cache_key]
-
-        current_parent = PurePosixPath(current_file).parent
-
-        if quoted:
-            relative_candidate = normalize_posix(current_parent.joinpath(include_path).as_posix())
-            if self.ensure_candidate(relative_candidate):
-                self.include_resolution_cache[cache_key] = relative_candidate
-                return relative_candidate
-
-            exact_candidate = normalize_posix(include_path)
-            if self.ensure_candidate(exact_candidate):
-                self.include_resolution_cache[cache_key] = exact_candidate
-                return exact_candidate
-
-            basename = PurePosixPath(include_path).name
-            candidates = list(self.workspace_paths_by_basename.get(basename, []))
-            candidates.extend(self.tar_index.basename_candidates(basename))
-            chosen = choose_best_candidate(sorted(set(candidates)), current_file)
-            if chosen is not None and self.ensure_candidate(chosen):
-                self.include_resolution_cache[cache_key] = chosen
-                return chosen
-            self.include_resolution_cache[cache_key] = None
+    def run_git(self, *args: str) -> str | None:
+        result = subprocess.run(
+            ["git", *args],
+            capture_output=True,
+            check=False,
+            cwd=REPO_ROOT,
+            text=True,
+        )
+        if result.returncode != 0:
             return None
+        return result.stdout.strip()
 
-        if "/" not in include_path:
-            self.include_resolution_cache[cache_key] = None
-            return None
+    def git_ref_exists(self, ref: str) -> bool:
+        result = subprocess.run(
+            ["git", "rev-parse", "--verify", "--quiet", ref],
+            capture_output=True,
+            check=False,
+            cwd=REPO_ROOT,
+            text=True,
+        )
+        return result.returncode == 0
 
-        exact_candidate = normalize_posix(include_path)
-        if self.ensure_candidate(exact_candidate):
-            self.include_resolution_cache[cache_key] = exact_candidate
-            return exact_candidate
-        self.include_resolution_cache[cache_key] = None
+    def resolve_diff_base(self) -> str | None:
+        # The fast verifier only wants to compile-check files touched by the
+        # current change. On CI we prefer the PR merge-base, but when that
+        # history is unavailable we gracefully fall back to whatever local git
+        # state can describe "what changed" instead of inflating the scope back
+        # to the whole Firefox patch stack.
+        base_ref = os.environ.get("GITHUB_BASE_REF")
+        if base_ref:
+            remote_ref = f"origin/{base_ref}"
+            if self.git_ref_exists(remote_ref):
+                merge_base = self.run_git("merge-base", "HEAD", remote_ref)
+                if merge_base:
+                    return merge_base
+
+        before_sha = os.environ.get("GITHUB_EVENT_BEFORE")
+        if before_sha and before_sha != "0" * 40 and self.git_ref_exists(before_sha):
+            return before_sha
+
+        if self.git_ref_exists("HEAD^"):
+            return "HEAD^"
         return None
 
-    def prepare_target(self, target: str) -> PreparedTarget | PreparationFailure:
+    def collect_changed_repo_files(self) -> list[str]:
+        changed: set[str] = set()
+
+        status_output = self.run_git("status", "--porcelain", "--untracked-files=all")
+        if status_output:
+            for line in status_output.splitlines():
+                if not line:
+                    continue
+                candidate = line[3:]
+                if " -> " in candidate:
+                    candidate = candidate.split(" -> ", 1)[1]
+                changed.add(candidate)
+
+        local_diff = self.run_git("diff", "--name-only", "HEAD", "--")
+        if local_diff:
+            changed.update(line for line in local_diff.splitlines() if line)
+
+        staged_diff = self.run_git("diff", "--name-only", "--cached", "--")
+        if staged_diff:
+            changed.update(line for line in staged_diff.splitlines() if line)
+
+        diff_base = self.resolve_diff_base()
+        if diff_base is not None:
+            range_diff = self.run_git("diff", "--name-only", f"{diff_base}...HEAD", "--")
+            if range_diff:
+                changed.update(line for line in range_diff.splitlines() if line)
+
+        return sorted(changed)
+
+    def collect_patch_overlay_and_targets(
+        self,
+        patch_path: Path,
+        context: CompileCommandContext | None = None,
+    ) -> tuple[list[str], list[str]]:
+        overlay_paths: list[str] = []
+        syntax_targets: list[str] = []
+
+        for entry in self.patch_entries_by_path[patch_path]:
+            if entry.target_path is None or entry.is_deleted:
+                continue
+            overlay_paths.append(entry.target_path)
+            suffix = PurePosixPath(entry.target_path).suffix.lower()
+            if suffix not in SOURCE_EXTENSIONS:
+                continue
+            if not self.workspace_file(entry.target_path).is_file():
+                continue
+            if context is not None and entry.target_path not in context.commands_by_relative_path:
+                continue
+            syntax_targets.append(entry.target_path)
+
+        return unique_paths(overlay_paths), unique_paths(syntax_targets)
+
+    def collect_syntax_scope(self) -> SyntaxScope:
+        # The fast lane is intentionally diff-scoped. Re-validating every file
+        # touched by the entire historical patch stack is what made the earlier
+        # verifier drift into 20+ minute "mini build" territory. We only need
+        # enough surface area to answer "did this push introduce obviously bad
+        # patched C++?" before paying for the full Firefox build.
+        changed_repo_files = self.collect_changed_repo_files()
+        changed_repo_file_set = set(changed_repo_files)
+        changed_patch_files = [
+            patch_path
+            for patch_path in self.patch_paths
+            if repo_relative(patch_path) in changed_repo_file_set
+        ]
+
+        overlay_paths: list[str] = []
+        syntax_targets: list[str] = []
+
+        for patch_path in changed_patch_files:
+            patch_overlay_paths, patch_syntax_targets = self.collect_patch_overlay_and_targets(patch_path)
+            overlay_paths.extend(patch_overlay_paths)
+            syntax_targets.extend(patch_syntax_targets)
+
+        for repo_file in changed_repo_files:
+            path = PurePosixPath(repo_file)
+            if path.parts[:1] != ("additions",):
+                continue
+            relative_path = PurePosixPath(*path.parts[1:]).as_posix()
+            overlay_paths.append(relative_path)
+            if Path(relative_path).suffix.lower() in SOURCE_EXTENSIONS and self.workspace_file(relative_path).is_file():
+                syntax_targets.append(relative_path)
+
+        return SyntaxScope(
+            changed_repo_files=changed_repo_files,
+            changed_patch_files=changed_patch_files,
+            overlay_paths=unique_paths(overlay_paths),
+            syntax_targets=unique_paths(syntax_targets),
+        )
+
+    def collect_smoke_syntax_scope(
+        self,
+        context: CompileCommandContext,
+        changed_repo_files: list[str],
+        changed_patch_files: list[Path],
+    ) -> SyntaxScope | None:
+        # When a PR does not touch any patch-backed translation units we still
+        # want one cheap compile-backed smoke test. That catches pipeline
+        # regressions in the cached compile-command path itself without scaling
+        # the fast lane back up to a broad Firefox syntax sweep.
+        candidates: list[tuple[Path, list[str], list[str]]] = []
+        for patch_path in self.patch_paths:
+            overlay_paths, syntax_targets = self.collect_patch_overlay_and_targets(
+                patch_path,
+                context=context,
+            )
+            if not syntax_targets:
+                continue
+            candidates.append((patch_path, overlay_paths, syntax_targets))
+
+        if not candidates:
+            return None
+
+        seed_material = (
+            os.environ.get("GITHUB_SHA")
+            or self.run_git("rev-parse", "HEAD")
+            or f"{self.metadata.version}-{self.metadata.release}"
+        )
+        rng = random.Random(seed_material)
+        patch_path, overlay_paths, syntax_targets = rng.choice(candidates)
+
+        # We only compile one TU from the sampled patch to keep this fallback
+        # cheap, but we keep the whole patch's overlay set so header edits from
+        # that patch still affect the selected translation unit.
+        sampled_target = rng.choice(syntax_targets)
+        return SyntaxScope(
+            changed_repo_files=changed_repo_files,
+            changed_patch_files=changed_patch_files,
+            overlay_paths=overlay_paths,
+            syntax_targets=[sampled_target],
+            sampled_patch=patch_path,
+        )
+
+    def detect_compile_command_context(self) -> CompileCommandContext | None:
+        # Syntax checks for upstream Firefox files are only meaningful when we
+        # can borrow compile flags, generated headers, and include paths from a
+        # real prior build. Without that cached context we would either emit a
+        # lot of false failures or rebuild enough of Firefox that this "fast"
+        # lane stops being fast.
+        source_tree = self.options.source_tree
+        if source_tree is None:
+            default_source_tree = REPO_ROOT / f"camoufox-{self.metadata.version}-{self.metadata.release}"
+            if default_source_tree.exists():
+                source_tree = default_source_tree
+
+        compile_commands_dir = self.options.compile_commands_dir
+        if compile_commands_dir is None and source_tree is not None:
+            candidates = sorted(source_tree.glob("obj-*/clangd/compile_commands.json"))
+            if candidates:
+                compile_commands_dir = candidates[0].parent
+
+        if compile_commands_dir is not None and source_tree is None:
+            source_tree = compile_commands_dir.parent.parent
+
+        if source_tree is None or compile_commands_dir is None:
+            return None
+
+        compile_commands_path = compile_commands_dir / "compile_commands.json"
+        if not compile_commands_path.exists():
+            return None
+
+        commands_by_relative_path: dict[str, tuple[Path, list[str]]] = {}
+        import json
+
+        entries = json.loads(compile_commands_path.read_text(encoding="utf-8"))
+        for entry in entries:
+            file_path = Path(entry["file"])
+            try:
+                relative_path = file_path.relative_to(source_tree).as_posix()
+            except ValueError:
+                continue
+            if "arguments" in entry:
+                compile_command = list(entry["arguments"])
+            else:
+                compile_command = shlex.split(entry["command"])
+            commands_by_relative_path[relative_path] = (Path(entry["directory"]), compile_command)
+
+        return CompileCommandContext(
+            source_tree=source_tree,
+            compile_commands_dir=compile_commands_dir,
+            commands_by_relative_path=commands_by_relative_path,
+        )
+
+    def build_overlay_dirs(self, scope: SyntaxScope) -> list[Path]:
+        # We intentionally overlay only files touched by the current patch diff
+        # onto a previously-built source tree. That keeps the check cheap while
+        # still parsing the exact workspace versions of modified files. The
+        # tradeoff is deliberate: we do not try to recreate a whole cold Firefox
+        # objdir here, because that drifts too close to a full build.
+        overlay_dirs = [self.workdir]
+        for relative_path in scope.overlay_paths:
+            candidate = self.workspace_file(relative_path).parent
+            if candidate.exists():
+                overlay_dirs.append(candidate)
+
+        unique_dirs: list[Path] = []
+        seen: set[Path] = set()
+        for directory in overlay_dirs:
+            if directory in seen:
+                continue
+            seen.add(directory)
+            unique_dirs.append(directory)
+        return unique_dirs
+
+    def prepare_target(
+        self,
+        target: str,
+        context: CompileCommandContext,
+        overlay_dirs: list[Path],
+    ) -> PreparedTarget | PreparationFailure:
         suffix = PurePosixPath(target).suffix.lower()
         if suffix in SKIPPED_SOURCE_EXTENSIONS:
             return PreparationFailure(
                 target=target,
-                reason="Objective-C or Objective-C++ sources are not portable in the Ubuntu fast lane",
+                reason="Objective-C or Objective-C++ sources are not portable in the fast verifier",
                 skip=True,
             )
 
-        if not self.workspace_file(target).exists():
+        if suffix not in SOURCE_EXTENSIONS:
+            return PreparationFailure(
+                target=target,
+                reason="fast verifier only compile-checks .cpp/.cc/.cxx translation units",
+                skip=True,
+            )
+
+        compile_entry = context.commands_by_relative_path.get(target)
+        if compile_entry is None:
+            return PreparationFailure(
+                target=target,
+                reason="no cached compile command exists for this file; full build must validate it",
+                skip=True,
+            )
+        working_directory, compile_command = compile_entry
+
+        workspace_file = self.workspace_file(target)
+        if not workspace_file.exists():
             return PreparationFailure(
                 target=target,
                 reason="syntax target is missing from the prepared workspace",
                 skip=False,
             )
 
-        include_dirs: dict[str, None] = {"": None}
-        pending = [target]
-        visited: set[str] = set()
+        # We replay the original compiler invocation as faithfully as possible
+        # and only change what is needed for a cheap front-end pass:
+        # - add overlay include roots so patched files shadow the cached tree
+        # - point the source path at the patched workspace file
+        # - drop object output flags
+        # - append -fsyntax-only to stop before codegen/linking
+        #
+        # Limitation: this only works for translation units that already have a
+        # compile command in the cached build context. Brand-new upstream files
+        # or header-only changes are intentionally left to the full build.
+        command: list[str] = [compile_command[0]]
+        for overlay_dir in overlay_dirs:
+            command.extend(["-I", str(overlay_dir)])
 
-        while pending:
-            current = pending.pop()
-            if current in visited:
+        skip_next = False
+        original_source_file = (context.source_tree / PurePosixPath(target)).resolve()
+        for arg in compile_command[1:]:
+            if skip_next:
+                skip_next = False
                 continue
-            visited.add(current)
-
-            current_suffix = PurePosixPath(current).suffix.lower()
-            if current_suffix not in SCANNABLE_EXTENSIONS:
+            if arg == "-o":
+                skip_next = True
                 continue
+            if arg == "-c":
+                continue
+            resolved_arg = Path(arg)
+            if not resolved_arg.is_absolute():
+                resolved_arg = (working_directory / resolved_arg).resolve()
+            if resolved_arg == original_source_file:
+                command.append(str(workspace_file))
+                continue
+            command.append(arg)
 
-            include_dirs[str(PurePosixPath(current).parent)] = None
-            for quoted, include_path in self.parse_includes(current):
-                resolved = self.resolve_include(current, include_path, quoted)
-                if resolved is None:
-                    if quoted:
-                        reason = f"missing quoted include: {include_path}"
-                        return PreparationFailure(target=target, reason=reason, skip=is_generated_header(include_path))
-                    continue
-                include_dirs[str(PurePosixPath(resolved).parent)] = None
-                if resolved not in visited:
-                    pending.append(resolved)
-
-        command = [
-            shutil.which("clang++") or "clang++",
-            "-fsyntax-only",
-            "-std=gnu++20",
-            "-ferror-limit=0",
-            "-Wno-unknown-warning-option",
-            "-Winvalid-offsetof",
-            "-fno-exceptions",
-            "-fno-rtti",
-            "-fno-sized-deallocation",
-            "-fno-aligned-new",
-            "-pthread",
-            "-include",
-            str(self.stub_dir / "mozilla-config.h"),
-        ]
-        for define in COMMON_DEFINES:
-            command.append(f"-D{define}")
-
-        ordered_dirs = [self.workdir, self.stub_dir]
-        for relative_dir in include_dirs:
-            ordered_dirs.append(self.workdir / PurePosixPath(relative_dir))
-
-        unique_dirs: dict[Path, None] = {}
-        for directory in ordered_dirs:
-            if directory.exists():
-                unique_dirs[directory] = None
-        for directory in unique_dirs:
-            command.extend(["-I", str(directory)])
-
-        compile_path = self.workspace_file(target)
-        if suffix in HEADER_EXTENSIONS:
-            wrapper_name = target.replace("/", "__").replace(".", "_") + ".cpp"
-            compile_path = self.wrapper_dir / wrapper_name
-            compile_path.parent.mkdir(parents=True, exist_ok=True)
-            compile_path.write_text(f'#include "{target}"\n', encoding="utf-8")
-
-        command.append(str(compile_path))
-        return PreparedTarget(display_path=target, compile_path=compile_path, command=command)
+        command.append("-fsyntax-only")
+        return PreparedTarget(
+            display_path=target,
+            compile_path=workspace_file,
+            command=command,
+            working_directory=working_directory,
+        )
 
     def run_compiler(self, prepared: PreparedTarget) -> SyntaxResult:
         result = subprocess.run(
             prepared.command,
             capture_output=True,
             check=False,
-            cwd=self.workdir,
+            cwd=prepared.working_directory,
             text=True,
         )
         if result.returncode == 0:
             return SyntaxResult(display_path=prepared.display_path, status="passed")
 
-        combined_output = "\n".join(part for part in (result.stdout, result.stderr) if part).strip()
-        header_match = MISSING_HEADER_RE.search(combined_output)
-        if header_match is not None:
-            header_name = header_match.group(1)
-            if is_generated_header(header_name):
-                return SyntaxResult(
-                    display_path=prepared.display_path,
-                    status="skipped",
-                    reason=f"depends on generated Mozilla header {header_name}",
-                )
-            if is_nonportable_header(header_name):
-                return SyntaxResult(
-                    display_path=prepared.display_path,
-                    status="skipped",
-                    reason=f"depends on non-portable system header {header_name}",
-                )
-
         return SyntaxResult(
             display_path=prepared.display_path,
             status="failed",
-            output=combined_output,
+            output="\n".join(part for part in (result.stdout, result.stderr) if part).strip(),
         )
 
     def run_syntax_checks(self) -> list[SyntaxResult]:
-        targets = self.collect_syntax_targets()
-        console.print(f"[bold cyan]Preparing syntax checks[/bold cyan] for {len(targets)} files")
+        # Limitations:
+        # - This fast lane only checks translation units touched by the current
+        #   patch diff, not every file in the whole Camoufox patch stack.
+        # - It reuses compile flags and generated headers from a previously
+        #   built source tree / syntax SDK.
+        # - Header-only changes and brand-new files without cached compile
+        #   commands are intentionally skipped here and remain the job of the
+        #   authoritative full build.
+        scope = self.collect_syntax_scope()
+        console.print(
+            f"[bold cyan]Collected syntax scope[/bold cyan] from {len(scope.changed_repo_files)} changed repo files "
+            f"and {len(scope.changed_patch_files)} changed patch files"
+        )
+
+        context = self.detect_compile_command_context()
+        if context is None:
+            console.print(
+                "[yellow]No cached compile-command context was found; patch application is verified, "
+                "but compile-backed syntax checks are skipped.[/yellow]"
+            )
+            return []
+
+        if not scope.syntax_targets:
+            scope = self.collect_smoke_syntax_scope(
+                context,
+                changed_repo_files=scope.changed_repo_files,
+                changed_patch_files=scope.changed_patch_files,
+            ) or scope
+            if not scope.syntax_targets:
+                console.print(
+                    "[yellow]No changed .cpp/.cc/.cxx files were found in the current patch scope, "
+                    "and no compile-backed smoke target was available; skipping syntax checks.[/yellow]"
+                )
+                return []
+
+            if scope.sampled_patch is not None:
+                console.print(
+                    "[yellow]No changed translation units were found in the current patch scope; "
+                    f"running smoke syntax check on sampled patch {repo_relative(scope.sampled_patch)} "
+                    f"via {scope.syntax_targets[0]}.[/yellow]"
+                )
+
+        overlay_dirs = self.build_overlay_dirs(scope)
+        console.print(
+            f"[bold cyan]Preparing syntax checks[/bold cyan] for {len(scope.syntax_targets)} changed translation units"
+        )
         immediate_results: list[SyntaxResult] = []
         prepared_targets: list[PreparedTarget] = []
 
         with self.progress() as progress:
-            task_id = progress.add_task("Preparing syntax targets", total=len(targets))
-            for target in targets:
-                prepared = self.prepare_target(target)
+            task_id = progress.add_task("Preparing syntax targets", total=len(scope.syntax_targets))
+            for target in scope.syntax_targets:
+                prepared = self.prepare_target(target, context, overlay_dirs)
                 if isinstance(prepared, PreparationFailure):
                     status = "skipped" if prepared.skip else "failed"
                     immediate_results.append(
@@ -787,7 +895,10 @@ class PatchVerifier:
                 prepared_targets.append(prepared)
                 progress.advance(task_id)
 
-        max_workers = max(1, min(self.options.jobs, len(prepared_targets) or 1))
+        if not prepared_targets:
+            return immediate_results
+
+        max_workers = max(1, min(self.options.jobs, len(prepared_targets)))
         console.print(
             f"[bold cyan]Running syntax checks[/bold cyan] on {len(prepared_targets)} prepared targets "
             f"with {max_workers} parallel jobs"
@@ -870,6 +981,16 @@ class PatchVerifier:
     help="Reuse or create a specific workspace directory instead of a temp dir.",
 )
 @click.option(
+    "--source-tree",
+    type=click.Path(path_type=Path, file_okay=False),
+    help="Existing built Camoufox/Firefox tree to use as the cached syntax context.",
+)
+@click.option(
+    "--compile-commands-dir",
+    type=click.Path(path_type=Path, file_okay=False),
+    help="Directory containing compile_commands.json for cached syntax checks.",
+)
+@click.option(
     "--keep-workdir",
     is_flag=True,
     help="Keep the temporary workspace after the run for debugging.",
@@ -890,6 +1011,8 @@ def main(
     cache_dir: Path,
     tarball: Path | None,
     workspace: Path | None,
+    source_tree: Path | None,
+    compile_commands_dir: Path | None,
     keep_workdir: bool,
     skip_syntax: bool,
     jobs: int,
@@ -904,6 +1027,8 @@ def main(
         cache_dir=cache_dir,
         tarball=tarball,
         workspace=workspace,
+        source_tree=source_tree,
+        compile_commands_dir=compile_commands_dir,
         keep_workdir=keep_workdir,
         skip_syntax=skip_syntax,
         jobs=jobs,
