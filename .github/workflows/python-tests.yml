@@ -15,6 +15,33 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  firefox-patches:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Cache Firefox source tarball
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/camoufox/firefox-source
+          key: firefox-source-${{ runner.os }}-${{ hashFiles('upstream.sh') }}
+
+      - name: Install verifier dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang patch
+
+      - name: Run fast Firefox patch verification
+        run: python3 -u scripts/verify_firefox_patches.py
+
   ruff:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
