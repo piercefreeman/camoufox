@@ -22,7 +22,7 @@ pacman := python python-pip p7zip msitools wget aria2 sqlite
         package-linux package-macos package-windows vcredist_arch patch unpatch \
         workspace check-arg edit-cfg ff-dbg tests update-ubo-assets generate-assets-car \
         generate-openapi generate-openapi-python generate-openapi-cpp \
-        validate-fingerprint-example
+        validate-fingerprint-example verify-patches
 
 OPENAPI_SCHEMA := schemas/camoufox-profile.openapi.yaml
 PY_OPENAPI_MODELS := pythonlib/camoufox/_generated_profile.py
@@ -59,6 +59,7 @@ help:
 	@echo "  update-ubo-assets - Update the uBOAssets.json file"
 	@echo "  generate-openapi - Generate Python and C++ profile models from OpenAPI schema"
 	@echo "  validate-fingerprint-example - Validate example/fingerprint.json against the OpenAPI schema"
+	@echo "  verify-patches  - Fast Firefox patch verification against the matching source tarball"
 
 _ARGS := $(wordlist 2,$(words $(MAKECMDGOALS)),$(MAKECMDGOALS))
 $(eval $(_ARGS):;@:)
@@ -265,5 +266,8 @@ generate-openapi-cpp:
 
 validate-fingerprint-example:
 	uv run --project pythonlib python scripts/validate_fingerprint_example.py
+
+verify-patches:
+	uv run scripts/verify_firefox_patches.py
 
 vcredist_arch := $(shell echo $(arch) | sed 's/x86_64/x64/' | sed 's/i686/x86/')
