@@ -24,6 +24,7 @@ from ._generated_profile import (
     LocaleProfile,
     NavigatorProfile,
     ScreenProfile,
+    SpeechVoice,
     VoicesProfile,
     WindowProfile,
 )
@@ -300,21 +301,27 @@ class _FirefoxFingerprintCompiler:
         navigator = preset.get("navigator", {})
         screen = preset.get("screen", {})
 
+        navigator_profile = NavigatorProfile()
+        screen_profile = ScreenProfile()
+        window_profile = WindowProfile()
         profile = CamoufoxProfile(
-            navigator=NavigatorProfile(),
-            screen=ScreenProfile(),
-            window=WindowProfile(),
+            navigator=navigator_profile,
+            screen=screen_profile,
+            window=window_profile,
         )
 
         user_agent = navigator.get("userAgent")
         if isinstance(user_agent, str):
-            profile.navigator.user_agent = _patch_firefox_version(user_agent, ff_version)
-            profile.navigator.app_version = _derive_app_version(profile.navigator.user_agent)
+            patched_user_agent = _patch_firefox_version(user_agent, ff_version)
+            navigator_profile.user_agent = patched_user_agent
+            navigator_profile.app_version = _derive_app_version(patched_user_agent)
 
-        if isinstance(navigator.get("platform"), str):
-            profile.navigator.platform = navigator["platform"]
-        if isinstance(navigator.get("oscpu"), str):
-            profile.navigator.oscpu = navigator["oscpu"]
+        platform_value = navigator.get("platform")
+        if isinstance(platform_value, str):
+            navigator_profile.platform = platform_value
+        oscpu_value = navigator.get("oscpu")
+        if isinstance(oscpu_value, str):
+            navigator_profile.oscpu = oscpu_value
         if isinstance(preset.get("timezone"), str):
             profile.timezone = preset["timezone"]
 
@@ -330,11 +337,11 @@ class _FirefoxFingerprintCompiler:
         ):
             value = screen.get(source_key)
             if isinstance(value, int):
-                setattr(profile.screen, target_attr, max(value, 0))
+                setattr(screen_profile, target_attr, max(value, 0))
 
         device_pixel_ratio = screen.get("devicePixelRatio")
         if isinstance(device_pixel_ratio, int | float):
-            profile.window.device_pixel_ratio = float(device_pixel_ratio)
+            window_profile.device_pixel_ratio = float(device_pixel_ratio)
 
         self._finalize_config(profile)
         return profile
@@ -449,9 +456,13 @@ class _FirefoxFingerprintCompiler:
 
         voices = values["speechVoices"]
         if isinstance(voices, list) and voices:
+            voice_names = [
+                voice if isinstance(voice, str) else voice.name
+                for voice in voices
+            ]
             lines.append(
                 "  if (typeof w.setSpeechVoices === \"function\") "
-                f"w.setSpeechVoices({json.dumps(','.join(voices))});"
+                f"w.setSpeechVoices({json.dumps(','.join(voice_names))});"
             )
 
         lines.append("})();")
@@ -651,7 +662,8 @@ def _merge_host_inventories(config: CamoufoxProfile, host: _MacOSHostProfile) ->
     config.fonts = config.fonts or FontsProfile()
     config.voices = config.voices or VoicesProfile()
     config.fonts.families = host.sample_fonts()
-    config.voices.items = host.sample_voices()
+    sampled_voices: list[str | SpeechVoice] = list(host.sample_voices())
+    config.voices.items = sampled_voices
 
 
 def _copy_screen_offsets(config: CamoufoxProfile, screen: ScreenFingerprint) -> None:
