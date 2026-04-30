@@ -44,8 +44,9 @@ jobs:
         if: github.event_name != 'push' && github.event_name != 'release'
         run: echo "Release bootstrap is not required for ${GITHUB_EVENT_NAME}."
 
-  build-test-release:
+  build:
     needs: prepare-release
+    name: Build ${{ matrix.target }} ${{ matrix.arch }}
     if: github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-build')
     permissions:
       contents: write
@@ -207,38 +208,6 @@ jobs:
           path: dist/*.zip
           if-no-files-found: error
 
-      - name: Set up uv
-        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
-        with:
-          enable-cache: true
-          cache-dependency-glob: |
-            pyproject.toml
-            uv.lock
-
-      - name: Sync Playwright integration environment
-        run: uv sync --group dev --group playwright-tests --locked
-
-      - name: Install Linux runtime dependencies
-        if: matrix.target == 'linux'
-        run: uv run --group dev --group playwright-tests --locked playwright install-deps firefox
-
-      - name: Resolve Camoufox executable
-        id: artifact
-        run: |
-          python3 scripts/resolve_ci_artifact.py \
-            --artifact dist \
-            --extract-dir .tmp/ci-artifacts/${{ matrix.target }}-${{ matrix.arch }} \
-            --github-output "$GITHUB_OUTPUT"
-
-      - name: Run Playwright integration tests
-        env:
-          CAMOUFOX_EXECUTABLE_PATH: ${{ steps.artifact.outputs.executable_path }}
-        run: |
-          uv run --group dev --group playwright-tests --locked pytest \
-            --integration \
-            --headless \
-            __tests__/playwright/async/
-
       - name: Upload release asset
         if: github.event_name == 'push' || github.event_name == 'release'
         env:
@@ -257,6 +226,99 @@ jobs:
           gh release upload "$RELEASE_TAG" "${files[@]}" --clobber
 
       - name: Debug failed build over SSH
+        if: ${{ failure() }}
+        uses: mxschmitt/action-tmate@v3
+        timeout-minutes: 60
+        with:
+          limit-access-to-actor: true
+
+  integration:
+    needs: build
+    name: Integration ${{ matrix.target }} ${{ matrix.arch }}
+    if: github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-build')
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: linux
+            arch: x86_64
+            runner: ubuntu-24.04
+          - target: linux
+            arch: arm64
+            runner: ubuntu-24.04-arm
+          - target: macos
+            arch: arm64
+            runner: macos-26
+          - target: macos
+            arch: x86_64
+            runner: macos-26-intel
+
+    runs-on: ${{ matrix.runner }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: |
+            pyproject.toml
+            uv.lock
+
+      - name: Download build artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: CamoufoxBuilds-${{ matrix.target }}-${{ matrix.arch }}
+          path: dist-artifact
+
+      - name: Inspect downloaded build artifact
+        run: |
+          echo "PWD=$(pwd)"
+          echo "Artifact tree:"
+          find dist-artifact -maxdepth 3 -print | sort
+          echo ""
+          echo "Artifact listing:"
+          ls -lah dist-artifact
+          echo ""
+          echo "ZIP files:"
+          find dist-artifact -maxdepth 1 -type f -name '*.zip' -print | sort
+          echo ""
+          echo "SHA256:"
+          shasum -a 256 dist-artifact/*.zip
+
+      - name: Sync Playwright integration environment
+        run: uv sync --group dev --group playwright-tests --locked
+
+      - name: Install Linux runtime dependencies
+        if: matrix.target == 'linux'
+        run: uv run --group dev --group playwright-tests --locked playwright install-deps firefox
+
+      - name: Resolve Camoufox executable
+        id: artifact
+        run: |
+          python3 scripts/resolve_ci_artifact.py \
+            --artifact dist-artifact \
+            --extract-dir .tmp/ci-artifacts/${{ matrix.target }}-${{ matrix.arch }} \
+            --github-output "$GITHUB_OUTPUT"
+
+      - name: Run Playwright integration tests
+        env:
+          CAMOUFOX_EXECUTABLE_PATH: ${{ steps.artifact.outputs.executable_path }}
+        run: |
+          uv run --group dev --group playwright-tests --locked pytest \
+            --integration \
+            --headless \
+            __tests__/playwright/async/
+
+      - name: Debug failed integration over SSH
         if: ${{ failure() }}
         uses: mxschmitt/action-tmate@v3
         timeout-minutes: 60
