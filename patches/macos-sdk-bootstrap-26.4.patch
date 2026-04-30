@@ -15,7 +15,7 @@ index 000000000000..000000000000 100644
      @depends(
          "--with-macos-sdk",
          host,
-@@ -235,7 +241,7 @@ with only_when(host_is_osx | target_is_osx):
+@@ -235,4 +241,4 @@ with only_when(host_is_osx | target_is_osx):
 -            "MacOSX{}.sdk".format(mac_sdk_min_version()),
 +            "MacOSX{}.sdk".format(mac_sdk_bootstrap_version()),
              when=depends("--with-macos-sdk")(lambda x: not x),
