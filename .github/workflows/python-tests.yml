@@ -166,4 +166,4 @@ jobs:
         run: uv sync --project pythonlib --group dev --locked
 
       - name: Run Python tests
-        run: uv run --project pythonlib --group dev pytest __tests_
+        run: uv run --project pythonlib --group dev pytest __tests__ --ignore=__tests__/playwright

@@ -222,7 +222,7 @@ def cli() -> None:
 )
 @click.option(
     "--spoof-arch",
-    type=click.Choice(["auto", "x86_64", "i686", "arm64"]),
+    type=click.Choice(["auto", "x86_64", "arm64"]),
     help="Spoof architecture (auto = native)",
 )
 def sync(spoof_os, spoof_arch):

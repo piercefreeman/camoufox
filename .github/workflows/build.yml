@@ -22,7 +22,7 @@ jobs:
       fail-fast: false
       matrix:
         target: [linux]
-        arch: [x86_64, arm64, i686]
+        arch: [x86_64, arm64]
 
     steps:
       - name: Maximize build space
@@ -124,8 +124,69 @@ jobs:
         with:
           limit-access-to-actor: true
 
-  release:
+  integration-linux:
     needs: build
+    if: github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-build')
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86_64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+
+    runs-on: ${{ matrix.runner }}
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: |
+            __tests__/playwright/pyproject.toml
+            __tests__/playwright/uv.lock
+
+      - name: Download build artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: CamoufoxBuilds-linux-${{ matrix.arch }}
+          path: dist-artifact
+
+      - name: Sync Playwright integration environment
+        run: uv sync --project __tests__/playwright --locked
+
+      - name: Install Linux runtime dependencies
+        run: uv run --project __tests__/playwright --locked playwright install-deps firefox
+
+      - name: Resolve Camoufox executable
+        id: artifact
+        run: |
+          python3 scripts/resolve_ci_artifact.py \
+            --artifact dist-artifact \
+            --extract-dir .tmp/ci-artifacts/linux-${{ matrix.arch }} \
+            --github-output "$GITHUB_OUTPUT"
+
+      - name: Run Playwright integration tests
+        env:
+          CAMOUFOX_EXECUTABLE_PATH: ${{ steps.artifact.outputs.executable_path }}
+        run: |
+          uv run --project __tests__/playwright --locked pytest \
+            --integration \
+            --headless \
+            __tests__/playwright/async/
+
+  release:
+    needs: [build, integration-linux]
     if: github.event_name == 'push' || github.event_name == 'release'
     permissions:
       contents: write

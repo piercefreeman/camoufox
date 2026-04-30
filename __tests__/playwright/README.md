@@ -18,21 +18,28 @@ It has been modified to skip tests that use the following features:
 
 ### Setting up the environment
 
-Cd to this directory and run the following command to setup the venv and install the dependencies:
+`cd` to this directory and sync the local `uv` environment:
 
 ```bash
-bash setup-venv.sh
+uv sync --locked
+uv run python -m playwright install firefox
 ```
 
 ### Running the tests
 
-Run via the shell script:
+Run the Playwright async suite directly through `uv`:
 
 ```bash
-bash run-tests.sh --headful --executable-path /path/to/camoufox-bin
+CAMOUFOX_EXECUTABLE_PATH=/path/to/camoufox-bin uv run --locked pytest --integration --headless async/
 ```
 
-Or through the Makefile:
+For a headful run:
+
+```bash
+CAMOUFOX_EXECUTABLE_PATH=/path/to/camoufox-bin uv run --locked pytest --integration async/
+```
+
+Or through the repo `Makefile`:
 
 ```bash
 make tests headful=true

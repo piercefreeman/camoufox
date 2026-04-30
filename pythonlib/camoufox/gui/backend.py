@@ -274,7 +274,7 @@ class VersionModel(QAbstractListModel):
 
 
 OS_OPTIONS = ["(auto)", "mac", "win", "lin"]
-ARCH_OPTIONS = ["(auto)", "x86_64", "i686", "arm64"]
+ARCH_OPTIONS = ["(auto)", "x86_64", "arm64"]
 
 
 # Backend

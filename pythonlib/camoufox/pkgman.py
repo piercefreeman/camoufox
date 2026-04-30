@@ -62,9 +62,9 @@ OS_NAME: Literal['mac', 'win', 'lin'] = OS_MAP[sys.platform]
 INSTALL_DIR: Path = Path(user_cache_dir("camoufox"))
 
 OS_ARCH_MATRIX: dict[str, list[str]] = {
-    'win': ['x86_64', 'i686'],
+    'win': ['x86_64'],
     'mac': ['x86_64', 'arm64'],
-    'lin': ['x86_64', 'arm64', 'i686'],
+    'lin': ['x86_64', 'arm64'],
 }
 
 LAUNCH_FILE = {

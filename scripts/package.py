@@ -107,7 +107,7 @@ def get_args():
     parser.add_argument('--version', required=True, help='Camoufox version')
     parser.add_argument('--release', required=True, help='Camoufox release number')
     parser.add_argument(
-        '--arch', choices=['x86_64', 'i686', 'arm64'], help='Architecture for Windows build'
+        '--arch', choices=['x86_64', 'arm64'], help='Target architecture'
     )
     parser.add_argument('--fonts', nargs='+', help='Font directories to include under fonts/')
     return parser.parse_args()

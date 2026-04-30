@@ -22,7 +22,7 @@ import pytest
 from flaky import flaky
 from playwright.async_api import BrowserType, Error, Playwright, Route
 
-from tests.conftest import RemoteServer
+from ..conftest import RemoteServer
 from tests.server import Server, TestServerRequest, WebSocketProtocol
 from tests.utils import chromium_version_less_than, parse_trace
 

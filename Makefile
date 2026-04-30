@@ -55,7 +55,7 @@ help:
 	@echo "  patch           - Apply a patch"
 	@echo "  unpatch         - Remove a patch"
 	@echo "  workspace       - Sets the workspace to a patch, assuming its applied"
-	@echo "  tests           - Runs the Playwright tests"
+	@echo "  tests           - Runs the Playwright integration tests"
 	@echo "  update-ubo-assets - Update the uBOAssets.json file"
 	@echo "  generate-openapi - Generate Python and C++ profile models from OpenAPI schema"
 	@echo "  validate-fingerprint-example - Validate example/fingerprint.json against the OpenAPI schema"
@@ -219,10 +219,12 @@ workspace:
 	make patch $(_ARGS)
 
 tests:
-	cd ./tests && \
-	bash run-tests.sh \
-		--executable-path ../$(cf_source_dir)/obj-x86_64-pc-linux-gnu/dist/bin/camoufox-bin \
-		$(if $(filter true,$(headful)),--headful,)
+	CAMOUFOX_EXECUTABLE_PATH=$(CURDIR)/$(cf_source_dir)/obj-x86_64-pc-linux-gnu/dist/bin/camoufox-bin \
+		uv run --project __tests__/playwright --locked pytest \
+			--integration \
+			-vv \
+			$(if $(filter true,$(headful)),, --headless) \
+			__tests__/playwright/async/
 
 unbusy:
 	rm -rf $(cf_source_dir)/obj-x86_64-pc-linux-gnu/dist/bin/camoufox-bin \
@@ -270,4 +272,4 @@ validate-fingerprint-example:
 verify-patches:
 	uv run scripts/verify_firefox_patches.py
 
-vcredist_arch := $(shell echo $(arch) | sed 's/x86_64/x64/' | sed 's/i686/x86/')
+vcredist_arch := $(shell echo $(arch) | sed 's/x86_64/x64/')

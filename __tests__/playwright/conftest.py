@@ -55,6 +55,18 @@ def pytest_unconfigure(config):
     playwright._impl._path_utils.get_file_dirname = original_get_file_dirname
 
 
+def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
+    integration_enabled = config.getoption("--integration")
+    skip_integration = pytest.mark.skip(
+        reason="Playwright integration tests are disabled; pass --integration to run them."
+    )
+
+    for item in items:
+        item.add_marker(pytest.mark.integration)
+        if not integration_enabled:
+            item.add_marker(skip_integration)
+
+
 def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
     if "browser_name" in metafunc.fixturenames:
         browsers = ["firefox"]
@@ -198,7 +210,13 @@ def skip_by_platform(request: pytest.FixtureRequest) -> None:
 
 def pytest_addoption(parser: pytest.Parser) -> None:
     group = parser.getgroup("playwright", "Playwright")
-    parser.addoption(
+    group.addoption(
+        "--integration",
+        action="store_true",
+        default=False,
+        help="Run the Playwright integration test suite.",
+    )
+    group.addoption(
         "--headless",
         action="store_true",
         default=False,
