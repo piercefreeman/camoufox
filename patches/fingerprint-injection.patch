@@ -30,11 +30,11 @@ index 101590d8c8..f004930b20 100644
    nsPresContext* presContext = doc->GetPresContext();
  
 +  if (doc->GetBodyElement() == this) {
-+    if (auto conf = MaskConfig::ScreenInt32Rect()) {
-+      if (conf.has_value()) {
-+        auto values = conf.value();
-+        return nsRect(values[0] * 60, values[1] * 60, values[2] * 60,
-+                      values[3] * 60);
++    if (auto screen = MaskConfig::Profile().getScreen()) {
++      auto width = screen->getWidth();
++      auto height = screen->getHeight();
++      if (width && height) {
++        return nsRect(0, 0, *width * 60, *height * 60);
 +      }
 +    }
 +  }
@@ -70,8 +70,11 @@ index 330a707789..241f87780b 100644
  }
  
  double nsGlobalWindowInner::GetInnerWidth(ErrorResult& aError) {
-+  if (auto value = MaskConfig::WindowInnerWidth())
-+    return value.value();
++  if (auto window = MaskConfig::Profile().getWindow()) {
++    if (auto value = window->getInnerWidth()) {
++      return *value;
++    }
++  }
    FORWARD_TO_OUTER_OR_THROW(GetInnerWidthOuter, (aError), aError, 0);
  }
  
@@ -79,8 +82,11 @@ index 330a707789..241f87780b 100644
  }
  
  double nsGlobalWindowInner::GetInnerHeight(ErrorResult& aError) {
-+  if (auto value = MaskConfig::WindowInnerHeight())
-+    return value.value();
++  if (auto window = MaskConfig::Profile().getWindow()) {
++    if (auto value = window->getInnerHeight()) {
++      return *value;
++    }
++  }
    // We ignore aCallerType; we only have that argument because some other things
    // called by GetReplaceableWindowCoord need it.  If this ever changes, fix
    //   nsresult nsGlobalWindowInner::GetInnerHeight(double* aInnerWidth)
@@ -88,16 +94,22 @@ index 330a707789..241f87780b 100644
  
  int32_t nsGlobalWindowInner::GetOuterWidth(CallerType aCallerType,
                                             ErrorResult& aError) {
-+  if (auto value = MaskConfig::WindowOuterWidth())
-+    return value.value();
++  if (auto window = MaskConfig::Profile().getWindow()) {
++    if (auto value = window->getOuterWidth()) {
++      return *value;
++    }
++  }
    FORWARD_TO_OUTER_OR_THROW(GetOuterWidthOuter, (aCallerType, aError), aError,
                              0);
  }
  
  int32_t nsGlobalWindowInner::GetOuterHeight(CallerType aCallerType,
                                              ErrorResult& aError) {
-+  if (auto value = MaskConfig::WindowOuterHeight())
-+    return value.value();
++  if (auto window = MaskConfig::Profile().getWindow()) {
++    if (auto value = window->getOuterHeight()) {
++      return *value;
++    }
++  }
    FORWARD_TO_OUTER_OR_THROW(GetOuterHeightOuter, (aCallerType, aError), aError,
                              0);
  }
@@ -105,13 +117,17 @@ index 330a707789..241f87780b 100644
  
  int32_t nsGlobalWindowInner::GetScreenX(CallerType aCallerType,
                                          ErrorResult& aError) {
-+  if (auto value = MaskConfig::WindowScreenX()) return value.value();
++  if (auto window = MaskConfig::Profile().getWindow()) {
++    if (auto value = window->getScreenX()) return *value;
++  }
    FORWARD_TO_OUTER_OR_THROW(GetScreenXOuter, (aCallerType, aError), aError, 0);
  }
  
  int32_t nsGlobalWindowInner::GetScreenY(CallerType aCallerType,
                                          ErrorResult& aError) {
-+  if (auto value = MaskConfig::WindowScreenY()) return value.value();
++  if (auto window = MaskConfig::Profile().getWindow()) {
++    if (auto value = window->getScreenY()) return *value;
++  }
    FORWARD_TO_OUTER_OR_THROW(GetScreenYOuter, (aCallerType, aError), aError, 0);
  }
  
@@ -119,8 +135,11 @@ index 330a707789..241f87780b 100644
  double nsGlobalWindowInner::GetDevicePixelRatio(CallerType aCallerType,
                                                  ErrorResult& aError) {
    ENSURE_ACTIVE_DOCUMENT(aError, 0.0);
-+  if (auto value = MaskConfig::WindowDevicePixelRatio())
-+    return value.value();
++  if (auto window = MaskConfig::Profile().getWindow()) {
++    if (auto value = window->getDevicePixelRatio()) {
++      return *value;
++    }
++  }
  
    RefPtr<nsPresContext> presContext = GetPresContextForRatio(mDoc);
    if (NS_WARN_IF(!presContext)) {
@@ -128,38 +147,56 @@ index 330a707789..241f87780b 100644
  }
  
  int32_t nsGlobalWindowInner::GetScrollMinX(ErrorResult& aError) {
-+  if (auto value = MaskConfig::WindowScrollMinX())
-+    return value.value();
++  if (auto window = MaskConfig::Profile().getWindow()) {
++    if (auto value = window->getScrollMinX()) {
++      return *value;
++    }
++  }
    FORWARD_TO_OUTER_OR_THROW(GetScrollBoundaryOuter, (eSideLeft), aError, 0);
  }
  
  int32_t nsGlobalWindowInner::GetScrollMinY(ErrorResult& aError) {
-+  if (auto value = MaskConfig::WindowScrollMinY())
-+    return value.value();
++  if (auto window = MaskConfig::Profile().getWindow()) {
++    if (auto value = window->getScrollMinY()) {
++      return *value;
++    }
++  }
    FORWARD_TO_OUTER_OR_THROW(GetScrollBoundaryOuter, (eSideTop), aError, 0);
  }
  
  int32_t nsGlobalWindowInner::GetScrollMaxX(ErrorResult& aError) {
-+  if (auto value = MaskConfig::WindowScrollMaxX())
-+    return value.value();
++  if (auto window = MaskConfig::Profile().getWindow()) {
++    if (auto value = window->getScrollMaxX()) {
++      return *value;
++    }
++  }
    FORWARD_TO_OUTER_OR_THROW(GetScrollBoundaryOuter, (eSideRight), aError, 0);
  }
  
  int32_t nsGlobalWindowInner::GetScrollMaxY(ErrorResult& aError) {
-+  if (auto value = MaskConfig::WindowScrollMaxY())
-+    return value.value();
++  if (auto window = MaskConfig::Profile().getWindow()) {
++    if (auto value = window->getScrollMaxY()) {
++      return *value;
++    }
++  }
    FORWARD_TO_OUTER_OR_THROW(GetScrollBoundaryOuter, (eSideBottom), aError, 0);
  }
  
  double nsGlobalWindowInner::GetScrollX(ErrorResult& aError) {
-+  if (auto value = MaskConfig::ScreenPageXOffset())
-+    return value.value();
++  if (auto screen = MaskConfig::Profile().getScreen()) {
++    if (auto value = screen->getPageXOffset()) {
++      return *value;
++    }
++  }
    FORWARD_TO_OUTER_OR_THROW(GetScrollXOuter, (), aError, 0);
  }
  
  double nsGlobalWindowInner::GetScrollY(ErrorResult& aError) {
-+  if (auto value = MaskConfig::ScreenPageYOffset())
-+    return value.value();
++  if (auto screen = MaskConfig::Profile().getScreen()) {
++    if (auto value = screen->getPageYOffset()) {
++      return *value;
++    }
++  }
    FORWARD_TO_OUTER_OR_THROW(GetScrollYOuter, (), aError, 0);
  }
  
@@ -179,8 +216,13 @@ index e2fd8e6389..e5ddf4e08c 100644
  }
  
  uint32_t nsHistory::GetLength(ErrorResult& aRv) const {
-+  if (auto value = MaskConfig::WindowHistoryLength())
-+    return value.value();
++  if (auto window = MaskConfig::Profile().getWindow()) {
++    if (auto history = window->getHistory()) {
++      if (auto value = history->getLength()) {
++        return static_cast<uint32_t>(*value);
++      }
++    }
++  }
    nsCOMPtr<nsPIDOMWindowInner> win(do_QueryReferent(mInnerWindow));
    if (!win || !win->HasActiveDocument()) {
      aRv.Throw(NS_ERROR_DOM_SECURITY_ERR);
@@ -201,10 +243,14 @@ index 306ab35772..7f7728a6cc 100644
                                     mScreenOrientation)
  
  int32_t nsScreen::PixelDepth() {
-+  if (auto value = MaskConfig::ScreenColorDepth())
-+    return value.value();
-+  if (auto value = MaskConfig::ScreenPixelDepth())
-+    return value.value();
++  if (auto screen = MaskConfig::Profile().getScreen()) {
++    if (auto value = screen->getColorDepth()) {
++      return *value;
++    }
++    if (auto value = screen->getPixelDepth()) {
++      return *value;
++    }
++  }
    // Return 24 to prevent fingerprinting.
    if (ShouldResistFingerprinting(RFPTarget::ScreenPixelDepth)) {
      return 24;
@@ -212,10 +258,13 @@ index 306ab35772..7f7728a6cc 100644
  }
  
  CSSIntRect nsScreen::GetAvailRect() {
-+  auto rect = MaskConfig::ScreenAvailRect();
-+  if (rect.has_value()) {
-+    auto values = rect.value();
-+    return {values[0], values[1], values[2], values[3]};
++  if (auto screen = MaskConfig::Profile().getScreen()) {
++    auto width = screen->getAvailWidth();
++    auto height = screen->getAvailHeight();
++    if (width && height) {
++      return {screen->getAvailLeft().value_or(0),
++              screen->getAvailTop().value_or(0), *width, *height};
++    }
 +  }
    // Return window inner rect to prevent fingerprinting.
    if (ShouldResistFingerprinting(RFPTarget::ScreenAvailRect)) {
@@ -236,8 +285,11 @@ index 6322093fd9..264cc91bd1 100644
  
  bool BatteryManager::Charging() const {
    MOZ_ASSERT(NS_IsMainThread());
-+  if (auto value = MaskConfig::BatteryCharging(); value.has_value())
-+    return value.value();
++  if (auto battery = MaskConfig::Profile().getBattery()) {
++    if (auto value = battery->isCharging(); value.has_value()) {
++      return *value;
++    }
++  }
 +
    // For testing, unable to report the battery status information
    if (Preferences::GetBool("dom.battery.test.default", false)) {
@@ -246,8 +298,11 @@ index 6322093fd9..264cc91bd1 100644
  
  double BatteryManager::DischargingTime() const {
    MOZ_ASSERT(NS_IsMainThread());
-+  if (auto value = MaskConfig::BatteryDischargingTime())
-+    return value.value();
++  if (auto battery = MaskConfig::Profile().getBattery()) {
++    if (auto value = battery->getDischargingTime()) {
++      return *value;
++    }
++  }
    // For testing, unable to report the battery status information
    if (Preferences::GetBool("dom.battery.test.default", false)) {
      return std::numeric_limits<double>::infinity();
@@ -255,8 +310,11 @@ index 6322093fd9..264cc91bd1 100644
  
  double BatteryManager::ChargingTime() const {
    MOZ_ASSERT(NS_IsMainThread());
-+  if (auto value = MaskConfig::BatteryChargingTime())
-+    return value.value();
++  if (auto battery = MaskConfig::Profile().getBattery()) {
++    if (auto value = battery->getChargingTime()) {
++      return *value;
++    }
++  }
    // For testing, unable to report the battery status information
    if (Preferences::GetBool("dom.battery.test.default", false)) {
      return 0.0;
@@ -264,7 +322,9 @@ index 6322093fd9..264cc91bd1 100644
  
  double BatteryManager::Level() const {
    MOZ_ASSERT(NS_IsMainThread());
-+  if (auto value = MaskConfig::BatteryLevel()) return value.value();
++  if (auto battery = MaskConfig::Profile().getBattery()) {
++    if (auto value = battery->getLevel()) return *value;
++  }
    // For testing, unable to report the battery status information
    if (Preferences::GetBool("dom.battery.test.default")) {
      return 1.0;
@@ -296,9 +356,11 @@ index 622724b529..c9a65ff013 100644
  }
  
  bool WorkerNavigator::GlobalPrivacyControl() const {
-+  if (auto value = MaskConfig::NavigatorGlobalPrivacyControl();
-+      value.has_value())
-+    return value.value();
++  if (auto navigator = MaskConfig::Profile().getNavigator()) {
++    if (auto value = navigator->isGlobalPrivacyControl(); value.has_value()) {
++      return *value;
++    }
++  }
    bool gpcStatus = StaticPrefs::privacy_globalprivacycontrol_enabled();
    if (!gpcStatus) {
      JSObject* jso = GetWrapper();
@@ -306,8 +368,11 @@ index 622724b529..c9a65ff013 100644
  void WorkerNavigator::GetAppVersion(nsString& aAppVersion,
                                      CallerType aCallerType,
                                      ErrorResult& aRv) const {
-+  if (auto value = MaskConfig::NavigatorAppVersion())
-+    return aAppVersion.Assign(NS_ConvertUTF8toUTF16(value.value()));
++  if (auto navigator = MaskConfig::Profile().getNavigator()) {
++    if (auto value = navigator->getAppVersion()) {
++      return aAppVersion.Assign(NS_ConvertUTF8toUTF16(*value));
++    }
++  }
    WorkerPrivate* workerPrivate = GetCurrentThreadWorkerPrivate();
    MOZ_ASSERT(workerPrivate);
  
@@ -315,8 +380,11 @@ index 622724b529..c9a65ff013 100644
  
  void WorkerNavigator::GetPlatform(nsString& aPlatform, CallerType aCallerType,
                                    ErrorResult& aRv) const {
-+  if (auto value = MaskConfig::NavigatorPlatform())
-+    return aPlatform.Assign(NS_ConvertUTF8toUTF16(value.value()));
++  if (auto navigator = MaskConfig::Profile().getNavigator()) {
++    if (auto value = navigator->getPlatform()) {
++      return aPlatform.Assign(NS_ConvertUTF8toUTF16(*value));
++    }
++  }
    WorkerPrivate* workerPrivate = GetCurrentThreadWorkerPrivate();
    MOZ_ASSERT(workerPrivate);
  
@@ -324,8 +392,11 @@ index 622724b529..c9a65ff013 100644
  
  void WorkerNavigator::GetUserAgent(nsString& aUserAgent, CallerType aCallerType,
                                     ErrorResult& aRv) const {
-+  if (auto value = MaskConfig::NavigatorUserAgent())
-+    return aUserAgent.Assign(NS_ConvertUTF8toUTF16(value.value()));
++  if (auto navigator = MaskConfig::Profile().getNavigator()) {
++    if (auto value = navigator->getUserAgent()) {
++      return aUserAgent.Assign(NS_ConvertUTF8toUTF16(*value));
++    }
++  }
    WorkerPrivate* workerPrivate = GetCurrentThreadWorkerPrivate();
    MOZ_ASSERT(workerPrivate);
  
@@ -333,8 +404,11 @@ index 622724b529..c9a65ff013 100644
  }
  
  uint64_t WorkerNavigator::HardwareConcurrency() const {
-+  if (auto value = MaskConfig::NavigatorHardwareConcurrency())
-+    return value.value();
++  if (auto navigator = MaskConfig::Profile().getNavigator()) {
++    if (auto value = navigator->getHardwareConcurrency()) {
++      return static_cast<uint64_t>(*value);
++    }
++  }
    RuntimeService* rts = RuntimeService::GetService();
    MOZ_ASSERT(rts);
  

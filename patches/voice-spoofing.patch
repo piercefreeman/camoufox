@@ -26,16 +26,29 @@ index e5a1353d6b..4a4a5b080b 100644
        NS_CreateServicesFromCategory(NS_SPEECH_SYNTH_STARTED, nullptr,
                                      NS_SPEECH_SYNTH_STARTED);
 +      // Load voices from MaskConfig
-+      if (auto voices = MaskConfig::MVoices()) {
-+        for (const auto& [lang, name, uri, isDefault, isLocal] :
-+             voices.value()) {
-+          gSynthVoiceRegistry->AddVoiceImpl(
-+              nullptr, NS_ConvertUTF8toUTF16(uri), NS_ConvertUTF8toUTF16(name),
-+              NS_ConvertUTF8toUTF16(lang), isLocal,
-+              false);  // queuesUtterances set to false
-+          if (isDefault) {
-+            gSynthVoiceRegistry->SetDefaultVoice(NS_ConvertUTF8toUTF16(uri),
-+                                                 true);
++      if (auto voicesProfile = MaskConfig::Profile().getVoices()) {
++        auto voices = voicesProfile->getItems();
++        if (voices && voices->is_array()) {
++          for (const auto& voice : *voices) {
++            if (!voice.is_object() || !voice.contains("lang") ||
++                !voice.contains("name") || !voice.contains("voiceUri") ||
++                !voice.contains("isDefault") ||
++                !voice.contains("isLocalService")) {
++              continue;
++            }
++            auto lang = voice["lang"].get<std::string>();
++            auto name = voice["name"].get<std::string>();
++            auto uri = voice["voiceUri"].get<std::string>();
++            auto isDefault = voice["isDefault"].get<bool>();
++            auto isLocal = voice["isLocalService"].get<bool>();
++            gSynthVoiceRegistry->AddVoiceImpl(
++                nullptr, NS_ConvertUTF8toUTF16(uri),
++                NS_ConvertUTF8toUTF16(name), NS_ConvertUTF8toUTF16(lang),
++                isLocal, false);  // queuesUtterances set to false
++            if (isDefault) {
++              gSynthVoiceRegistry->SetDefaultVoice(NS_ConvertUTF8toUTF16(uri),
++                                                   true);
++            }
 +          }
 +        }
 +      }
@@ -46,7 +59,10 @@ index e5a1353d6b..4a4a5b080b 100644
      return NS_ERROR_NOT_AVAILABLE;
    }
  
-+  if (MaskConfig::VoicesBlockIfNotDefined()) return NS_OK;
++  if (auto voices = MaskConfig::Profile().getVoices();
++      voices && voices->isBlockIfNotDefined().value_or(false)) {
++    return NS_OK;
++  }
 +
    return AddVoiceImpl(aService, aUri, aName, aLang, aLocalService,
                        aQueuesUtterances);
@@ -55,31 +71,39 @@ index e5a1353d6b..4a4a5b080b 100644
         NS_ConvertUTF16toUTF8(aText).get(),
         NS_ConvertUTF16toUTF8(aVoice->mUri).get(), aRate, aPitch));
  
-+  // Check if this voice is in our MVoices config
-+  if (auto voices = MaskConfig::MVoices()) {
-+    for (const auto& [lang, name, uri, isDefault, isLocal] : voices.value()) {
-+      if (NS_ConvertUTF8toUTF16(uri).Equals(aVoice->mUri)) {
-+        printf_stderr("Tried to speak a fake voice: %s",
-+                      NS_ConvertUTF16toUTF8(aVoice->mUri).get());
-+        aTask->Init();
-+        // If fake completion is disabled, throw an error
-+        if (!MaskConfig::VoicesFakeCompletion()) {
-+          aTask->DispatchError(0, 0);
++  // Check if this voice is in the profile voice config.
++  if (auto voicesProfile = MaskConfig::Profile().getVoices()) {
++    auto voices = voicesProfile->getItems();
++    if (voices && voices->is_array()) {
++      for (const auto& voice : *voices) {
++        if (!voice.is_object() || !voice.contains("voiceUri")) {
++          continue;
++        }
++        auto uri = voice["voiceUri"].get<std::string>();
++        if (NS_ConvertUTF8toUTF16(uri).Equals(aVoice->mUri)) {
++          printf_stderr("Tried to speak a fake voice: %s",
++                        NS_ConvertUTF16toUTF8(aVoice->mUri).get());
++          aTask->Init();
++          // If fake completion is disabled, throw an error
++          if (auto voices = MaskConfig::Profile().getVoices();
++              !voices || !voices->isFakeCompletion().value_or(false)) {
++            aTask->DispatchError(0, 0);
++            return;
++          }
++          float charsPerSecond;
++          if (auto voices = MaskConfig::Profile().getVoices();
++              voices && voices->getFakeCompletionCharsPerSecond()) {
++            charsPerSecond = *voices->getFakeCompletionCharsPerSecond();
++          } else {
++            charsPerSecond = 12.5f;
++          }
++          // Return a fake success with a speech rate of 150wpm.
++          aTask->DispatchStart();
++          float fakeElapsedTime =
++              static_cast<float>(aText.Length()) / (charsPerSecond * aRate);
++          aTask->DispatchEnd(fakeElapsedTime, aText.Length());
 +          return;
 +        }
-+        float charsPerSecond;
-+        if (auto value =
-+                MaskConfig::VoicesFakeCompletionCharsPerSecond()) {
-+          charsPerSecond = value.value();
-+        } else {
-+          charsPerSecond = 12.5f;
-+        }
-+        // Return a fake success with a speach rate of 150wpm
-+        aTask->DispatchStart();
-+        float fakeElapsedTime =
-+            static_cast<float>(aText.Length()) / (charsPerSecond * aRate);
-+        aTask->DispatchEnd(fakeElapsedTime, aText.Length());
-+        return;
 +      }
 +    }
 +  }

@@ -49,9 +49,11 @@ index 0000000000..fe74a1f432
 +  if (RoverfoxStorageManager::GetUint(key, seed) && seed != 0) {
 +    return seed;
 +  }
-+  // Fallback to CAMOU_CONFIG for Workers in separate processes
-+  if (auto val = MaskConfig::FontsSpacingSeed()) {
-+    return val.value();
++  // Fallback to the profile config for Workers in separate processes.
++  if (auto fonts = MaskConfig::Profile().getFonts()) {
++    if (auto seed = fonts->getSpacingSeed()) {
++      return *seed;
++    }
 +  }
 +  return 0;
 +}

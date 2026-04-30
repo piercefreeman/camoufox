@@ -53,20 +53,35 @@ index 9a043518cf..a8d3733212 100644
 +// Helper methods for header file
 +
 +const char* Locale::GetCamouLanguage() {
-+  if (auto lang = MaskConfig::LocaleLanguage())
-+    return lang.value().c_str();
++  static std::string language;
++  if (auto locale = MaskConfig::Profile().getLocale()) {
++    if (auto value = locale->getLanguage()) {
++      language = *value;
++      return language.c_str();
++    }
++  }
 +  return nullptr;
 +}
 +
 +const char* Locale::GetCamouRegion() {
-+  if (auto region = MaskConfig::LocaleRegion())
-+    return region.value().c_str();
++  static std::string region;
++  if (auto locale = MaskConfig::Profile().getLocale()) {
++    if (auto value = locale->getRegion()) {
++      region = *value;
++      return region.c_str();
++    }
++  }
 +  return nullptr;
 +}
 +
 +const char* Locale::GetCamouScript() {
-+  if (auto script = MaskConfig::LocaleScript())
-+    return script.value().c_str();
++  static std::string script;
++  if (auto locale = MaskConfig::Profile().getLocale()) {
++    if (auto value = locale->getScript()) {
++      script = *value;
++      return script.c_str();
++    }
++  }
 +  return nullptr;
 +}
 +
@@ -75,11 +90,18 @@ index 9a043518cf..a8d3733212 100644
 +const char* Locale::GetCamouLocale() {
 +  static std::string locale;
 +
-+  if (auto lang = MaskConfig::LocaleLanguage())
-+    if (auto region = MaskConfig::LocaleRegion())
-+      locale = (lang.value() + "-" + region.value());
-+  if (auto value = MaskConfig::NavigatorLanguage())
-+    locale = value.value();
++  if (auto localeProfile = MaskConfig::Profile().getLocale()) {
++    if (auto lang = localeProfile->getLanguage()) {
++      if (auto region = localeProfile->getRegion()) {
++        locale = (*lang + "-" + *region);
++      }
++    }
++  }
++  if (auto navigator = MaskConfig::Profile().getNavigator()) {
++    if (auto value = navigator->getLanguage()) {
++      locale = *value;
++    }
++  }
 +  if (locale.empty())
 +    return nullptr;
 +  return locale.c_str();

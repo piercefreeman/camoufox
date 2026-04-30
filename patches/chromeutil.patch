@@ -17,7 +17,7 @@ index 52f0af76ec..2a7a9ae4fc 100644
  
 +/* static */
 +void ChromeUtils::CamouDebug(GlobalObject& aGlobal, const nsAString& aVarName) {
-+  if (auto value = MaskConfig::Debug();
++  if (auto value = MaskConfig::Profile().isDebug();
 +      value.has_value() && !value.value()) {
 +    return;
 +  }
@@ -26,7 +26,7 @@ index 52f0af76ec..2a7a9ae4fc 100644
 +}
 +
 +bool ChromeUtils::IsCamouDebug(GlobalObject& aGlobal) {
-+  if (auto value = MaskConfig::Debug();
++  if (auto value = MaskConfig::Profile().isDebug();
 +      value.has_value() && value.value()) {
 +    return true;
 +  }

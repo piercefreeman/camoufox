@@ -430,8 +430,9 @@ index 11578f425f..6c77acd7f3 100644
 +    case dom::WEBGL_debug_renderer_info_Binding::UNMASKED_VENDOR_WEBGL:
 +      break;
 +    default:
-+      if (MaskConfig::CheckBool(mIsWebGL2 ? "webGl2.parametersBlockIfNotDefined"
-+                                          : "webGl.parametersBlockIfNotDefined")) {
++      auto webGl = mIsWebGL2 ? MaskConfig::Profile().getWebGl2()
++                             : MaskConfig::Profile().getWebGl();
++      if (webGl && webGl->isParametersBlockIfNotDefined().value_or(false)) {
 +        retval.set(JS::NullValue());
 +        return;
 +      }
@@ -548,9 +549,11 @@ index 11578f425f..6c77acd7f3 100644
 +                break;
 +              }
 +            }
-+            if (auto value = MaskConfig::WebGlRenderer()) {
-+              ret = Some(value.value());
-+              break;
++            if (auto webGl = MaskConfig::Profile().getWebGl()) {
++              if (auto value = webGl->getRenderer()) {
++                ret = Some(*value);
++                break;
++              }
 +            }
              if (ShouldResistFingerprinting(RFPTarget::WebGLRenderInfo)) {
                ret = Some("Mozilla"_ns);
@@ -566,9 +569,11 @@ index 11578f425f..6c77acd7f3 100644
 +                break;
 +              }
 +            }
-+            if (auto value = MaskConfig::WebGlVendor()) {
-+              ret = Some(value.value());
-+              break;
++            if (auto webGl = MaskConfig::Profile().getWebGl()) {
++              if (auto value = webGl->getVendor()) {
++                ret = Some(*value);
++                break;
++              }
 +            }
              ret = ShouldResistFingerprinting(RFPTarget::WebGLRenderInfo)
                        ? Some("Mozilla"_ns)
@@ -600,9 +605,10 @@ index 11578f425f..6c77acd7f3 100644
 +    return AsAddRefed(new WebGLShaderPrecisionFormatJS(spoofed));
 +  }
 +  // Check if block if not defined is on
-+  if (MaskConfig::CheckBool(
-+          mIsWebGL2 ? "webGl2.shaderPrecisionFormatsBlockIfNotDefined"
-+                    : "webGl.shaderPrecisionFormatsBlockIfNotDefined")) {
++  auto webGl = mIsWebGL2 ? MaskConfig::Profile().getWebGl2()
++                         : MaskConfig::Profile().getWebGl();
++  if (webGl &&
++      webGl->isShaderPrecisionFormatsBlockIfNotDefined().value_or(false)) {
 +    return nullptr;
 +  }
 +
@@ -613,8 +619,11 @@ index 11578f425f..6c77acd7f3 100644
      return false;
    }
 
++  auto webGl = mIsWebGL2 ? MaskConfig::Profile().getWebGl2()
++                         : MaskConfig::Profile().getWebGl();
 +  if (std::vector<std::string> maskValues =
-+          MaskConfig::WebGlSupportedExtensions(mIsWebGL2);
++          webGl ? MaskConfig::JsonStringList(webGl->getSupportedExtensions())
++                : std::vector<std::string>{};
 +      !maskValues.empty()) {
 +    if (std::find(maskValues.begin(), maskValues.end(),
 +                  GetExtensionName(ext)) != maskValues.end()) {
@@ -632,8 +641,11 @@ index 11578f425f..6c77acd7f3 100644
    auto& retarr = retval.SetValue();
 +
 +  // Implement separately to prevent O(n^2) timing
++  auto webGl = mIsWebGL2 ? MaskConfig::Profile().getWebGl2()
++                         : MaskConfig::Profile().getWebGl();
 +  if (std::vector<std::string> maskValues =
-+          MaskConfig::WebGlSupportedExtensions(mIsWebGL2);
++          webGl ? MaskConfig::JsonStringList(webGl->getSupportedExtensions())
++                : std::vector<std::string>{};
 +      !maskValues.empty()) {
 +    for (const auto& ext : maskValues) {
 +      retarr.AppendElement(NS_ConvertUTF8toUTF16(ext));

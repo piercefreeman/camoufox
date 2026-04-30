@@ -211,7 +211,7 @@ index 318d2edba8..12feb91573 100644
 +  static bool sInitialized = false;
 +  if (sInitialized) return;
 +  sInitialized = true;
-+  if (auto tz = MaskConfig::Timezone()) {
++  if (auto tz = MaskConfig::Profile().getTimezone()) {
 +    nsJSUtils::SetTimeZoneOverride(tz.value().c_str());
 +  }
 +}
@@ -242,9 +242,11 @@ index 318d2edba8..12feb91573 100644
  void Navigator::GetAppVersion(nsAString& aAppVersion, CallerType aCallerType,
                                ErrorResult& aRv) const {
 +  // Camoufox: global config fallback for appVersion
-+  if (auto value = MaskConfig::NavigatorAppVersion()) {
-+    aAppVersion.Assign(NS_ConvertUTF8toUTF16(value.value()));
-+    return;
++  if (auto navigator = MaskConfig::Profile().getNavigator()) {
++    if (auto value = navigator->getAppVersion()) {
++      aAppVersion.Assign(NS_ConvertUTF8toUTF16(*value));
++      return;
++    }
 +  }
    nsCOMPtr<Document> doc = mWindow->GetExtantDoc();
  
@@ -267,9 +269,11 @@ index 318d2edba8..12feb91573 100644
 +    }
 +  }
 +  // Camoufox: global config fallback
-+  if (auto value = MaskConfig::NavigatorPlatform()) {
-+    aPlatform.Assign(NS_ConvertUTF8toUTF16(value.value()));
-+    return;
++  if (auto navigator = MaskConfig::Profile().getNavigator()) {
++    if (auto value = navigator->getPlatform()) {
++      aPlatform.Assign(NS_ConvertUTF8toUTF16(*value));
++      return;
++    }
 +  }
    if (mWindow) {
      BrowsingContext* bc = mWindow->GetBrowsingContext();
@@ -291,9 +295,11 @@ index 318d2edba8..12feb91573 100644
 +    }
 +  }
 +  // Camoufox: global config fallback
-+  if (auto value = MaskConfig::NavigatorOscpu()) {
-+    aOSCPU.Assign(NS_ConvertUTF8toUTF16(value.value()));
-+    return;
++  if (auto navigator = MaskConfig::Profile().getNavigator()) {
++    if (auto value = navigator->getOscpu()) {
++      aOSCPU.Assign(NS_ConvertUTF8toUTF16(*value));
++      return;
++    }
 +  }
    if (aCallerType != CallerType::System) {
      // If fingerprinting resistance is on, we will spoof this value. See
@@ -315,8 +321,10 @@ index 318d2edba8..12feb91573 100644
 +    }
 +  }
 +  // Camoufox: global config fallback
-+  if (auto value = MaskConfig::NavigatorHardwareConcurrency()) {
-+    return value.value();
++  if (auto navigator = MaskConfig::Profile().getNavigator()) {
++    if (auto value = navigator->getHardwareConcurrency()) {
++      return static_cast<uint64_t>(*value);
++    }
 +  }
    workerinternals::RuntimeService* rts =
        workerinternals::RuntimeService::GetOrCreateService();
@@ -531,8 +539,11 @@ index c9a65ff013..d8268dd9ce 100644
 +      }
 +    }
 +  }
-   if (auto value = MaskConfig::NavigatorPlatform())
-     return aPlatform.Assign(NS_ConvertUTF8toUTF16(value.value()));
+   if (auto navigator = MaskConfig::Profile().getNavigator()) {
+     if (auto value = navigator->getPlatform()) {
+       return aPlatform.Assign(NS_ConvertUTF8toUTF16(*value));
+     }
+   }
    WorkerPrivate* workerPrivate = GetCurrentThreadWorkerPrivate();
 @@ -215,6 +229,18 @@ class GetUserAgentRunnable final : public WorkerMainThreadRunnable {
  
@@ -550,8 +561,11 @@ index c9a65ff013..d8268dd9ce 100644
 +      }
 +    }
 +  }
-   if (auto value = MaskConfig::NavigatorUserAgent())
-     return aUserAgent.Assign(NS_ConvertUTF8toUTF16(value.value()));
+   if (auto navigator = MaskConfig::Profile().getNavigator()) {
+     if (auto value = navigator->getUserAgent()) {
+       return aUserAgent.Assign(NS_ConvertUTF8toUTF16(*value));
+     }
+   }
    WorkerPrivate* workerPrivate = GetCurrentThreadWorkerPrivate();
 @@ -228,6 +254,17 @@ void WorkerNavigator::GetUserAgent(nsString& aUserAgent, CallerType aCallerType,
  }
@@ -568,6 +582,9 @@ index c9a65ff013..d8268dd9ce 100644
 +      }
 +    }
 +  }
-   if (auto value = MaskConfig::NavigatorHardwareConcurrency())
-     return value.value();
+   if (auto navigator = MaskConfig::Profile().getNavigator()) {
+     if (auto value = navigator->getHardwareConcurrency()) {
+       return static_cast<uint64_t>(*value);
+     }
+   }
    RuntimeService* rts = RuntimeService::GetService();

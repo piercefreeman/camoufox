@@ -31,10 +31,10 @@ index 0000000000..7ec236d160
 +  if (RoverfoxStorageManager::GetString(key, outTimezone)) {
 +    return true;
 +  }
-+  // Fallback to CAMOU_CONFIG for workers/contexts where setTimezone()
++  // Fallback to the profile config for workers/contexts where setTimezone()
 +  // was never called (e.g. when timezone is set via Playwright's
 +  // timezone_id context option rather than the init script path).
-+  if (auto val = MaskConfig::Timezone()) {
++  if (auto val = MaskConfig::Profile().getTimezone()) {
 +    NS_ConvertASCIItoUTF16 tz(val->c_str());
 +    RoverfoxStorageManager::PutString(key, tz);
 +    outTimezone = tz;

@@ -30,7 +30,8 @@ index 067094cb6b..9088f71793 100644
 -      }
 -      seenKinds.Insert(device->mKind);
 -    }
-+  if (!MaskConfig::MediaDevicesEnabled()) {
++  auto mediaDevices = MaskConfig::Profile().getMediaDevices();
++  if (!mediaDevices || !mediaDevices->isEnabled().value_or(false)) {
 +    return exposed;
 +  }
  
@@ -65,11 +66,11 @@ index 067094cb6b..9088f71793 100644
 -        exposed->AppendElement(
 -            new MediaDevice(new MediaEngineFake(), info, u""_ns));
 -      }
-+  uint32_t numMics = MaskConfig::MediaDevicesMicros().value_or(3);
++  uint32_t numMics = static_cast<uint32_t>(mediaDevices->getMicros().value_or(3));
 +  uint32_t numWebcams =
-+      MaskConfig::MediaDevicesWebcams().value_or(1);
++      static_cast<uint32_t>(mediaDevices->getWebcams().value_or(1));
 +  uint32_t numSpeakers =
-+      MaskConfig::MediaDevicesSpeakers().value_or(1);
++      static_cast<uint32_t>(mediaDevices->getSpeakers().value_or(1));
 +
 +  // Clear existing devices. We'll add our own
 +  exposed->Clear();

@@ -46,9 +46,11 @@ index 0000000000..f47a35b2e3
 +  if (RoverfoxStorageManager::GetUint(key, seed) && seed != 0) {
 +    return seed;
 +  }
-+  // Fallback to CAMOU_CONFIG for Workers in separate processes
-+  if (auto val = MaskConfig::AudioSeed()) {
-+    return val.value();
++  // Fallback to the profile config for Workers in separate processes.
++  if (auto audio = MaskConfig::Profile().getAudio()) {
++    if (auto seed = audio->getSeed()) {
++      return *seed;
++    }
 +  }
 +  return 0;
 +}

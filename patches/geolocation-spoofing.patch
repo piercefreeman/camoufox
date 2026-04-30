@@ -14,8 +14,9 @@ index 274cdebc2e..b0183ecc6a 100644
  
  bool Geolocation::RegisterRequestWithPrompt(nsGeolocationRequest* request) {
    nsIEventTarget* target = GetMainThreadSerialEventTarget();
-+  if (MaskConfig::GeolocationLatitude() &&
-+      MaskConfig::GeolocationLongitude()) {
++  if (auto geolocation = MaskConfig::Profile().getGeolocation();
++      geolocation && geolocation->getLatitude() &&
++      geolocation->getLongitude()) {
 +    request->RequestDelayedTask(target,
 +                                nsGeolocationRequest::DelayedTaskType::Allow);
 +    return true;
@@ -40,20 +41,26 @@ index 19ca685251..a286a4a784 100644
  NS_IMETHODIMP
  nsGeoPositionCoords::GetLatitude(double* aLatitude) {
 -  *aLatitude = mLat;
-+  if (auto value = MaskConfig::GeolocationLatitude())
-+    *aLatitude = value.value();
-+  else
-+    *aLatitude = mLat;
++  if (auto geolocation = MaskConfig::Profile().getGeolocation()) {
++    if (auto value = geolocation->getLatitude()) {
++      *aLatitude = *value;
++      return NS_OK;
++    }
++  }
++  *aLatitude = mLat;
    return NS_OK;
  }
  
  NS_IMETHODIMP
  nsGeoPositionCoords::GetLongitude(double* aLongitude) {
 -  *aLongitude = mLong;
-+  if (auto value = MaskConfig::GeolocationLongitude())
-+    *aLongitude = value.value();
-+  else
-+    *aLongitude = mLong;
++  if (auto geolocation = MaskConfig::Profile().getGeolocation()) {
++    if (auto value = geolocation->getLongitude()) {
++      *aLongitude = *value;
++      return NS_OK;
++    }
++  }
++  *aLongitude = mLong;
    return NS_OK;
  }
  
@@ -62,10 +69,13 @@ index 19ca685251..a286a4a784 100644
  NS_IMETHODIMP
  nsGeoPositionCoords::GetAccuracy(double* aAccuracy) {
 -  *aAccuracy = mHError;
-+  if (auto value = MaskConfig::GeolocationAccuracy())
-+    *aAccuracy = value.value();
-+  else
-+    *aAccuracy = mHError;
++  if (auto geolocation = MaskConfig::Profile().getGeolocation()) {
++    if (auto value = geolocation->getAccuracy()) {
++      *aAccuracy = *value;
++      return NS_OK;
++    }
++  }
++  *aAccuracy = mHError;
    return NS_OK;
  }
  
@@ -89,7 +99,7 @@ index 7edc62b4a6..19b77aa6b6 100644
      let url = Services.urlFormatter.formatURLPref("geo.provider.network.url");
      LOG("Sending request");
  
-+    // Use CAMOU_CONFIG geolocation if configured
++    // Use profile geolocation if configured.
 +    let DEFAULT_DEG = -180;
 +
 +    let latitude = ChromeUtils.camouGetDouble("geolocation.latitude", DEFAULT_DEG);
@@ -114,7 +124,7 @@ index 7edc62b4a6..19b77aa6b6 100644
 -      );
 +      let newLocation;
 +      if (latitude != DEFAULT_DEG && longitude != DEFAULT_DEG) {
-+        // Use the latitude and longitude from CAMOU_CONFIG
++        // Use the latitude and longitude from the profile config.
 +        ChromeUtils.camouDebug(
 +          `Use Camoufox geo: ${latitude}:${longitude} accuracy:${accuracy}`
 +        );
@@ -133,7 +143,7 @@ index 7edc62b4a6..19b77aa6b6 100644
 +          accuracy
 +        );
 +      } else {
-+        // No CAMOU_CONFIG override, use real geolocation
++        // No profile override, use real geolocation.
 +        result = await this.makeRequest(url, wifiData);
 +
 +        LOG(
@@ -148,4 +158,3 @@ index 7edc62b4a6..19b77aa6b6 100644
  
        if (this.listener) {
          this.listener.update(newLocation);
-
