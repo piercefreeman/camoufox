@@ -310,7 +310,7 @@ index 11578f425f..6c77acd7f3 100644
 +  result.mStencil = MBoolVal("stencil", options.stencil);
 +  result.mAntialias.Construct(MBoolVal("antialias", options.antialias));
 +  result.mPremultipliedAlpha = MBoolVal(
-+      "webGl:contextAttributes.premultipliedAlpha", options.premultipliedAlpha);
++      "premultipliedAlpha", options.premultipliedAlpha);
 +  result.mPreserveDrawingBuffer =
 +      MBoolVal("preserveDrawingBuffer", options.preserveDrawingBuffer);
 +  result.mFailIfMajorPerformanceCaveat = MBoolVal(
@@ -430,8 +430,8 @@ index 11578f425f..6c77acd7f3 100644
 +    case dom::WEBGL_debug_renderer_info_Binding::UNMASKED_VENDOR_WEBGL:
 +      break;
 +    default:
-+      if (MaskConfig::CheckBool(mIsWebGL2 ? "webGl2:parameters:blockIfNotDefined"
-+                                          : "webGl:parameters:blockIfNotDefined")) {
++      if (MaskConfig::CheckBool(mIsWebGL2 ? "webGl2.parametersBlockIfNotDefined"
++                                          : "webGl.parametersBlockIfNotDefined")) {
 +        retval.set(JS::NullValue());
 +        return;
 +      }
@@ -601,8 +601,8 @@ index 11578f425f..6c77acd7f3 100644
 +  }
 +  // Check if block if not defined is on
 +  if (MaskConfig::CheckBool(
-+          mIsWebGL2 ? "webGl2:shaderPrecisionFormats:blockIfNotDefined"
-+                    : "webGl:shaderPrecisionFormats:blockIfNotDefined")) {
++          mIsWebGL2 ? "webGl2.shaderPrecisionFormatsBlockIfNotDefined"
++                    : "webGl.shaderPrecisionFormatsBlockIfNotDefined")) {
 +    return nullptr;
 +  }
 +

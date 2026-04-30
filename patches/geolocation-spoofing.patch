@@ -92,9 +92,9 @@ index 7edc62b4a6..19b77aa6b6 100644
 +    // Use CAMOU_CONFIG geolocation if configured
 +    let DEFAULT_DEG = -180;
 +
-+    let latitude = ChromeUtils.camouGetDouble("geolocation:latitude", DEFAULT_DEG);
-+    let longitude = ChromeUtils.camouGetDouble("geolocation:longitude", DEFAULT_DEG);
-+    let accuracy = ChromeUtils.camouGetDouble("geolocation:accuracy", 0);
++    let latitude = ChromeUtils.camouGetDouble("geolocation.latitude", DEFAULT_DEG);
++    let longitude = ChromeUtils.camouGetDouble("geolocation.longitude", DEFAULT_DEG);
++    let accuracy = ChromeUtils.camouGetDouble("geolocation.accuracy", 0);
 +
 +    let countDecimalPlaces = (num) => {
 +      if (Math.floor(num) === num) return 0;

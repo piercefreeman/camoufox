@@ -23,7 +23,6 @@ Written by daijro.
 #include <sstream>
 #include <string>
 #include <tuple>
-#include <unordered_map>
 #include <variant>
 #include <vector>
 
@@ -434,124 +433,24 @@ inline std::optional<uint32_t> MediaDevicesSpeakers() {
                : std::nullopt;
 }
 
-inline const std::unordered_map<std::string, std::vector<std::string>>&
-KeyPaths() {
-  static const std::unordered_map<std::string, std::vector<std::string>> paths = {
-      {"navigator.userAgent", {"navigator", "userAgent"}},
-      {"navigator.doNotTrack", {"navigator", "doNotTrack"}},
-      {"navigator.appCodeName", {"navigator", "appCodeName"}},
-      {"navigator.appName", {"navigator", "appName"}},
-      {"navigator.appVersion", {"navigator", "appVersion"}},
-      {"navigator.oscpu", {"navigator", "oscpu"}},
-      {"navigator.language", {"navigator", "language"}},
-      {"navigator.languages", {"navigator", "languages"}},
-      {"navigator.platform", {"navigator", "platform"}},
-      {"navigator.hardwareConcurrency", {"navigator", "hardwareConcurrency"}},
-      {"navigator.product", {"navigator", "product"}},
-      {"navigator.productSub", {"navigator", "productSub"}},
-      {"navigator.maxTouchPoints", {"navigator", "maxTouchPoints"}},
-      {"navigator.cookieEnabled", {"navigator", "cookieEnabled"}},
-      {"navigator.globalPrivacyControl", {"navigator", "globalPrivacyControl"}},
-      {"navigator.buildID", {"navigator", "buildID"}},
-      {"navigator.onLine", {"navigator", "onLine"}},
-      {"screen.availHeight", {"screen", "availHeight"}},
-      {"screen.availWidth", {"screen", "availWidth"}},
-      {"screen.availTop", {"screen", "availTop"}},
-      {"screen.availLeft", {"screen", "availLeft"}},
-      {"screen.height", {"screen", "height"}},
-      {"screen.width", {"screen", "width"}},
-      {"screen.colorDepth", {"screen", "colorDepth"}},
-      {"screen.pixelDepth", {"screen", "pixelDepth"}},
-      {"screen.pageXOffset", {"screen", "pageXOffset"}},
-      {"screen.pageYOffset", {"screen", "pageYOffset"}},
-      {"window.scrollMinX", {"window", "scrollMinX"}},
-      {"window.scrollMinY", {"window", "scrollMinY"}},
-      {"window.scrollMaxX", {"window", "scrollMaxX"}},
-      {"window.scrollMaxY", {"window", "scrollMaxY"}},
-      {"window.outerHeight", {"window", "outerHeight"}},
-      {"window.outerWidth", {"window", "outerWidth"}},
-      {"window.innerHeight", {"window", "innerHeight"}},
-      {"window.innerWidth", {"window", "innerWidth"}},
-      {"window.screenX", {"window", "screenX"}},
-      {"window.screenY", {"window", "screenY"}},
-      {"window.history.length", {"window", "history", "length"}},
-      {"window.devicePixelRatio", {"window", "devicePixelRatio"}},
-      {"document.body.clientWidth", {"document", "body", "clientWidth"}},
-      {"document.body.clientHeight", {"document", "body", "clientHeight"}},
-      {"document.body.clientTop", {"document", "body", "clientTop"}},
-      {"document.body.clientLeft", {"document", "body", "clientLeft"}},
-      {"headers.User-Agent", {"headers", "User-Agent"}},
-      {"headers.Accept-Language", {"headers", "Accept-Language"}},
-      {"headers.Accept-Encoding", {"headers", "Accept-Encoding"}},
-      {"webrtc:ipv4", {"webrtc", "ipv4"}},
-      {"webrtc:ipv6", {"webrtc", "ipv6"}},
-      {"webrtc:localipv4", {"webrtc", "localipv4"}},
-      {"webrtc:localipv6", {"webrtc", "localipv6"}},
-      {"battery:charging", {"battery", "charging"}},
-      {"battery:chargingTime", {"battery", "chargingTime"}},
-      {"battery:dischargingTime", {"battery", "dischargingTime"}},
-      {"battery:level", {"battery", "level"}},
-      {"fonts", {"fonts", "families"}},
-      {"fonts:spacing_seed", {"fonts", "spacingSeed"}},
-      {"audio:seed", {"audio", "seed"}},
-      {"canvas:seed", {"canvas", "seed"}},
-      {"canvas:aaOffset", {"canvas", "aaOffset"}},
-      {"canvas:aaCapOffset", {"canvas", "aaCapOffset"}},
-      {"geolocation:latitude", {"geolocation", "latitude"}},
-      {"geolocation:longitude", {"geolocation", "longitude"}},
-      {"geolocation:accuracy", {"geolocation", "accuracy"}},
-      {"locale:language", {"locale", "language"}},
-      {"locale:region", {"locale", "region"}},
-      {"locale:script", {"locale", "script"}},
-      {"locale:all", {"locale", "all"}},
-      {"humanize", {"humanize", "enabled"}},
-      {"humanize:maxTime", {"humanize", "maxTime"}},
-      {"humanize:minTime", {"humanize", "minTime"}},
-      {"AudioContext:sampleRate", {"audioContext", "sampleRate"}},
-      {"AudioContext:outputLatency", {"audioContext", "outputLatency"}},
-      {"AudioContext:maxChannelCount", {"audioContext", "maxChannelCount"}},
-      {"webGl:renderer", {"webGl", "renderer"}},
-      {"webGl:vendor", {"webGl", "vendor"}},
-      {"webGl:supportedExtensions", {"webGl", "supportedExtensions"}},
-      {"webGl:parameters", {"webGl", "parameters"}},
-      {"webGl:parameters:blockIfNotDefined",
-       {"webGl", "parametersBlockIfNotDefined"}},
-      {"webGl:shaderPrecisionFormats", {"webGl", "shaderPrecisionFormats"}},
-      {"webGl:shaderPrecisionFormats:blockIfNotDefined",
-       {"webGl", "shaderPrecisionFormatsBlockIfNotDefined"}},
-      {"webGl:contextAttributes", {"webGl", "contextAttributes"}},
-      {"webGl2:supportedExtensions", {"webGl2", "supportedExtensions"}},
-      {"webGl2:parameters", {"webGl2", "parameters"}},
-      {"webGl2:parameters:blockIfNotDefined",
-       {"webGl2", "parametersBlockIfNotDefined"}},
-      {"webGl2:shaderPrecisionFormats", {"webGl2", "shaderPrecisionFormats"}},
-      {"webGl2:shaderPrecisionFormats:blockIfNotDefined",
-       {"webGl2", "shaderPrecisionFormatsBlockIfNotDefined"}},
-      {"webGl2:contextAttributes", {"webGl2", "contextAttributes"}},
-      {"voices", {"voices", "items"}},
-      {"voices:blockIfNotDefined", {"voices", "blockIfNotDefined"}},
-      {"voices:fakeCompletion", {"voices", "fakeCompletion"}},
-      {"voices:fakeCompletion:charsPerSecond",
-       {"voices", "fakeCompletionCharsPerSecond"}},
-      {"mediaDevices:micros", {"mediaDevices", "micros"}},
-      {"mediaDevices:webcams", {"mediaDevices", "webcams"}},
-      {"mediaDevices:speakers", {"mediaDevices", "speakers"}},
-      {"mediaDevices:enabled", {"mediaDevices", "enabled"}},
-  };
-  return paths;
-}
-
-inline std::optional<nlohmann::json> GetValue(const std::string& key) {
+inline std::optional<nlohmann::json> GetValue(const std::string& path) {
   const auto& data = GetJson();
-  auto path = KeyPaths().find(key);
-  if (path == KeyPaths().end()) return std::nullopt;
-
   const nlohmann::json* cursor = &data;
-  for (const auto& part : path->second) {
+
+  size_t start = 0;
+  while (start < path.size()) {
+    size_t end = path.find('.', start);
+    std::string part =
+        path.substr(start, end == std::string::npos ? std::string::npos
+                                                    : end - start);
+    if (part.empty()) return std::nullopt;
     if (!cursor->is_object() || !cursor->contains(part)) return std::nullopt;
     cursor = &((*cursor)[part]);
+    if (end == std::string::npos) return *cursor;
+    start = end + 1;
   }
-  return *cursor;
+
+  return std::nullopt;
 }
 
 inline std::optional<std::string> GetString(const std::string& key) {

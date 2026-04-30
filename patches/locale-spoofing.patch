@@ -17,13 +17,13 @@ index 2456c5b4c6..826404b1b7 100644
      TabsInTitlebar.init();
  
 +    // If a list of languages were passed, use them.
-+    let camouLocale = ChromeUtils.camouGetString("locale:all")
++    let camouLocale = ChromeUtils.camouGetString("locale.all")
 +      || ChromeUtils.camouGetString("navigator.language");
-+    // If locale:all was NOT passed, but locale:language and locale:region was,
++    // If locale.all was NOT passed, but locale.language and locale.region was,
 +    // fall back to it instead.
 +    if (!camouLocale) {
-+      let language = ChromeUtils.camouGetString("locale:language");
-+      let region = ChromeUtils.camouGetString("locale:region");
++      let language = ChromeUtils.camouGetString("locale.language");
++      let region = ChromeUtils.camouGetString("locale.region");
 +      if (language && region) {
 +        camouLocale = language + "-" + region + ", " + language;
 +      }
