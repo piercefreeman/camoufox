@@ -110,10 +110,6 @@ jobs:
         run: |
           export BUILD_TARGET="macos,${{ matrix.arch }}"
           make setup-minimal version="$BROWSER_VERSION" release="$BUILD_RELEASE"
-          (
-            cd "camoufox-${BROWSER_VERSION}-${BUILD_RELEASE}"
-            patch -p1 --forward -i ../patches/librewolf/bootstrap-without-vcs.patch.opt
-          )
           make mozbootstrap version="$BROWSER_VERSION" release="$BUILD_RELEASE"
           mkdir -p dist
 
