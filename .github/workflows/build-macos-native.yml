@@ -154,16 +154,21 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Download all artifacts
+      - name: Download macOS artifacts
         uses: actions/download-artifact@v4
         with:
+          pattern: CamoufoxBuilds-macos-*
           path: artifacts
+          merge-multiple: true
+
+      - name: Verify release assets
+        run: ls -lah artifacts
 
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
           tag_name: ${{ github.event.release.tag_name || github.ref_name }}
-          files: artifacts/**/*
+          files: artifacts/*.zip
           generate_release_notes: true
           draft: ${{ github.event_name == 'push' }}
           prerelease: ${{ github.event_name == 'release' && github.event.release.prerelease || false }}
