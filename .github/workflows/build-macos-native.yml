@@ -58,7 +58,9 @@ jobs:
         run: |
           uname -a
           xcodebuild -version
-          xcrun --sdk macosx --show-sdk-path
+          macos_sdk="$(xcrun --sdk macosx --show-sdk-path)"
+          echo "$macos_sdk"
+          echo "MACOS_SDK_DIR=$macos_sdk" >> "$GITHUB_ENV"
           df -h
 
       - name: Fetch source
@@ -71,6 +73,7 @@ jobs:
           BUILD_TARGET: macos,${{ matrix.arch }}
         run: |
           make setup-minimal
+          make set-target
           make mozbootstrap
           mkdir -p dist
 
