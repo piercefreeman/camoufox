@@ -19,6 +19,7 @@ jobs:
     if: github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-build')
     runs-on: ubuntu-24.04
     strategy:
+      fail-fast: false
       matrix:
         target: [linux, windows, macos]
         arch: [x86_64, arm64, i686]
