@@ -47,7 +47,7 @@ index 0000000000..f47a35b2e3
 +    return seed;
 +  }
 +  // Fallback to CAMOU_CONFIG for Workers in separate processes
-+  if (auto val = MaskConfig::GetUint32("audio:seed")) {
++  if (auto val = MaskConfig::AudioSeed()) {
 +    return val.value();
 +  }
 +  return 0;

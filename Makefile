@@ -16,7 +16,8 @@ pacman := python python-pip p7zip go msitools wget aria2 sqlite
 
 OPENAPI_SCHEMA := schemas/camoufox-profile.openapi.yaml
 PY_OPENAPI_MODELS := pythonlib/camoufox/_generated_profile.py
-CPP_OPENAPI_OUT := additions/camoucfg/generated/openapi
+CPP_OPENAPI_OUT := additions/camoucfg/generated/profile
+CPP_OPENAPI_TEMPLATES := schemas/openapi-templates/cpp-nlohmann
 OPENAPI_GENERATOR_IMAGE ?= openapitools/openapi-generator-cli:v7.22.0
 OPENAPI_GENERATOR ?= docker run --rm -v $(CURDIR):/local $(OPENAPI_GENERATOR_IMAGE)
 OPENAPI_SCHEMA_ARG ?= /local/$(OPENAPI_SCHEMA)
@@ -274,9 +275,11 @@ generate-openapi-cpp:
 	rm -rf $(CPP_OPENAPI_OUT)
 	$(OPENAPI_GENERATOR) generate \
 		-i $(OPENAPI_SCHEMA_ARG) \
-		-g cpp-restsdk \
+		-g cpp-tiny \
 		-o $(CPP_OPENAPI_OUT_ARG) \
-		--global-property models,supportingFiles \
+		-t /local/$(CPP_OPENAPI_TEMPLATES) \
+		--global-property models,modelTests=false \
+		--type-mappings number=double \
 		--additional-properties hideGenerationTimestamp=true,modelPackage=camoucfg
 
 vcredist_arch := $(shell echo $(arch) | sed 's/x86_64/x64/' | sed 's/i686/x86/')

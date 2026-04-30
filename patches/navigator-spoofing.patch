@@ -211,7 +211,7 @@ index 318d2edba8..12feb91573 100644
 +  static bool sInitialized = false;
 +  if (sInitialized) return;
 +  sInitialized = true;
-+  if (auto tz = MaskConfig::GetString("timezone")) {
++  if (auto tz = MaskConfig::Timezone()) {
 +    nsJSUtils::SetTimeZoneOverride(tz.value().c_str());
 +  }
 +}
@@ -242,7 +242,7 @@ index 318d2edba8..12feb91573 100644
  void Navigator::GetAppVersion(nsAString& aAppVersion, CallerType aCallerType,
                                ErrorResult& aRv) const {
 +  // Camoufox: global config fallback for appVersion
-+  if (auto value = MaskConfig::GetString("navigator.appVersion")) {
++  if (auto value = MaskConfig::NavigatorAppVersion()) {
 +    aAppVersion.Assign(NS_ConvertUTF8toUTF16(value.value()));
 +    return;
 +  }
@@ -267,7 +267,7 @@ index 318d2edba8..12feb91573 100644
 +    }
 +  }
 +  // Camoufox: global config fallback
-+  if (auto value = MaskConfig::GetString("navigator.platform")) {
++  if (auto value = MaskConfig::NavigatorPlatform()) {
 +    aPlatform.Assign(NS_ConvertUTF8toUTF16(value.value()));
 +    return;
 +  }
@@ -291,7 +291,7 @@ index 318d2edba8..12feb91573 100644
 +    }
 +  }
 +  // Camoufox: global config fallback
-+  if (auto value = MaskConfig::GetString("navigator.oscpu")) {
++  if (auto value = MaskConfig::NavigatorOscpu()) {
 +    aOSCPU.Assign(NS_ConvertUTF8toUTF16(value.value()));
 +    return;
 +  }
@@ -315,7 +315,7 @@ index 318d2edba8..12feb91573 100644
 +    }
 +  }
 +  // Camoufox: global config fallback
-+  if (auto value = MaskConfig::GetUint64("navigator.hardwareConcurrency")) {
++  if (auto value = MaskConfig::NavigatorHardwareConcurrency()) {
 +    return value.value();
 +  }
    workerinternals::RuntimeService* rts =
@@ -531,7 +531,7 @@ index c9a65ff013..d8268dd9ce 100644
 +      }
 +    }
 +  }
-   if (auto value = MaskConfig::GetString("navigator.platform"))
+   if (auto value = MaskConfig::NavigatorPlatform())
      return aPlatform.Assign(NS_ConvertUTF8toUTF16(value.value()));
    WorkerPrivate* workerPrivate = GetCurrentThreadWorkerPrivate();
 @@ -215,6 +229,18 @@ class GetUserAgentRunnable final : public WorkerMainThreadRunnable {
@@ -550,7 +550,7 @@ index c9a65ff013..d8268dd9ce 100644
 +      }
 +    }
 +  }
-   if (auto value = MaskConfig::GetString("navigator.userAgent"))
+   if (auto value = MaskConfig::NavigatorUserAgent())
      return aUserAgent.Assign(NS_ConvertUTF8toUTF16(value.value()));
    WorkerPrivate* workerPrivate = GetCurrentThreadWorkerPrivate();
 @@ -228,6 +254,17 @@ void WorkerNavigator::GetUserAgent(nsString& aUserAgent, CallerType aCallerType,
@@ -568,6 +568,6 @@ index c9a65ff013..d8268dd9ce 100644
 +      }
 +    }
 +  }
-   if (auto value = MaskConfig::GetUint64("navigator.hardwareConcurrency"))
+   if (auto value = MaskConfig::NavigatorHardwareConcurrency())
      return value.value();
    RuntimeService* rts = RuntimeService::GetService();

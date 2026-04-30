@@ -46,7 +46,7 @@ index e5a1353d6b..4a4a5b080b 100644
      return NS_ERROR_NOT_AVAILABLE;
    }
  
-+  if (MaskConfig::GetBool("voices:blockIfNotDefined")) return NS_OK;
++  if (MaskConfig::VoicesBlockIfNotDefined()) return NS_OK;
 +
    return AddVoiceImpl(aService, aUri, aName, aLang, aLocalService,
                        aQueuesUtterances);
@@ -63,13 +63,13 @@ index e5a1353d6b..4a4a5b080b 100644
 +                      NS_ConvertUTF16toUTF8(aVoice->mUri).get());
 +        aTask->Init();
 +        // If fake completion is disabled, throw an error
-+        if (!MaskConfig::GetBool("voices:fakeCompletion")) {
++        if (!MaskConfig::VoicesFakeCompletion()) {
 +          aTask->DispatchError(0, 0);
 +          return;
 +        }
 +        float charsPerSecond;
 +        if (auto value =
-+                MaskConfig::GetDouble("voices:fakeCompletion:charsPerSecond")) {
++                MaskConfig::VoicesFakeCompletionCharsPerSecond()) {
 +          charsPerSecond = value.value();
 +        } else {
 +          charsPerSecond = 12.5f;

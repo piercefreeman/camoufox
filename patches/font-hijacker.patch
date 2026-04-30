@@ -15,7 +15,7 @@ index bc0e123f85..52ec46f76b 100644
    mFontPrefs = MakeUnique<FontPrefs>();
  
 +  // Hijack the kFontSystemWhitelistPref pref
-+  if (std::vector<std::string> fontValues = MaskConfig::GetStringList("fonts");
++  if (std::vector<std::string> fontValues = MaskConfig::FontsFamilies();
 +      !fontValues.empty()) {
 +    std::string fontValuesJoined =
 +        std::accumulate(fontValues.begin(), fontValues.end(), std::string(),
@@ -132,7 +132,7 @@ index 70c06609e9..66b2666621 100644
 +// Helper function to check if a font is in the allowed list
 +inline bool IsFontAllowed(const nsACString& aFontName) {
 +  if (std::vector<std::string> maskValues =
-+          MaskConfig::GetStringListLower("fonts");
++          MaskConfig::FontsFamiliesLower();
 +      !maskValues.empty()) {
 +    std::string fontName(aFontName.BeginReading(), aFontName.EndReading());
 +    std::transform(fontName.begin(), fontName.end(), fontName.begin(),

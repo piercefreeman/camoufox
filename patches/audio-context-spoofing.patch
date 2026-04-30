@@ -14,7 +14,7 @@ index 1b52782a48..7219b68d88 100644
    if (sCubebForcedSampleRate) {
      return sCubebForcedSampleRate;
    }
-+  if (auto value = MaskConfig::GetUint32("AudioContext:sampleRate"))
++  if (auto value = MaskConfig::AudioContextSampleRate())
 +    return value.value();
    if (aShouldResistFingerprinting) {
      return 44100;
@@ -47,7 +47,7 @@ index 66184b683b..daf30882ea 100644
    }
    // When reduceFingerprinting is enabled, return a latency figure that is
    // fixed, but plausible for the platform.
-+  if (auto value = MaskConfig::GetDouble("AudioContext:outputLatency"))
++  if (auto value = MaskConfig::AudioContextOutputLatency())
 +    return value.value();
    double latency_s = 0.0;
    if (mShouldResistFingerprinting) {
@@ -56,7 +56,7 @@ index 66184b683b..daf30882ea 100644
  }
  
  uint32_t AudioContext::MaxChannelCount() const {
-+  if (auto value = MaskConfig::GetUint32("AudioContext:maxChannelCount"))
++  if (auto value = MaskConfig::AudioContextMaxChannelCount())
 +    return value.value();
    if (mShouldResistFingerprinting) {
      return 2;

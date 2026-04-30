@@ -548,7 +548,7 @@ index 11578f425f..6c77acd7f3 100644
 +                break;
 +              }
 +            }
-+            if (auto value = MaskConfig::GetString("webGl:renderer")) {
++            if (auto value = MaskConfig::WebGlRenderer()) {
 +              ret = Some(value.value());
 +              break;
 +            }
@@ -566,7 +566,7 @@ index 11578f425f..6c77acd7f3 100644
 +                break;
 +              }
 +            }
-+            if (auto value = MaskConfig::GetString("webGl:vendor")) {
++            if (auto value = MaskConfig::WebGlVendor()) {
 +              ret = Some(value.value());
 +              break;
 +            }
@@ -614,8 +614,7 @@ index 11578f425f..6c77acd7f3 100644
    }
 
 +  if (std::vector<std::string> maskValues =
-+          MaskConfig::GetStringList(mIsWebGL2 ? "webGl2:supportedExtensions"
-+                                              : "webGl:supportedExtensions");
++          MaskConfig::WebGlSupportedExtensions(mIsWebGL2);
 +      !maskValues.empty()) {
 +    if (std::find(maskValues.begin(), maskValues.end(),
 +                  GetExtensionName(ext)) != maskValues.end()) {
@@ -634,8 +633,7 @@ index 11578f425f..6c77acd7f3 100644
 +
 +  // Implement separately to prevent O(n^2) timing
 +  if (std::vector<std::string> maskValues =
-+          MaskConfig::GetStringList(mIsWebGL2 ? "webGl2:supportedExtensions"
-+                                              : "webGl:supportedExtensions");
++          MaskConfig::WebGlSupportedExtensions(mIsWebGL2);
 +      !maskValues.empty()) {
 +    for (const auto& ext : maskValues) {
 +      retarr.AppendElement(NS_ConvertUTF8toUTF16(ext));

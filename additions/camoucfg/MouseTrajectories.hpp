@@ -176,14 +176,14 @@ class HumanizeMouseTrajectory {
   }
 
   int32_t getMaxTime() const {
-    if (auto maxTime = MaskConfig::GetDouble("humanize:maxTime")) {
+    if (auto maxTime = MaskConfig::HumanizeMaxTime()) {
       return static_cast<int32_t>(maxTime.value() * 100);
     }
     return 150;
   }
 
   int32_t getMinTime() const {
-    if (auto minTime = MaskConfig::GetDouble("humanize:minTime")) {
+    if (auto minTime = MaskConfig::HumanizeMinTime()) {
       return static_cast<int32_t>(minTime.value() * 100);
     }
     return 0;

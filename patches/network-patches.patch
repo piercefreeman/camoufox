@@ -26,11 +26,11 @@ index d0aebdf965..01472ec205 100644
  //-----------------------------------------------------------------------------
  
  const nsCString& nsHttpHandler::UserAgent(bool aShouldResistFingerprinting) {
-+  if (auto value = MaskConfig::GetString("headers.User-Agent")) {
++  if (auto value = MaskConfig::HeaderUserAgent()) {
 +    mUserAgent.Assign(nsCString(value.value().c_str()));
 +    return mUserAgent;
 +  }
-+  if (auto value = MaskConfig::GetString("navigator.userAgent")) {
++  if (auto value = MaskConfig::NavigatorUserAgent()) {
 +    mUserAgent.Assign(nsCString(value.value().c_str()));
 +    return mUserAgent;
 +  }
@@ -42,7 +42,7 @@ index d0aebdf965..01472ec205 100644
    }
 
    MOZ_ASSERT(NS_IsMainThread());
-+  if (auto value = MaskConfig::GetString("headers.Accept-Language")) {
++  if (auto value = MaskConfig::HeaderAcceptLanguage()) {
 +    mAcceptLanguages.Assign(nsCString(value.value().c_str()));
 +    return NS_OK;
 +  }
@@ -54,7 +54,7 @@ index d0aebdf965..01472ec205 100644
  nsresult nsHttpHandler::SetAcceptEncodings(const char* aAcceptEncodings,
                                             bool isSecure, bool isDictionary) {
 +  nsCString encodingOverride;
-+  if (auto value = MaskConfig::GetString("headers.Accept-Encoding")) {
++  if (auto value = MaskConfig::HeaderAcceptEncoding()) {
 +    encodingOverride.Assign(nsCString(value.value().c_str()));
 +    aAcceptEncodings = encodingOverride.get();
 +  }

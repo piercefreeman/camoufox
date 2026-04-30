@@ -50,7 +50,7 @@ index 0000000000..fe74a1f432
 +    return seed;
 +  }
 +  // Fallback to CAMOU_CONFIG for Workers in separate processes
-+  if (auto val = MaskConfig::GetUint32("fonts:spacing_seed")) {
++  if (auto val = MaskConfig::FontsSpacingSeed()) {
 +    return val.value();
 +  }
 +  return 0;

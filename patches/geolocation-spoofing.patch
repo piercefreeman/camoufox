@@ -14,8 +14,8 @@ index 274cdebc2e..b0183ecc6a 100644
  
  bool Geolocation::RegisterRequestWithPrompt(nsGeolocationRequest* request) {
    nsIEventTarget* target = GetMainThreadSerialEventTarget();
-+  if (MaskConfig::GetDouble("geolocation:latitude") &&
-+      MaskConfig::GetDouble("geolocation:longitude")) {
++  if (MaskConfig::GeolocationLatitude() &&
++      MaskConfig::GeolocationLongitude()) {
 +    request->RequestDelayedTask(target,
 +                                nsGeolocationRequest::DelayedTaskType::Allow);
 +    return true;
@@ -40,7 +40,7 @@ index 19ca685251..a286a4a784 100644
  NS_IMETHODIMP
  nsGeoPositionCoords::GetLatitude(double* aLatitude) {
 -  *aLatitude = mLat;
-+  if (auto value = MaskConfig::GetDouble("geolocation:latitude"))
++  if (auto value = MaskConfig::GeolocationLatitude())
 +    *aLatitude = value.value();
 +  else
 +    *aLatitude = mLat;
@@ -50,7 +50,7 @@ index 19ca685251..a286a4a784 100644
  NS_IMETHODIMP
  nsGeoPositionCoords::GetLongitude(double* aLongitude) {
 -  *aLongitude = mLong;
-+  if (auto value = MaskConfig::GetDouble("geolocation:longitude"))
++  if (auto value = MaskConfig::GeolocationLongitude())
 +    *aLongitude = value.value();
 +  else
 +    *aLongitude = mLong;
@@ -62,7 +62,7 @@ index 19ca685251..a286a4a784 100644
  NS_IMETHODIMP
  nsGeoPositionCoords::GetAccuracy(double* aAccuracy) {
 -  *aAccuracy = mHError;
-+  if (auto value = MaskConfig::GetDouble("geolocation:accuracy"))
++  if (auto value = MaskConfig::GeolocationAccuracy())
 +    *aAccuracy = value.value();
 +  else
 +    *aAccuracy = mHError;

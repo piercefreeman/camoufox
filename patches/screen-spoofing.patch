@@ -323,8 +323,8 @@ index 7f7728a6cc..a1b2c3d4e5 100644
 +  }
 +
 +  // Fallback to global MaskConfig override
-+  if (auto height = MaskConfig::GetInt32("screen.height"),
-+      width = MaskConfig::GetInt32("screen.width");
++  if (auto height = MaskConfig::ScreenHeight(),
++      width = MaskConfig::ScreenWidth();
 +      height && width) {
 +    return {0, 0, width.value(), height.value()};
 +  }
@@ -344,7 +344,7 @@ index 7f7728a6cc..a1b2c3d4e5 100644
 +        int32_t w = 0, h = 0;
 +        if (mozilla::dom::ScreenDimensionManager::GetDimensions(userContextId, &w, &h)) {
 +          int32_t availTop = 25;
-+          if (auto top = MaskConfig::GetInt32("screen.availTop"); top.has_value()) {
++          if (auto top = MaskConfig::ScreenAvailTop(); top.has_value()) {
 +            availTop = top.value();
 +          }
 +          return {0, availTop, w, h - availTop};
@@ -353,8 +353,7 @@ index 7f7728a6cc..a1b2c3d4e5 100644
 +    }
 +  }
 +
-   auto rect = MaskConfig::GetRect("screen.availLeft", "screen.availTop",
-                                   "screen.availWidth", "screen.availHeight");
+   auto rect = MaskConfig::ScreenAvailRect();
    if (rect.has_value()) {
 
 diff --git a/gfx/src/moz.build b/gfx/src/moz.build
@@ -386,8 +385,8 @@ index 7a4fa8d48f..408b754d92 100644
 
  nsSize nsDeviceContext::GetDeviceSurfaceDimensions() {
 +  // Check for height and width overrides from MaskConfig
-+  if (auto height = MaskConfig::GetInt32("screen.height"),
-+      width = MaskConfig::GetInt32("screen.width");
++  if (auto height = MaskConfig::ScreenHeight(),
++      width = MaskConfig::ScreenWidth();
 +      height && width) {
 +    nsRect outRect = CSSPixel::ToAppUnits(CSSIntRect(0, 0, width.value(), height.value()));
 +    return outRect.Size();
