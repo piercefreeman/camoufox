@@ -162,7 +162,19 @@ jobs:
           merge-multiple: true
 
       - name: Verify release assets
-        run: ls -lah artifacts
+        run: |
+          echo "PWD=$(pwd)"
+          echo "Artifacts directory tree:"
+          find artifacts -maxdepth 3 -print | sort
+          echo ""
+          echo "Artifacts directory listing:"
+          ls -lah artifacts || true
+          echo ""
+          echo "ZIP files that will be uploaded:"
+          find artifacts -maxdepth 1 -type f -name '*.zip' -print | sort
+          echo ""
+          echo "SHA256 for ZIP files:"
+          shasum -a 256 artifacts/*.zip || true
 
       - name: Create Release
         uses: softprops/action-gh-release@v1
@@ -174,3 +186,11 @@ jobs:
           prerelease: ${{ github.event_name == 'release' && github.event.release.prerelease || false }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Summarize uploaded asset inputs
+        if: always()
+        run: |
+          echo "Release upload step completed."
+          echo "Expected upload glob: artifacts/*.zip"
+          echo "Final on-disk ZIP files:"
+          find artifacts -maxdepth 1 -type f -name '*.zip' -print | sort
