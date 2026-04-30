@@ -1,8 +1,14 @@
 #!/usr/bin/env python3
+# /// script
+# requires-python = ">=3.10"
+# dependencies = [
+#   "click>=8.1",
+#   "rich>=13.9",
+# ]
+# ///
 
 from __future__ import annotations
 
-import argparse
 import os
 import re
 import shutil
@@ -11,9 +17,14 @@ import tempfile
 import textwrap
 import urllib.request
 from collections import defaultdict
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
+
+import click
+from rich.console import Console
+from rich.progress import BarColumn, MofNCompleteColumn, Progress, SpinnerColumn, TextColumn, TimeElapsedColumn
+from rich.table import Table
 
 from _mixin import list_patches
 
@@ -95,12 +106,23 @@ HELPER_SEEDED_PATHS = {
     "lw/policies.json",
     "services/settings/dumps/main/search-config.json",
 }
+console = Console()
 
 
 @dataclass(frozen=True)
 class BuildMetadata:
     version: str
     release: str
+
+
+@dataclass(frozen=True)
+class VerifierOptions:
+    cache_dir: Path
+    tarball: Path | None
+    workspace: Path | None
+    keep_workdir: bool
+    skip_syntax: bool
+    jobs: int
 
 
 @dataclass(frozen=True)
@@ -311,13 +333,13 @@ class TarIndex:
 
 
 class PatchVerifier:
-    def __init__(self, metadata: BuildMetadata, args: argparse.Namespace):
+    def __init__(self, metadata: BuildMetadata, options: VerifierOptions):
         self.metadata = metadata
-        self.args = args
+        self.options = options
         self.patch_bin = shutil.which("gpatch") or shutil.which("patch") or "patch"
         self.patch_paths = active_patch_paths()
         self.patch_entries_by_path = collect_patch_entries(self.patch_paths)
-        self.cache_dir = args.cache_dir
+        self.cache_dir = options.cache_dir
         self.tarball_path = self._resolve_tarball_path()
         self.tar_index = TarIndex(self.tarball_path)
         self.workdir = self._prepare_workdir()
@@ -326,40 +348,53 @@ class PatchVerifier:
         self.workspace_paths: set[str] = set()
         self.workspace_paths_by_basename: dict[str, list[str]] = defaultdict(list)
         self.extracted_paths: set[str] = set()
+        self.include_cache: dict[str, list[tuple[bool, str]]] = {}
+        self.include_resolution_cache: dict[tuple[str, str, bool], str | None] = {}
+
+    @staticmethod
+    def progress() -> Progress:
+        return Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            BarColumn(),
+            MofNCompleteColumn(),
+            TimeElapsedColumn(),
+            console=console,
+        )
 
     def _resolve_tarball_path(self) -> Path:
-        if self.args.tarball is not None:
-            print(f"Using explicit tarball: {self.args.tarball}")
-            return self.args.tarball
+        if self.options.tarball is not None:
+            console.print(f"[cyan]Using explicit tarball:[/cyan] {self.options.tarball}")
+            return self.options.tarball
 
         local_tarball = REPO_ROOT / f"firefox-{self.metadata.version}.source.tar.xz"
         if local_tarball.exists():
-            print(f"Using local tarball: {local_tarball}")
+            console.print(f"[cyan]Using local tarball:[/cyan] {local_tarball}")
             return local_tarball
 
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         cached_tarball = self.cache_dir / f"firefox-{self.metadata.version}.source.tar.xz"
         if cached_tarball.exists():
-            print(f"Using cached tarball: {cached_tarball}")
+            console.print(f"[cyan]Using cached tarball:[/cyan] {cached_tarball}")
             return cached_tarball
 
         url = FIREFOX_TARBALL_URL.format(version=self.metadata.version)
         temp_tarball = cached_tarball.with_suffix(".tmp")
-        print(f"Downloading {url}")
+        console.print(f"[cyan]Downloading[/cyan] {url}")
         with urllib.request.urlopen(url) as response, temp_tarball.open("wb") as handle:
             shutil.copyfileobj(response, handle)
         temp_tarball.replace(cached_tarball)
-        print(f"Cached tarball at {cached_tarball}")
+        console.print(f"[green]Cached tarball at[/green] {cached_tarball}")
         return cached_tarball
 
     def _prepare_workdir(self) -> Path:
-        if self.args.workspace is not None:
-            self.args.workspace.mkdir(parents=True, exist_ok=True)
-            print(f"Using workspace: {self.args.workspace}")
-            return self.args.workspace
+        if self.options.workspace is not None:
+            self.options.workspace.mkdir(parents=True, exist_ok=True)
+            console.print(f"[cyan]Using workspace:[/cyan] {self.options.workspace}")
+            return self.options.workspace
 
         workdir = Path(tempfile.mkdtemp(prefix="camoufox-patch-verify-"))
-        print(f"Created temp workspace: {workdir}")
+        console.print(f"[cyan]Created temp workspace:[/cyan] {workdir}")
         return workdir
 
     def register_workspace_file(self, relative_path: str) -> None:
@@ -430,10 +465,10 @@ class PatchVerifier:
                 "Firefox tarball is missing patch targets:\n" + "\n".join(missing_paths[:20])
             )
 
-        print(f"Extracting {len(upstream_paths)} upstream files")
+        console.print(f"[bold cyan]Extracting[/bold cyan] {len(upstream_paths)} upstream files")
         self.extract_paths(upstream_paths)
 
-        print("Copying additions and helper files")
+        console.print("[bold cyan]Copying additions and helper files[/bold cyan]")
         self.copy_tree(ADDITIONS_DIR)
         self.copy_file(
             ASSETS_DIR / "search-config.json",
@@ -478,35 +513,40 @@ class PatchVerifier:
         self.create_stub_headers()
 
     def apply_patches(self) -> None:
-        print(f"Applying {len(self.patch_paths)} patches")
-        print(f"Using patch binary: {self.patch_bin}")
+        console.print(f"[bold cyan]Applying[/bold cyan] {len(self.patch_paths)} patches")
+        console.print(f"[cyan]Using patch binary:[/cyan] {self.patch_bin}")
         failures: list[tuple[str, str]] = []
-        for patch_path in self.patch_paths:
-            result = subprocess.run(
-                [
-                    self.patch_bin,
-                    "-p1",
-                    "--batch",
-                    "--forward",
-                    "-l",
-                    "--binary",
-                    "-i",
-                    str(patch_path),
-                ],
-                capture_output=True,
-                check=False,
-                cwd=self.workdir,
-                text=True,
-            )
-            if result.returncode != 0:
-                combined = "\n".join(part for part in (result.stdout, result.stderr) if part).strip()
-                failures.append((repo_relative(patch_path), combined))
+        with self.progress() as progress:
+            task_id = progress.add_task("Applying patch set", total=len(self.patch_paths))
+            for patch_path in self.patch_paths:
+                patch_name = repo_relative(patch_path)
+                progress.update(task_id, description=f"Applying {patch_name}")
+                result = subprocess.run(
+                    [
+                        self.patch_bin,
+                        "-p1",
+                        "--batch",
+                        "--forward",
+                        "-l",
+                        "--binary",
+                        "-i",
+                        str(patch_path),
+                    ],
+                    capture_output=True,
+                    check=False,
+                    cwd=self.workdir,
+                    text=True,
+                )
+                if result.returncode != 0:
+                    combined = "\n".join(part for part in (result.stdout, result.stderr) if part).strip()
+                    failures.append((patch_name, combined))
+                progress.advance(task_id)
 
         if failures:
             for patch_name, output in failures:
-                print(f"\nPatch failed: {patch_name}")
+                console.rule(f"[red]Patch failed[/red]: {patch_name}")
                 if output:
-                    print(output)
+                    console.print(output, markup=False)
             raise RuntimeError(f"{len(failures)} patch(es) failed to apply cleanly")
 
         for entries in self.patch_entries_by_path.values():
@@ -542,6 +582,10 @@ class PatchVerifier:
         return sorted(targets)
 
     def parse_includes(self, relative_path: str) -> list[tuple[bool, str]]:
+        cached = self.include_cache.get(relative_path)
+        if cached is not None:
+            return cached
+
         includes: list[tuple[bool, str]] = []
         file_path = self.workspace_file(relative_path)
         for line in file_path.read_text(encoding="utf-8", errors="ignore").splitlines():
@@ -550,6 +594,7 @@ class PatchVerifier:
                 continue
             delimiter, include_path = match.groups()
             includes.append((delimiter == '"', include_path))
+        self.include_cache[relative_path] = includes
         return includes
 
     def candidate_exists(self, relative_path: str) -> bool:
@@ -565,15 +610,21 @@ class PatchVerifier:
         return True
 
     def resolve_include(self, current_file: str, include_path: str, quoted: bool) -> str | None:
+        cache_key = (current_file, include_path, quoted)
+        if cache_key in self.include_resolution_cache:
+            return self.include_resolution_cache[cache_key]
+
         current_parent = PurePosixPath(current_file).parent
 
         if quoted:
             relative_candidate = normalize_posix(current_parent.joinpath(include_path).as_posix())
             if self.ensure_candidate(relative_candidate):
+                self.include_resolution_cache[cache_key] = relative_candidate
                 return relative_candidate
 
             exact_candidate = normalize_posix(include_path)
             if self.ensure_candidate(exact_candidate):
+                self.include_resolution_cache[cache_key] = exact_candidate
                 return exact_candidate
 
             basename = PurePosixPath(include_path).name
@@ -581,15 +632,20 @@ class PatchVerifier:
             candidates.extend(self.tar_index.basename_candidates(basename))
             chosen = choose_best_candidate(sorted(set(candidates)), current_file)
             if chosen is not None and self.ensure_candidate(chosen):
+                self.include_resolution_cache[cache_key] = chosen
                 return chosen
+            self.include_resolution_cache[cache_key] = None
             return None
 
         if "/" not in include_path:
+            self.include_resolution_cache[cache_key] = None
             return None
 
         exact_candidate = normalize_posix(include_path)
         if self.ensure_candidate(exact_candidate):
+            self.include_resolution_cache[cache_key] = exact_candidate
             return exact_candidate
+        self.include_resolution_cache[cache_key] = None
         return None
 
     def prepare_target(self, target: str) -> PreparedTarget | PreparationFailure:
@@ -709,35 +765,47 @@ class PatchVerifier:
 
     def run_syntax_checks(self) -> list[SyntaxResult]:
         targets = self.collect_syntax_targets()
-        print(f"Preparing syntax checks for {len(targets)} files")
+        console.print(f"[bold cyan]Preparing syntax checks[/bold cyan] for {len(targets)} files")
         immediate_results: list[SyntaxResult] = []
         prepared_targets: list[PreparedTarget] = []
 
-        for target in targets:
-            prepared = self.prepare_target(target)
-            if isinstance(prepared, PreparationFailure):
-                status = "skipped" if prepared.skip else "failed"
-                immediate_results.append(
-                    SyntaxResult(
-                        display_path=prepared.target,
-                        status=status,
-                        reason=prepared.reason,
+        with self.progress() as progress:
+            task_id = progress.add_task("Preparing syntax targets", total=len(targets))
+            for target in targets:
+                prepared = self.prepare_target(target)
+                if isinstance(prepared, PreparationFailure):
+                    status = "skipped" if prepared.skip else "failed"
+                    immediate_results.append(
+                        SyntaxResult(
+                            display_path=prepared.target,
+                            status=status,
+                            reason=prepared.reason,
+                        )
                     )
-                )
-                continue
-            prepared_targets.append(prepared)
+                    progress.advance(task_id)
+                    continue
+                prepared_targets.append(prepared)
+                progress.advance(task_id)
 
-        max_workers = max(1, min(self.args.jobs, len(prepared_targets) or 1))
+        max_workers = max(1, min(self.options.jobs, len(prepared_targets) or 1))
+        console.print(
+            f"[bold cyan]Running syntax checks[/bold cyan] on {len(prepared_targets)} prepared targets "
+            f"with {max_workers} parallel jobs"
+        )
         compiled_results: list[SyntaxResult] = []
-        with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            for result in executor.map(self.run_compiler, prepared_targets):
-                compiled_results.append(result)
+        with self.progress() as progress:
+            task_id = progress.add_task("Compiling syntax targets", total=len(prepared_targets))
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                futures = [executor.submit(self.run_compiler, prepared) for prepared in prepared_targets]
+                for future in as_completed(futures):
+                    compiled_results.append(future.result())
+                    progress.advance(task_id)
 
         return immediate_results + compiled_results
 
     def cleanup(self) -> None:
-        if self.args.keep_workdir or self.args.workspace is not None:
-            print(f"Workspace preserved at {self.workdir}")
+        if self.options.keep_workdir or self.options.workspace is not None:
+            console.print(f"[yellow]Workspace preserved at[/yellow] {self.workdir}")
             return
         shutil.rmtree(self.workdir, ignore_errors=True)
 
@@ -745,10 +813,10 @@ class PatchVerifier:
         try:
             self.prepare_source_tree()
             self.apply_patches()
-            print("Patch application passed")
+            console.print("[green]Patch application passed[/green]")
 
-            if self.args.skip_syntax:
-                print("Skipping syntax checks")
+            if self.options.skip_syntax:
+                console.print("[yellow]Skipping syntax checks[/yellow]")
                 return 0
 
             syntax_results = self.run_syntax_checks()
@@ -756,79 +824,93 @@ class PatchVerifier:
             skipped = [result for result in syntax_results if result.status == "skipped"]
             failed = [result for result in syntax_results if result.status == "failed"]
 
-            print(
-                f"Syntax summary: {len(passed)} passed, {len(skipped)} skipped, {len(failed)} failed"
-            )
+            summary = Table(title="Syntax Summary")
+            summary.add_column("Status", style="bold")
+            summary.add_column("Count", justify="right")
+            summary.add_row("[green]Passed[/green]", str(len(passed)))
+            summary.add_row("[yellow]Skipped[/yellow]", str(len(skipped)))
+            summary.add_row("[red]Failed[/red]", str(len(failed)))
+            console.print(summary)
             if skipped:
-                print("\nSkipped syntax targets:")
+                console.rule("[yellow]Skipped syntax targets[/yellow]")
                 for result in skipped:
-                    print(f"  - {result.display_path}: {result.reason}")
+                    console.print(f"- {result.display_path}: {result.reason}")
             if failed:
-                print("\nFailed syntax targets:")
+                console.rule("[red]Failed syntax targets[/red]")
                 for result in failed:
-                    print(f"  - {result.display_path}")
+                    console.print(f"- {result.display_path}")
                     if result.reason:
-                        print(f"    {result.reason}")
+                        console.print(f"  {result.reason}")
                     if result.output:
-                        print(textwrap.indent(result.output, "    "))
+                        console.print(textwrap.indent(result.output, "  "), markup=False)
                 return 1
 
+            console.print("[green]Syntax checks passed[/green]")
             return 0
         finally:
             self.cleanup()
 
 
-def build_argument_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
-        description=(
-            "Verify that the active Firefox patch stack applies to the matching "
-            "source tarball and run a lightweight Clang syntax pass over the "
-            "prepared source surface."
-        )
-    )
-    parser.add_argument(
-        "--cache-dir",
-        type=Path,
-        default=Path.home() / ".cache" / "camoufox" / "firefox-source",
-        help="Directory for cached Firefox source tarballs",
-    )
-    parser.add_argument(
-        "--tarball",
-        type=Path,
-        help="Use an existing Firefox source tarball instead of downloading one",
-    )
-    parser.add_argument(
-        "--workspace",
-        type=Path,
-        help="Reuse or create a specific workspace directory instead of a temp dir",
-    )
-    parser.add_argument(
-        "--keep-workdir",
-        action="store_true",
-        help="Keep the temporary workspace after the run for debugging",
-    )
-    parser.add_argument(
-        "--skip-syntax",
-        action="store_true",
-        help="Only verify extraction and patch application",
-    )
-    parser.add_argument(
-        "--jobs",
-        type=int,
-        default=max(1, min(os.cpu_count() or 1, 8)),
-        help="Maximum parallel syntax check jobs",
-    )
-    return parser
-
-
-def main() -> int:
-    parser = build_argument_parser()
-    args = parser.parse_args()
+@click.command(context_settings={"help_option_names": ["-h", "--help"]})
+@click.option(
+    "--cache-dir",
+    type=click.Path(path_type=Path, file_okay=False),
+    default=Path.home() / ".cache" / "camoufox" / "firefox-source",
+    show_default=True,
+    help="Directory for cached Firefox source tarballs.",
+)
+@click.option(
+    "--tarball",
+    type=click.Path(path_type=Path, dir_okay=False),
+    help="Use an existing Firefox source tarball instead of downloading one.",
+)
+@click.option(
+    "--workspace",
+    type=click.Path(path_type=Path, file_okay=False),
+    help="Reuse or create a specific workspace directory instead of a temp dir.",
+)
+@click.option(
+    "--keep-workdir",
+    is_flag=True,
+    help="Keep the temporary workspace after the run for debugging.",
+)
+@click.option(
+    "--skip-syntax",
+    is_flag=True,
+    help="Only verify extraction and patch application.",
+)
+@click.option(
+    "--jobs",
+    type=click.IntRange(min=1),
+    default=max(1, min(os.cpu_count() or 1, 8)),
+    show_default=True,
+    help="Maximum parallel syntax check jobs.",
+)
+def main(
+    cache_dir: Path,
+    tarball: Path | None,
+    workspace: Path | None,
+    keep_workdir: bool,
+    skip_syntax: bool,
+    jobs: int,
+) -> None:
     metadata = parse_upstream_metadata()
-    print(f"Verifying Firefox {metadata.version} with Camoufox release {metadata.release}")
-    verifier = PatchVerifier(metadata=metadata, args=args)
-    return verifier.run()
+    console.rule("[bold blue]Firefox Patch Verification[/bold blue]")
+    console.print(
+        f"Verifying Firefox [bold]{metadata.version}[/bold] with "
+        f"Camoufox release [bold]{metadata.release}[/bold]"
+    )
+    options = VerifierOptions(
+        cache_dir=cache_dir,
+        tarball=tarball,
+        workspace=workspace,
+        keep_workdir=keep_workdir,
+        skip_syntax=skip_syntax,
+        jobs=jobs,
+    )
+    verifier = PatchVerifier(metadata=metadata, options=options)
+    raise SystemExit(verifier.run())
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    main()

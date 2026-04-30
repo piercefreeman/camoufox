@@ -268,6 +268,6 @@ validate-fingerprint-example:
 	uv run --project pythonlib python scripts/validate_fingerprint_example.py
 
 verify-patches:
-	python3 scripts/verify_firefox_patches.py
+	uv run scripts/verify_firefox_patches.py
 
 vcredist_arch := $(shell echo $(arch) | sed 's/x86_64/x64/' | sed 's/i686/x86/')
