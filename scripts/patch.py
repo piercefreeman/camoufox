@@ -41,15 +41,43 @@ class Patcher:
     moz_target: str
     target: str
 
+    def _can_reset_source_tree(self):
+        """Return true when cwd is the prepared source git repo."""
+        cwd = os.path.abspath(os.getcwd())
+        result = subprocess.run(
+            ['git', 'rev-parse', '--show-toplevel'],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+            check=False,
+        )
+        if result.returncode != 0:
+            return False
+
+        git_root = os.path.abspath(result.stdout.strip())
+        if git_root != cwd:
+            return False
+
+        result = subprocess.run(
+            ['git', 'rev-parse', '--verify', '--quiet', 'refs/tags/unpatched'],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=False,
+        )
+        return result.returncode == 0
+
     def camoufox_patches(self):
         """
         Apply all patches
         """
         version, release = extract_args()
         with temp_cd(find_src_dir('.', version, release)):
-            # Reset to unpatched state first (like "Find broken patches")
-            print("Resetting to unpatched state...")
-            run('git clean -fdx && ./mach clobber && git reset --hard unpatched', exit_on_fail=False)
+            if self._can_reset_source_tree():
+                # Reset to unpatched state first (like "Find broken patches")
+                print("Resetting to unpatched state...")
+                run('git clean -fdx && ./mach clobber && git reset --hard unpatched', exit_on_fail=False)
+            else:
+                print("Skipping source reset: no local source git repo with unpatched tag.")
 
             # Re-copy additions and settings after reset
             print("Re-copying additions and settings...")
