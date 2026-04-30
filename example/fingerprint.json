@@ -1,0 +1,241 @@
+{
+  "navigator": {
+    "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:146.0) Gecko/20100101 Firefox/146.0",
+    "doNotTrack": "unspecified",
+    "appCodeName": "Mozilla",
+    "appName": "Netscape",
+    "appVersion": "5.0 (Macintosh)",
+    "oscpu": "Intel Mac OS X 10.15",
+    "language": "en-US",
+    "languages": [
+      "en-US",
+      "en"
+    ],
+    "platform": "MacIntel",
+    "hardwareConcurrency": 8,
+    "product": "Gecko",
+    "productSub": "20100101",
+    "maxTouchPoints": 0,
+    "cookieEnabled": true,
+    "globalPrivacyControl": false,
+    "buildID": "20260430000000",
+    "onLine": true
+  },
+  "screen": {
+    "availHeight": 957,
+    "availWidth": 1512,
+    "availTop": 25,
+    "availLeft": 0,
+    "height": 982,
+    "width": 1512,
+    "colorDepth": 24,
+    "pixelDepth": 24,
+    "pageXOffset": 0,
+    "pageYOffset": 0
+  },
+  "window": {
+    "scrollMinX": 0,
+    "scrollMinY": 0,
+    "scrollMaxX": 0,
+    "scrollMaxY": 0,
+    "outerHeight": 982,
+    "outerWidth": 1512,
+    "innerHeight": 954,
+    "innerWidth": 1512,
+    "screenX": 0,
+    "screenY": 25,
+    "history": {
+      "length": 2
+    },
+    "devicePixelRatio": 2
+  },
+  "document": {
+    "body": {
+      "clientWidth": 1512,
+      "clientHeight": 954,
+      "clientTop": 0,
+      "clientLeft": 0
+    }
+  },
+  "headers": {
+    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:146.0) Gecko/20100101 Firefox/146.0",
+    "Accept-Language": "en-US,en;q=0.9",
+    "Accept-Encoding": "gzip, deflate, br, zstd"
+  },
+  "webrtc": {
+    "ipv4": "203.0.113.10",
+    "ipv6": "2001:db8::10",
+    "localipv4": "192.168.0.10",
+    "localipv6": "fd00::10"
+  },
+  "pdfViewerEnabled": true,
+  "battery": {
+    "charging": true,
+    "chargingTime": 0,
+    "dischargingTime": 14400,
+    "level": 0.82
+  },
+  "fonts": {
+    "families": [
+      "Helvetica Neue",
+      "Arial",
+      "Menlo"
+    ],
+    "spacingSeed": 123456
+  },
+  "audio": {
+    "seed": 234567
+  },
+  "canvas": {
+    "seed": 345678,
+    "aaOffset": 1,
+    "aaCapOffset": true
+  },
+  "geolocation": {
+    "latitude": 37.7749,
+    "longitude": -122.4194,
+    "accuracy": 12.5
+  },
+  "timezone": "America/Los_Angeles",
+  "locale": {
+    "language": "en",
+    "region": "US",
+    "script": "Latn",
+    "all": "en-US"
+  },
+  "humanize": {
+    "enabled": true,
+    "maxTime": 1.5,
+    "minTime": 0.25
+  },
+  "showcursor": false,
+  "audioContext": {
+    "sampleRate": 48000,
+    "outputLatency": 0.01,
+    "maxChannelCount": 2
+  },
+  "webGl": {
+    "renderer": "Apple M1",
+    "vendor": "Apple Inc.",
+    "supportedExtensions": [
+      "EXT_blend_minmax",
+      "OES_element_index_uint",
+      "WEBGL_debug_renderer_info"
+    ],
+    "parameters": {
+      "3379": 16384,
+      "33901": [
+        1.0,
+        8191.0
+      ],
+      "35977": true,
+      "37445": "Apple Inc.",
+      "32873": null
+    },
+    "parametersBlockIfNotDefined": false,
+    "shaderPrecisionFormats": {
+      "35632,36338": {
+        "rangeMin": 127,
+        "rangeMax": 127,
+        "precision": 23
+      },
+      "35633,36338": {
+        "rangeMin": 127,
+        "rangeMax": 127,
+        "precision": 23
+      }
+    },
+    "shaderPrecisionFormatsBlockIfNotDefined": false,
+    "contextAttributes": {
+      "alpha": true,
+      "antialias": true,
+      "depth": true,
+      "failIfMajorPerformanceCaveat": false,
+      "powerPreference": "default",
+      "premultipliedAlpha": true,
+      "preserveDrawingBuffer": false,
+      "stencil": true
+    }
+  },
+  "webGl2": {
+    "renderer": "Apple M1",
+    "vendor": "Apple Inc.",
+    "supportedExtensions": [
+      "EXT_color_buffer_float",
+      "OES_draw_buffers_indexed",
+      "WEBGL_debug_renderer_info"
+    ],
+    "parameters": {
+      "3379": 16384,
+      "33902": [
+        1.0,
+        16384.0
+      ],
+      "37137": 1.5,
+      "37441": false,
+      "37446": "Apple M1",
+      "38449": null
+    },
+    "parametersBlockIfNotDefined": false,
+    "shaderPrecisionFormats": {
+      "35632,36338": {
+        "rangeMin": 127,
+        "rangeMax": 127,
+        "precision": 23
+      },
+      "35633,36338": {
+        "rangeMin": 127,
+        "rangeMax": 127,
+        "precision": 23
+      }
+    },
+    "shaderPrecisionFormatsBlockIfNotDefined": false,
+    "contextAttributes": {
+      "alpha": true,
+      "antialias": true,
+      "depth": true,
+      "failIfMajorPerformanceCaveat": false,
+      "powerPreference": "default",
+      "premultipliedAlpha": true,
+      "preserveDrawingBuffer": false,
+      "stencil": true
+    }
+  },
+  "voices": {
+    "items": [
+      "Alex",
+      {
+        "isLocalService": true,
+        "isDefault": true,
+        "voiceUri": "com.apple.voice.compact.en-US.Samantha",
+        "name": "Samantha",
+        "lang": "en-US"
+      }
+    ],
+    "blockIfNotDefined": false,
+    "fakeCompletion": true,
+    "fakeCompletionCharsPerSecond": 13.5
+  },
+  "mediaDevices": {
+    "micros": 1,
+    "webcams": 1,
+    "speakers": 2,
+    "enabled": true
+  },
+  "allowMainWorld": false,
+  "forceScopeAccess": false,
+  "disableTheming": false,
+  "memorysaver": false,
+  "addons": [
+    "uBlock Origin",
+    "Ghostery"
+  ],
+  "certificatePaths": [
+    "/tmp/client-cert.pem",
+    "/tmp/client-key.pem"
+  ],
+  "certificates": [
+    "-----BEGIN CERTIFICATE-----\nEXAMPLE\n-----END CERTIFICATE-----"
+  ],
+  "debug": false
+}

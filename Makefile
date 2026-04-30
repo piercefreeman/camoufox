@@ -21,7 +21,8 @@ pacman := python python-pip p7zip go msitools wget aria2 sqlite
         build-launcher check-arch revert edits run bootstrap mozbootstrap dir \
         package-linux package-macos package-windows vcredist_arch patch unpatch \
         workspace check-arg edit-cfg ff-dbg tests update-ubo-assets generate-assets-car \
-        generate-openapi generate-openapi-python generate-openapi-cpp
+        generate-openapi generate-openapi-python generate-openapi-cpp \
+        validate-fingerprint-example
 
 OPENAPI_SCHEMA := schemas/camoufox-profile.openapi.yaml
 PY_OPENAPI_MODELS := pythonlib/camoufox/_generated_profile.py
@@ -58,6 +59,7 @@ help:
 	@echo "  tests           - Runs the Playwright tests"
 	@echo "  update-ubo-assets - Update the uBOAssets.json file"
 	@echo "  generate-openapi - Generate Python and C++ profile models from OpenAPI schema"
+	@echo "  validate-fingerprint-example - Validate example/fingerprint.json against the OpenAPI schema"
 
 _ARGS := $(wordlist 2,$(words $(MAKECMDGOALS)),$(MAKECMDGOALS))
 $(eval $(_ARGS):;@:)
@@ -290,5 +292,8 @@ generate-openapi-cpp:
 		--global-property models,modelTests=false \
 		--type-mappings number=double \
 		--additional-properties hideGenerationTimestamp=true,modelPackage=camoucfg
+
+validate-fingerprint-example:
+	uv run --project pythonlib python scripts/validate_fingerprint_example.py
 
 vcredist_arch := $(shell echo $(arch) | sed 's/x86_64/x64/' | sed 's/i686/x86/')
