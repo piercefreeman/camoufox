@@ -53,10 +53,10 @@ def setup_linux_sysroots():
 
 
 def run(cmd, exit_on_fail=True):
-    print(f'\n------------\n{cmd}\n------------\n')
+    print(f'\n------------\n{cmd}\n------------\n', flush=True)
     retval = os.system(cmd)
     if retval != 0 and exit_on_fail:
-        print(f"fatal error: command '{cmd}' failed")
+        print(f"fatal error: command '{cmd}' failed", flush=True)
         sys.exit(1)
     return retval
 
