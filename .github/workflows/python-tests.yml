@@ -44,6 +44,33 @@ jobs:
         working-directory: pythonlib
         run: uv run --project . ruff check camoufox
 
+  fingerprint-example:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: |
+            pythonlib/pyproject.toml
+            pythonlib/uv.lock
+
+      - name: Sync Python dev environment
+        run: uv sync --project pythonlib --group dev --locked
+
+      - name: Validate fingerprint example
+        run: uv run --project pythonlib python scripts/validate_fingerprint_example.py
+
   ty:
     runs-on: ubuntu-24.04
     timeout-minutes: 10

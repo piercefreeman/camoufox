@@ -608,7 +608,7 @@ bundle/
 
 **Runtime path rewriting:** At launch time, `createRuntimeFontconfig()` reads the bundled `fonts.conf` and rewrites font directory paths to absolute paths pointing at the correct OS-specific font subdirectory (e.g. `fonts/macos/` for macOS profiles). This prevents cross-OS font leakage (e.g. Linux font Arimo appearing in a macOS profile) and avoids CWD-dependent path issues.
 
-**`FONTCONFIG_PATH` environment variable:** Must be set when launching Camoufox on Linux. Points to the correct OS-specific fontconfig directory (e.g. `camoufox/fontconfig/macos/`). The Go launcher sets this dynamically based on the target OS.
+**Linux fontconfig wiring:** When launching through the Python package on Linux, Camoufox generates a runtime `fonts.conf` and sets `FONTCONFIG_FILE` automatically. If you launch the browser directly, you need to point fontconfig at the generated config yourself.
 
 ---
 

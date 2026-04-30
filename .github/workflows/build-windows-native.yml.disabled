@@ -56,11 +56,6 @@ jobs:
             unzip
             zip
 
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: "1.23"
-
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
@@ -76,7 +71,6 @@ jobs:
         run: |
           uname -a
           python3 --version
-          go version
           test "$MOZILLABUILD" = "C:\\mozilla-build"
           test -d /c/mozilla-build
           df -h
