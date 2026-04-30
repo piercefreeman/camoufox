@@ -27,25 +27,25 @@ class CanvasProfile {
     }
     m_IsSet = true;
     if (json.contains("seed") && !json.at("seed").is_null()) {
-      try {
-        m_seed = json.at("seed").get<int32_t>();
-      } catch (...) {
+      const auto& value = json.at("seed");
+      if (!value.is_number_integer() && !value.is_number_unsigned()) {
         return false;
       }
+      m_seed = value.get<int32_t>();
     }
     if (json.contains("aaOffset") && !json.at("aaOffset").is_null()) {
-      try {
-        m_aaOffset = json.at("aaOffset").get<int32_t>();
-      } catch (...) {
+      const auto& value = json.at("aaOffset");
+      if (!value.is_number_integer() && !value.is_number_unsigned()) {
         return false;
       }
+      m_aaOffset = value.get<int32_t>();
     }
     if (json.contains("aaCapOffset") && !json.at("aaCapOffset").is_null()) {
-      try {
-        m_aaCapOffset = json.at("aaCapOffset").get<bool>();
-      } catch (...) {
+      const auto& value = json.at("aaCapOffset");
+      if (!value.is_boolean()) {
         return false;
       }
+      m_aaCapOffset = value.get<bool>();
     }
     return true;
   }

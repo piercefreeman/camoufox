@@ -22,7 +22,7 @@ index d0aebdf965..01472ec205 100644
  #include "nsHttpChannel.h"
  #include "nsHTTPCompressConv.h"
  #include "nsHttpAuthCache.h"
-@@ -747,6 +748,15 @@ uint8_t nsHttpHandler::UrgencyFromCoSFlags(uint32_t cos) {
+@@ -747,6 +748,19 @@ uint8_t nsHttpHandler::UrgencyFromCoSFlags(uint32_t cos) {
  //-----------------------------------------------------------------------------
  
  const nsCString& nsHttpHandler::UserAgent(bool aShouldResistFingerprinting) {
@@ -42,9 +42,9 @@ index d0aebdf965..01472ec205 100644
    if (aShouldResistFingerprinting && !mSpoofedUserAgent.IsEmpty()) {
      LOG(("using spoofed userAgent : %s\n", mSpoofedUserAgent.get()));
      return mSpoofedUserAgent;
-@@ -2077,6 +2087,10 @@ nsresult nsHttpHandler::SetAcceptLanguages() {
+@@ -2077,6 +2087,12 @@ nsresult nsHttpHandler::SetAcceptLanguages() {
    }
-
+ 
    MOZ_ASSERT(NS_IsMainThread());
 +  if (auto headers = MaskConfig::Profile().getHeaders()) {
 +    if (auto value = headers->getAcceptLanguage()) {
@@ -52,11 +52,11 @@ index d0aebdf965..01472ec205 100644
 +      return NS_OK;
 +    }
 +  }
-
+ 
    mAcceptLanguagesIsDirty = false;
-
-@@ -2098,6 +2112,11 @@ nsresult nsHttpHandler::SetAcceptLanguages() {
-
+ 
+@@ -2098,8 +2112,15 @@ nsresult nsHttpHandler::SetAcceptLanguages() {
+ 
  nsresult nsHttpHandler::SetAcceptEncodings(const char* aAcceptEncodings,
                                             bool isSecure, bool isDictionary) {
 +  nsCString encodingOverride;

@@ -30,11 +30,11 @@ class FontsProfile {
       m_families = json.at("families");
     }
     if (json.contains("spacingSeed") && !json.at("spacingSeed").is_null()) {
-      try {
-        m_spacingSeed = json.at("spacingSeed").get<int32_t>();
-      } catch (...) {
+      const auto& value = json.at("spacingSeed");
+      if (!value.is_number_integer() && !value.is_number_unsigned()) {
         return false;
       }
+      m_spacingSeed = value.get<int32_t>();
     }
     return true;
   }

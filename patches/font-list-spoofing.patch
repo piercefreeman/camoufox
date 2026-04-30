@@ -147,7 +147,7 @@ index xxxxxxxxxx..yyyyyyyyyy 100644
 @@ -534,5 +534,12 @@
      "nsPluginArray.cpp",
  ]
-
+ 
 +# FontListManager compiled separately (includes RoverfoxStorageManager.h)
 +SOURCES += ["FontListManager.cpp"]
 +
@@ -171,7 +171,7 @@ index xxxxxxxxxx..yyyyyyyyyy 100644
 @@ -7477,6 +7478,25 @@
    mSharedWorkers.RemoveElement(aSharedWorker);
  }
-
+ 
 +void nsGlobalWindowInner::SetFontList(const nsAString& aFontList,
 +                                      ErrorResult& aRv) {
 +  uint32_t userContextId = 0;
@@ -199,9 +199,9 @@ index xxxxxxxxxx..yyyyyyyyyy 100644
 --- a/dom/base/nsGlobalWindowInner.h
 +++ b/dom/base/nsGlobalWindowInner.h
 @@ -685,6 +685,9 @@
-
+ 
    void ForgetSharedWorker(mozilla::dom::SharedWorker* aSharedWorker);
-
+ 
 +  // Per-context font list spoofing
 +  void SetFontList(const nsAString& aFontList, mozilla::ErrorResult& aRv);
 +
@@ -215,7 +215,7 @@ index xxxxxxxxxx..yyyyyyyyyy 100644
 @@ -892,6 +892,12 @@ partial interface Window {
    readonly attribute VisualViewport visualViewport;
  };
-
+ 
 +// Per-context font list
 +partial interface Window {
 +  [Throws, Func="mozilla::dom::FontListManager::IsFunctionEnabledForWebIDL"]
@@ -238,7 +238,7 @@ index xxxxxxxxxx..yyyyyyyyyy 100644
 @@ -1632,6 +1633,16 @@
    nsAutoCString key;
    GenerateFontListKey(aFamily, key);
-
+ 
 +  // Per-context font list filtering
 +  {
 +    uint32_t ctx = mozilla::dom::FontListManager::GetCurrentContext();
@@ -259,7 +259,7 @@ index xxxxxxxxxx..yyyyyyyyyy 100644
 @@ -36,3 +36,4 @@
  #include "TextDrawTarget.h"
 +#include "mozilla/dom/FontListManager.h"
-
+ 
  #ifdef XP_WIN
 @@ -1910,4 +1911,6 @@
  void gfxFontGroup::EnsureFontList() {

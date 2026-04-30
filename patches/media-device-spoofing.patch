@@ -10,7 +10,7 @@ index 067094cb6b..9088f71793 100644
  
  namespace mozilla::dom {
  
-@@ -329,52 +330,52 @@ RefPtr<MediaDeviceSetRefCnt> MediaDevices::FilterExposedDevices(
+@@ -329,52 +330,53 @@ RefPtr<MediaDeviceSetRefCnt> MediaDevices::FilterExposedDevices(
      exposed->AppendElement(device);
    }
  

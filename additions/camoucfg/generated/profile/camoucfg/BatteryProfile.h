@@ -27,32 +27,32 @@ class BatteryProfile {
     }
     m_IsSet = true;
     if (json.contains("charging") && !json.at("charging").is_null()) {
-      try {
-        m_charging = json.at("charging").get<bool>();
-      } catch (...) {
+      const auto& value = json.at("charging");
+      if (!value.is_boolean()) {
         return false;
       }
+      m_charging = value.get<bool>();
     }
     if (json.contains("chargingTime") && !json.at("chargingTime").is_null()) {
-      try {
-        m_chargingTime = json.at("chargingTime").get<double>();
-      } catch (...) {
+      const auto& value = json.at("chargingTime");
+      if (!value.is_number()) {
         return false;
       }
+      m_chargingTime = value.get<double>();
     }
     if (json.contains("dischargingTime") && !json.at("dischargingTime").is_null()) {
-      try {
-        m_dischargingTime = json.at("dischargingTime").get<double>();
-      } catch (...) {
+      const auto& value = json.at("dischargingTime");
+      if (!value.is_number()) {
         return false;
       }
+      m_dischargingTime = value.get<double>();
     }
     if (json.contains("level") && !json.at("level").is_null()) {
-      try {
-        m_level = json.at("level").get<double>();
-      } catch (...) {
+      const auto& value = json.at("level");
+      if (!value.is_number()) {
         return false;
       }
+      m_level = value.get<double>();
     }
     return true;
   }

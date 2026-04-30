@@ -28,18 +28,18 @@ class WebGlProfile {
     }
     m_IsSet = true;
     if (json.contains("renderer") && !json.at("renderer").is_null()) {
-      try {
-        m_renderer = json.at("renderer").get<std::string>();
-      } catch (...) {
+      const auto& value = json.at("renderer");
+      if (!value.is_string()) {
         return false;
       }
+      m_renderer = value.get<std::string>();
     }
     if (json.contains("vendor") && !json.at("vendor").is_null()) {
-      try {
-        m_vendor = json.at("vendor").get<std::string>();
-      } catch (...) {
+      const auto& value = json.at("vendor");
+      if (!value.is_string()) {
         return false;
       }
+      m_vendor = value.get<std::string>();
     }
     if (json.contains("supportedExtensions") && !json.at("supportedExtensions").is_null()) {
       m_supportedExtensions = json.at("supportedExtensions");
@@ -48,21 +48,21 @@ class WebGlProfile {
       m_parameters = json.at("parameters");
     }
     if (json.contains("parametersBlockIfNotDefined") && !json.at("parametersBlockIfNotDefined").is_null()) {
-      try {
-        m_parametersBlockIfNotDefined = json.at("parametersBlockIfNotDefined").get<bool>();
-      } catch (...) {
+      const auto& value = json.at("parametersBlockIfNotDefined");
+      if (!value.is_boolean()) {
         return false;
       }
+      m_parametersBlockIfNotDefined = value.get<bool>();
     }
     if (json.contains("shaderPrecisionFormats") && !json.at("shaderPrecisionFormats").is_null()) {
       m_shaderPrecisionFormats = json.at("shaderPrecisionFormats");
     }
     if (json.contains("shaderPrecisionFormatsBlockIfNotDefined") && !json.at("shaderPrecisionFormatsBlockIfNotDefined").is_null()) {
-      try {
-        m_shaderPrecisionFormatsBlockIfNotDefined = json.at("shaderPrecisionFormatsBlockIfNotDefined").get<bool>();
-      } catch (...) {
+      const auto& value = json.at("shaderPrecisionFormatsBlockIfNotDefined");
+      if (!value.is_boolean()) {
         return false;
       }
+      m_shaderPrecisionFormatsBlockIfNotDefined = value.get<bool>();
     }
     if (json.contains("contextAttributes") && !json.at("contextAttributes").is_null()) {
       WebGlContextAttributes value;

@@ -10,7 +10,7 @@ index 274cdebc2e..b0183ecc6a 100644
  
  class nsIPrincipal;
  
-@@ -1267,6 +1268,12 @@ void Geolocation::NotifyAllowedRequest(nsGeolocationRequest* aRequest) {
+@@ -1267,6 +1268,13 @@ void Geolocation::NotifyAllowedRequest(nsGeolocationRequest* aRequest) {
  
  bool Geolocation::RegisterRequestWithPrompt(nsGeolocationRequest* request) {
    nsIEventTarget* target = GetMainThreadSerialEventTarget();
@@ -36,7 +36,7 @@ index 19ca685251..a286a4a784 100644
  
  using mozilla::EqualOrBothNaN;
  
-@@ -62,13 +63,19 @@ NS_IMPL_RELEASE(nsGeoPositionCoords)
+@@ -62,13 +63,25 @@ NS_IMPL_RELEASE(nsGeoPositionCoords)
  
  NS_IMETHODIMP
  nsGeoPositionCoords::GetLatitude(double* aLatitude) {
@@ -64,7 +64,7 @@ index 19ca685251..a286a4a784 100644
    return NS_OK;
  }
  
-@@ -80,7 +87,10 @@ nsGeoPositionCoords::GetAltitude(double* aAltitude) {
+@@ -80,7 +87,13 @@ nsGeoPositionCoords::GetAltitude(double* aAltitude) {
  
  NS_IMETHODIMP
  nsGeoPositionCoords::GetAccuracy(double* aAccuracy) {

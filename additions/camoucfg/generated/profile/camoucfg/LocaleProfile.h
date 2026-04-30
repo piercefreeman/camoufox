@@ -27,32 +27,32 @@ class LocaleProfile {
     }
     m_IsSet = true;
     if (json.contains("language") && !json.at("language").is_null()) {
-      try {
-        m_language = json.at("language").get<std::string>();
-      } catch (...) {
+      const auto& value = json.at("language");
+      if (!value.is_string()) {
         return false;
       }
+      m_language = value.get<std::string>();
     }
     if (json.contains("region") && !json.at("region").is_null()) {
-      try {
-        m_region = json.at("region").get<std::string>();
-      } catch (...) {
+      const auto& value = json.at("region");
+      if (!value.is_string()) {
         return false;
       }
+      m_region = value.get<std::string>();
     }
     if (json.contains("script") && !json.at("script").is_null()) {
-      try {
-        m_script = json.at("script").get<std::string>();
-      } catch (...) {
+      const auto& value = json.at("script");
+      if (!value.is_string()) {
         return false;
       }
+      m_script = value.get<std::string>();
     }
     if (json.contains("all") && !json.at("all").is_null()) {
-      try {
-        m_all = json.at("all").get<std::string>();
-      } catch (...) {
+      const auto& value = json.at("all");
+      if (!value.is_string()) {
         return false;
       }
+      m_all = value.get<std::string>();
     }
     return true;
   }

@@ -87,11 +87,11 @@ class CamoufoxProfile {
       m_webrtc = value;
     }
     if (json.contains("pdfViewerEnabled") && !json.at("pdfViewerEnabled").is_null()) {
-      try {
-        m_pdfViewerEnabled = json.at("pdfViewerEnabled").get<bool>();
-      } catch (...) {
+      const auto& value = json.at("pdfViewerEnabled");
+      if (!value.is_boolean()) {
         return false;
       }
+      m_pdfViewerEnabled = value.get<bool>();
     }
     if (json.contains("battery") && !json.at("battery").is_null()) {
       BatteryProfile value;
@@ -129,11 +129,11 @@ class CamoufoxProfile {
       m_geolocation = value;
     }
     if (json.contains("timezone") && !json.at("timezone").is_null()) {
-      try {
-        m_timezone = json.at("timezone").get<std::string>();
-      } catch (...) {
+      const auto& value = json.at("timezone");
+      if (!value.is_string()) {
         return false;
       }
+      m_timezone = value.get<std::string>();
     }
     if (json.contains("locale") && !json.at("locale").is_null()) {
       LocaleProfile value;
@@ -150,11 +150,11 @@ class CamoufoxProfile {
       m_humanize = value;
     }
     if (json.contains("showcursor") && !json.at("showcursor").is_null()) {
-      try {
-        m_showcursor = json.at("showcursor").get<bool>();
-      } catch (...) {
+      const auto& value = json.at("showcursor");
+      if (!value.is_boolean()) {
         return false;
       }
+      m_showcursor = value.get<bool>();
     }
     if (json.contains("audioContext") && !json.at("audioContext").is_null()) {
       AudioContextProfile value;
@@ -192,32 +192,32 @@ class CamoufoxProfile {
       m_mediaDevices = value;
     }
     if (json.contains("allowMainWorld") && !json.at("allowMainWorld").is_null()) {
-      try {
-        m_allowMainWorld = json.at("allowMainWorld").get<bool>();
-      } catch (...) {
+      const auto& value = json.at("allowMainWorld");
+      if (!value.is_boolean()) {
         return false;
       }
+      m_allowMainWorld = value.get<bool>();
     }
     if (json.contains("forceScopeAccess") && !json.at("forceScopeAccess").is_null()) {
-      try {
-        m_forceScopeAccess = json.at("forceScopeAccess").get<bool>();
-      } catch (...) {
+      const auto& value = json.at("forceScopeAccess");
+      if (!value.is_boolean()) {
         return false;
       }
+      m_forceScopeAccess = value.get<bool>();
     }
     if (json.contains("disableTheming") && !json.at("disableTheming").is_null()) {
-      try {
-        m_disableTheming = json.at("disableTheming").get<bool>();
-      } catch (...) {
+      const auto& value = json.at("disableTheming");
+      if (!value.is_boolean()) {
         return false;
       }
+      m_disableTheming = value.get<bool>();
     }
     if (json.contains("memorysaver") && !json.at("memorysaver").is_null()) {
-      try {
-        m_memorysaver = json.at("memorysaver").get<bool>();
-      } catch (...) {
+      const auto& value = json.at("memorysaver");
+      if (!value.is_boolean()) {
         return false;
       }
+      m_memorysaver = value.get<bool>();
     }
     if (json.contains("addons") && !json.at("addons").is_null()) {
       m_addons = json.at("addons");
@@ -229,11 +229,11 @@ class CamoufoxProfile {
       m_certificates = json.at("certificates");
     }
     if (json.contains("debug") && !json.at("debug").is_null()) {
-      try {
-        m_debug = json.at("debug").get<bool>();
-      } catch (...) {
+      const auto& value = json.at("debug");
+      if (!value.is_boolean()) {
         return false;
       }
+      m_debug = value.get<bool>();
     }
     return true;
   }

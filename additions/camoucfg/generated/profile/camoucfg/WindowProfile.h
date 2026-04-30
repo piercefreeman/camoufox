@@ -28,74 +28,74 @@ class WindowProfile {
     }
     m_IsSet = true;
     if (json.contains("scrollMinX") && !json.at("scrollMinX").is_null()) {
-      try {
-        m_scrollMinX = json.at("scrollMinX").get<int32_t>();
-      } catch (...) {
+      const auto& value = json.at("scrollMinX");
+      if (!value.is_number_integer() && !value.is_number_unsigned()) {
         return false;
       }
+      m_scrollMinX = value.get<int32_t>();
     }
     if (json.contains("scrollMinY") && !json.at("scrollMinY").is_null()) {
-      try {
-        m_scrollMinY = json.at("scrollMinY").get<int32_t>();
-      } catch (...) {
+      const auto& value = json.at("scrollMinY");
+      if (!value.is_number_integer() && !value.is_number_unsigned()) {
         return false;
       }
+      m_scrollMinY = value.get<int32_t>();
     }
     if (json.contains("scrollMaxX") && !json.at("scrollMaxX").is_null()) {
-      try {
-        m_scrollMaxX = json.at("scrollMaxX").get<int32_t>();
-      } catch (...) {
+      const auto& value = json.at("scrollMaxX");
+      if (!value.is_number_integer() && !value.is_number_unsigned()) {
         return false;
       }
+      m_scrollMaxX = value.get<int32_t>();
     }
     if (json.contains("scrollMaxY") && !json.at("scrollMaxY").is_null()) {
-      try {
-        m_scrollMaxY = json.at("scrollMaxY").get<int32_t>();
-      } catch (...) {
+      const auto& value = json.at("scrollMaxY");
+      if (!value.is_number_integer() && !value.is_number_unsigned()) {
         return false;
       }
+      m_scrollMaxY = value.get<int32_t>();
     }
     if (json.contains("outerHeight") && !json.at("outerHeight").is_null()) {
-      try {
-        m_outerHeight = json.at("outerHeight").get<int32_t>();
-      } catch (...) {
+      const auto& value = json.at("outerHeight");
+      if (!value.is_number_integer() && !value.is_number_unsigned()) {
         return false;
       }
+      m_outerHeight = value.get<int32_t>();
     }
     if (json.contains("outerWidth") && !json.at("outerWidth").is_null()) {
-      try {
-        m_outerWidth = json.at("outerWidth").get<int32_t>();
-      } catch (...) {
+      const auto& value = json.at("outerWidth");
+      if (!value.is_number_integer() && !value.is_number_unsigned()) {
         return false;
       }
+      m_outerWidth = value.get<int32_t>();
     }
     if (json.contains("innerHeight") && !json.at("innerHeight").is_null()) {
-      try {
-        m_innerHeight = json.at("innerHeight").get<int32_t>();
-      } catch (...) {
+      const auto& value = json.at("innerHeight");
+      if (!value.is_number_integer() && !value.is_number_unsigned()) {
         return false;
       }
+      m_innerHeight = value.get<int32_t>();
     }
     if (json.contains("innerWidth") && !json.at("innerWidth").is_null()) {
-      try {
-        m_innerWidth = json.at("innerWidth").get<int32_t>();
-      } catch (...) {
+      const auto& value = json.at("innerWidth");
+      if (!value.is_number_integer() && !value.is_number_unsigned()) {
         return false;
       }
+      m_innerWidth = value.get<int32_t>();
     }
     if (json.contains("screenX") && !json.at("screenX").is_null()) {
-      try {
-        m_screenX = json.at("screenX").get<int32_t>();
-      } catch (...) {
+      const auto& value = json.at("screenX");
+      if (!value.is_number_integer() && !value.is_number_unsigned()) {
         return false;
       }
+      m_screenX = value.get<int32_t>();
     }
     if (json.contains("screenY") && !json.at("screenY").is_null()) {
-      try {
-        m_screenY = json.at("screenY").get<int32_t>();
-      } catch (...) {
+      const auto& value = json.at("screenY");
+      if (!value.is_number_integer() && !value.is_number_unsigned()) {
         return false;
       }
+      m_screenY = value.get<int32_t>();
     }
     if (json.contains("history") && !json.at("history").is_null()) {
       HistoryProfile value;
@@ -105,11 +105,11 @@ class WindowProfile {
       m_history = value;
     }
     if (json.contains("devicePixelRatio") && !json.at("devicePixelRatio").is_null()) {
-      try {
-        m_devicePixelRatio = json.at("devicePixelRatio").get<double>();
-      } catch (...) {
+      const auto& value = json.at("devicePixelRatio");
+      if (!value.is_number()) {
         return false;
       }
+      m_devicePixelRatio = value.get<double>();
     }
     return true;
   }

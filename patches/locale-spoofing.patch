@@ -39,7 +39,7 @@ diff --git a/intl/components/src/Locale.cpp b/intl/components/src/Locale.cpp
 index 9a043518cf..a8d3733212 100644
 --- a/intl/components/src/Locale.cpp
 +++ b/intl/components/src/Locale.cpp
-@@ -24,11 +24,56 @@
+@@ -24,11 +24,78 @@
  
  #include "unicode/uloc.h"
  #include "unicode/utypes.h"

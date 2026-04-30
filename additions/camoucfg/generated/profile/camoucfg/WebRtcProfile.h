@@ -27,32 +27,32 @@ class WebRtcProfile {
     }
     m_IsSet = true;
     if (json.contains("ipv4") && !json.at("ipv4").is_null()) {
-      try {
-        m_ipv4 = json.at("ipv4").get<std::string>();
-      } catch (...) {
+      const auto& value = json.at("ipv4");
+      if (!value.is_string()) {
         return false;
       }
+      m_ipv4 = value.get<std::string>();
     }
     if (json.contains("ipv6") && !json.at("ipv6").is_null()) {
-      try {
-        m_ipv6 = json.at("ipv6").get<std::string>();
-      } catch (...) {
+      const auto& value = json.at("ipv6");
+      if (!value.is_string()) {
         return false;
       }
+      m_ipv6 = value.get<std::string>();
     }
     if (json.contains("localipv4") && !json.at("localipv4").is_null()) {
-      try {
-        m_localipv4 = json.at("localipv4").get<std::string>();
-      } catch (...) {
+      const auto& value = json.at("localipv4");
+      if (!value.is_string()) {
         return false;
       }
+      m_localipv4 = value.get<std::string>();
     }
     if (json.contains("localipv6") && !json.at("localipv6").is_null()) {
-      try {
-        m_localipv6 = json.at("localipv6").get<std::string>();
-      } catch (...) {
+      const auto& value = json.at("localipv6");
+      if (!value.is_string()) {
         return false;
       }
+      m_localipv6 = value.get<std::string>();
     }
     return true;
   }

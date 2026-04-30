@@ -10,7 +10,7 @@ index 1b52782a48..7219b68d88 100644
  
  #define AUDIOIPC_STACK_SIZE_DEFAULT (64 * 4096)
  
-@@ -399,6 +400,8 @@ uint32_t PreferredSampleRate(bool aShouldResistFingerprinting) {
+@@ -399,6 +400,11 @@ uint32_t PreferredSampleRate(bool aShouldResistFingerprinting) {
    if (sCubebForcedSampleRate) {
      return sCubebForcedSampleRate;
    }
@@ -46,7 +46,7 @@ index 66184b683b..daf30882ea 100644
  #include "AudioBuffer.h"
  #include "AudioBufferSourceNode.h"
  #include "AudioChannelService.h"
-@@ -561,6 +562,8 @@ double AudioContext::OutputLatency() {
+@@ -561,6 +562,11 @@ double AudioContext::OutputLatency() {
    }
    // When reduceFingerprinting is enabled, return a latency figure that is
    // fixed, but plausible for the platform.
@@ -58,7 +58,7 @@ index 66184b683b..daf30882ea 100644
    double latency_s = 0.0;
    if (mShouldResistFingerprinting) {
  #ifdef XP_MACOSX
-@@ -714,6 +717,8 @@ void AudioContext::UnregisterActiveNode(AudioNode* aNode) {
+@@ -714,6 +717,11 @@ void AudioContext::UnregisterActiveNode(AudioNode* aNode) {
  }
  
  uint32_t AudioContext::MaxChannelCount() const {

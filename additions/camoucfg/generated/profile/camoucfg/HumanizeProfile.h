@@ -27,25 +27,25 @@ class HumanizeProfile {
     }
     m_IsSet = true;
     if (json.contains("enabled") && !json.at("enabled").is_null()) {
-      try {
-        m_enabled = json.at("enabled").get<bool>();
-      } catch (...) {
+      const auto& value = json.at("enabled");
+      if (!value.is_boolean()) {
         return false;
       }
+      m_enabled = value.get<bool>();
     }
     if (json.contains("maxTime") && !json.at("maxTime").is_null()) {
-      try {
-        m_maxTime = json.at("maxTime").get<double>();
-      } catch (...) {
+      const auto& value = json.at("maxTime");
+      if (!value.is_number()) {
         return false;
       }
+      m_maxTime = value.get<double>();
     }
     if (json.contains("minTime") && !json.at("minTime").is_null()) {
-      try {
-        m_minTime = json.at("minTime").get<double>();
-      } catch (...) {
+      const auto& value = json.at("minTime");
+      if (!value.is_number()) {
         return false;
       }
+      m_minTime = value.get<double>();
     }
     return true;
   }

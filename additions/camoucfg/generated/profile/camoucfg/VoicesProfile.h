@@ -30,25 +30,25 @@ class VoicesProfile {
       m_items = json.at("items");
     }
     if (json.contains("blockIfNotDefined") && !json.at("blockIfNotDefined").is_null()) {
-      try {
-        m_blockIfNotDefined = json.at("blockIfNotDefined").get<bool>();
-      } catch (...) {
+      const auto& value = json.at("blockIfNotDefined");
+      if (!value.is_boolean()) {
         return false;
       }
+      m_blockIfNotDefined = value.get<bool>();
     }
     if (json.contains("fakeCompletion") && !json.at("fakeCompletion").is_null()) {
-      try {
-        m_fakeCompletion = json.at("fakeCompletion").get<bool>();
-      } catch (...) {
+      const auto& value = json.at("fakeCompletion");
+      if (!value.is_boolean()) {
         return false;
       }
+      m_fakeCompletion = value.get<bool>();
     }
     if (json.contains("fakeCompletionCharsPerSecond") && !json.at("fakeCompletionCharsPerSecond").is_null()) {
-      try {
-        m_fakeCompletionCharsPerSecond = json.at("fakeCompletionCharsPerSecond").get<double>();
-      } catch (...) {
+      const auto& value = json.at("fakeCompletionCharsPerSecond");
+      if (!value.is_number()) {
         return false;
       }
+      m_fakeCompletionCharsPerSecond = value.get<double>();
     }
     return true;
   }

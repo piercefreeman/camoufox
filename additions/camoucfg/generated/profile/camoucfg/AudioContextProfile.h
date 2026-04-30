@@ -27,25 +27,25 @@ class AudioContextProfile {
     }
     m_IsSet = true;
     if (json.contains("sampleRate") && !json.at("sampleRate").is_null()) {
-      try {
-        m_sampleRate = json.at("sampleRate").get<int32_t>();
-      } catch (...) {
+      const auto& value = json.at("sampleRate");
+      if (!value.is_number_integer() && !value.is_number_unsigned()) {
         return false;
       }
+      m_sampleRate = value.get<int32_t>();
     }
     if (json.contains("outputLatency") && !json.at("outputLatency").is_null()) {
-      try {
-        m_outputLatency = json.at("outputLatency").get<double>();
-      } catch (...) {
+      const auto& value = json.at("outputLatency");
+      if (!value.is_number()) {
         return false;
       }
+      m_outputLatency = value.get<double>();
     }
     if (json.contains("maxChannelCount") && !json.at("maxChannelCount").is_null()) {
-      try {
-        m_maxChannelCount = json.at("maxChannelCount").get<int32_t>();
-      } catch (...) {
+      const auto& value = json.at("maxChannelCount");
+      if (!value.is_number_integer() && !value.is_number_unsigned()) {
         return false;
       }
+      m_maxChannelCount = value.get<int32_t>();
     }
     return true;
   }

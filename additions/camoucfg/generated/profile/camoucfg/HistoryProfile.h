@@ -27,11 +27,11 @@ class HistoryProfile {
     }
     m_IsSet = true;
     if (json.contains("length") && !json.at("length").is_null()) {
-      try {
-        m_length = json.at("length").get<int32_t>();
-      } catch (...) {
+      const auto& value = json.at("length");
+      if (!value.is_number_integer() && !value.is_number_unsigned()) {
         return false;
       }
+      m_length = value.get<int32_t>();
     }
     return true;
   }

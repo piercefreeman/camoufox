@@ -27,25 +27,25 @@ class GeolocationProfile {
     }
     m_IsSet = true;
     if (json.contains("latitude") && !json.at("latitude").is_null()) {
-      try {
-        m_latitude = json.at("latitude").get<double>();
-      } catch (...) {
+      const auto& value = json.at("latitude");
+      if (!value.is_number()) {
         return false;
       }
+      m_latitude = value.get<double>();
     }
     if (json.contains("longitude") && !json.at("longitude").is_null()) {
-      try {
-        m_longitude = json.at("longitude").get<double>();
-      } catch (...) {
+      const auto& value = json.at("longitude");
+      if (!value.is_number()) {
         return false;
       }
+      m_longitude = value.get<double>();
     }
     if (json.contains("accuracy") && !json.at("accuracy").is_null()) {
-      try {
-        m_accuracy = json.at("accuracy").get<double>();
-      } catch (...) {
+      const auto& value = json.at("accuracy");
+      if (!value.is_number()) {
         return false;
       }
+      m_accuracy = value.get<double>();
     }
     return true;
   }

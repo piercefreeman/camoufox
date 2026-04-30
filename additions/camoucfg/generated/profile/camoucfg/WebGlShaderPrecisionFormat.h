@@ -27,25 +27,25 @@ class WebGlShaderPrecisionFormat {
     }
     m_IsSet = true;
     if (json.contains("rangeMin") && !json.at("rangeMin").is_null()) {
-      try {
-        m_rangeMin = json.at("rangeMin").get<int32_t>();
-      } catch (...) {
+      const auto& value = json.at("rangeMin");
+      if (!value.is_number_integer() && !value.is_number_unsigned()) {
         return false;
       }
+      m_rangeMin = value.get<int32_t>();
     }
     if (json.contains("rangeMax") && !json.at("rangeMax").is_null()) {
-      try {
-        m_rangeMax = json.at("rangeMax").get<int32_t>();
-      } catch (...) {
+      const auto& value = json.at("rangeMax");
+      if (!value.is_number_integer() && !value.is_number_unsigned()) {
         return false;
       }
+      m_rangeMax = value.get<int32_t>();
     }
     if (json.contains("precision") && !json.at("precision").is_null()) {
-      try {
-        m_precision = json.at("precision").get<int32_t>();
-      } catch (...) {
+      const auto& value = json.at("precision");
+      if (!value.is_number_integer() && !value.is_number_unsigned()) {
         return false;
       }
+      m_precision = value.get<int32_t>();
     }
     return true;
   }

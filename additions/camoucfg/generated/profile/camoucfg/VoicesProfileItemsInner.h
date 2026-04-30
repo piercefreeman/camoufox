@@ -27,39 +27,39 @@ class VoicesProfile_items_inner {
     }
     m_IsSet = true;
     if (json.contains("isLocalService") && !json.at("isLocalService").is_null()) {
-      try {
-        m_isLocalService = json.at("isLocalService").get<bool>();
-      } catch (...) {
+      const auto& value = json.at("isLocalService");
+      if (!value.is_boolean()) {
         return false;
       }
+      m_isLocalService = value.get<bool>();
     }
     if (json.contains("isDefault") && !json.at("isDefault").is_null()) {
-      try {
-        m_isDefault = json.at("isDefault").get<bool>();
-      } catch (...) {
+      const auto& value = json.at("isDefault");
+      if (!value.is_boolean()) {
         return false;
       }
+      m_isDefault = value.get<bool>();
     }
     if (json.contains("voiceUri") && !json.at("voiceUri").is_null()) {
-      try {
-        m_voiceUri = json.at("voiceUri").get<std::string>();
-      } catch (...) {
+      const auto& value = json.at("voiceUri");
+      if (!value.is_string()) {
         return false;
       }
+      m_voiceUri = value.get<std::string>();
     }
     if (json.contains("name") && !json.at("name").is_null()) {
-      try {
-        m_name = json.at("name").get<std::string>();
-      } catch (...) {
+      const auto& value = json.at("name");
+      if (!value.is_string()) {
         return false;
       }
+      m_name = value.get<std::string>();
     }
     if (json.contains("lang") && !json.at("lang").is_null()) {
-      try {
-        m_lang = json.at("lang").get<std::string>();
-      } catch (...) {
+      const auto& value = json.at("lang");
+      if (!value.is_string()) {
         return false;
       }
+      m_lang = value.get<std::string>();
     }
     return true;
   }

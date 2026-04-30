@@ -10,7 +10,7 @@ index bc0e123f85..52ec46f76b 100644
  
  #include "GeckoProfiler.h"
  #include "nsCRT.h"
-@@ -303,6 +304,16 @@ gfxPlatformFontList::gfxPlatformFontList(bool aNeedFullnamePostscriptNames)
+@@ -303,6 +304,19 @@ gfxPlatformFontList::gfxPlatformFontList(bool aNeedFullnamePostscriptNames)
  
    mFontPrefs = MakeUnique<FontPrefs>();
  
@@ -36,7 +36,7 @@ index 3d99906827..a9d1191688 100644
 +++ b/gfx/thebes/moz.build
 @@ -301,3 +301,6 @@ DEFINES["GRAPHITE2_STATIC"] = True
  CXXFLAGS += ["-Werror=switch"]
-
+ 
  include("/tools/fuzzing/libfuzzer-config.mozbuild")
 +
 +# DOM Mask
@@ -125,10 +125,10 @@ index 70c06609e9..66b2666621 100644
  #include "mozilla/dom/FontFaceBinding.h"
 +#include "MaskConfig.hpp"
  #include "nsTHashSet.h"
-
+ 
  class gfxFontFaceBufferSource;
-
-@@ -33,6 +34,20 @@
+ 
+@@ -33,6 +34,23 @@
  
  namespace mozilla::dom {
  

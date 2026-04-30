@@ -27,74 +27,74 @@ class ScreenProfile {
     }
     m_IsSet = true;
     if (json.contains("availHeight") && !json.at("availHeight").is_null()) {
-      try {
-        m_availHeight = json.at("availHeight").get<int32_t>();
-      } catch (...) {
+      const auto& value = json.at("availHeight");
+      if (!value.is_number_integer() && !value.is_number_unsigned()) {
         return false;
       }
+      m_availHeight = value.get<int32_t>();
     }
     if (json.contains("availWidth") && !json.at("availWidth").is_null()) {
-      try {
-        m_availWidth = json.at("availWidth").get<int32_t>();
-      } catch (...) {
+      const auto& value = json.at("availWidth");
+      if (!value.is_number_integer() && !value.is_number_unsigned()) {
         return false;
       }
+      m_availWidth = value.get<int32_t>();
     }
     if (json.contains("availTop") && !json.at("availTop").is_null()) {
-      try {
-        m_availTop = json.at("availTop").get<int32_t>();
-      } catch (...) {
+      const auto& value = json.at("availTop");
+      if (!value.is_number_integer() && !value.is_number_unsigned()) {
         return false;
       }
+      m_availTop = value.get<int32_t>();
     }
     if (json.contains("availLeft") && !json.at("availLeft").is_null()) {
-      try {
-        m_availLeft = json.at("availLeft").get<int32_t>();
-      } catch (...) {
+      const auto& value = json.at("availLeft");
+      if (!value.is_number_integer() && !value.is_number_unsigned()) {
         return false;
       }
+      m_availLeft = value.get<int32_t>();
     }
     if (json.contains("height") && !json.at("height").is_null()) {
-      try {
-        m_height = json.at("height").get<int32_t>();
-      } catch (...) {
+      const auto& value = json.at("height");
+      if (!value.is_number_integer() && !value.is_number_unsigned()) {
         return false;
       }
+      m_height = value.get<int32_t>();
     }
     if (json.contains("width") && !json.at("width").is_null()) {
-      try {
-        m_width = json.at("width").get<int32_t>();
-      } catch (...) {
+      const auto& value = json.at("width");
+      if (!value.is_number_integer() && !value.is_number_unsigned()) {
         return false;
       }
+      m_width = value.get<int32_t>();
     }
     if (json.contains("colorDepth") && !json.at("colorDepth").is_null()) {
-      try {
-        m_colorDepth = json.at("colorDepth").get<int32_t>();
-      } catch (...) {
+      const auto& value = json.at("colorDepth");
+      if (!value.is_number_integer() && !value.is_number_unsigned()) {
         return false;
       }
+      m_colorDepth = value.get<int32_t>();
     }
     if (json.contains("pixelDepth") && !json.at("pixelDepth").is_null()) {
-      try {
-        m_pixelDepth = json.at("pixelDepth").get<int32_t>();
-      } catch (...) {
+      const auto& value = json.at("pixelDepth");
+      if (!value.is_number_integer() && !value.is_number_unsigned()) {
         return false;
       }
+      m_pixelDepth = value.get<int32_t>();
     }
     if (json.contains("pageXOffset") && !json.at("pageXOffset").is_null()) {
-      try {
-        m_pageXOffset = json.at("pageXOffset").get<double>();
-      } catch (...) {
+      const auto& value = json.at("pageXOffset");
+      if (!value.is_number()) {
         return false;
       }
+      m_pageXOffset = value.get<double>();
     }
     if (json.contains("pageYOffset") && !json.at("pageYOffset").is_null()) {
-      try {
-        m_pageYOffset = json.at("pageYOffset").get<double>();
-      } catch (...) {
+      const auto& value = json.at("pageYOffset");
+      if (!value.is_number()) {
         return false;
       }
+      m_pageYOffset = value.get<double>();
     }
     return true;
   }

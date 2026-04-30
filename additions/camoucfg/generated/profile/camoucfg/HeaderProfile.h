@@ -27,25 +27,25 @@ class HeaderProfile {
     }
     m_IsSet = true;
     if (json.contains("User-Agent") && !json.at("User-Agent").is_null()) {
-      try {
-        m_userAgent = json.at("User-Agent").get<std::string>();
-      } catch (...) {
+      const auto& value = json.at("User-Agent");
+      if (!value.is_string()) {
         return false;
       }
+      m_userAgent = value.get<std::string>();
     }
     if (json.contains("Accept-Language") && !json.at("Accept-Language").is_null()) {
-      try {
-        m_acceptLanguage = json.at("Accept-Language").get<std::string>();
-      } catch (...) {
+      const auto& value = json.at("Accept-Language");
+      if (!value.is_string()) {
         return false;
       }
+      m_acceptLanguage = value.get<std::string>();
     }
     if (json.contains("Accept-Encoding") && !json.at("Accept-Encoding").is_null()) {
-      try {
-        m_acceptEncoding = json.at("Accept-Encoding").get<std::string>();
-      } catch (...) {
+      const auto& value = json.at("Accept-Encoding");
+      if (!value.is_string()) {
         return false;
       }
+      m_acceptEncoding = value.get<std::string>();
     }
     return true;
   }

@@ -27,11 +27,11 @@ class AudioProfile {
     }
     m_IsSet = true;
     if (json.contains("seed") && !json.at("seed").is_null()) {
-      try {
-        m_seed = json.at("seed").get<int32_t>();
-      } catch (...) {
+      const auto& value = json.at("seed");
+      if (!value.is_number_integer() && !value.is_number_unsigned()) {
         return false;
       }
+      m_seed = value.get<int32_t>();
     }
     return true;
   }

@@ -27,32 +27,32 @@ class DocumentBodyProfile {
     }
     m_IsSet = true;
     if (json.contains("clientWidth") && !json.at("clientWidth").is_null()) {
-      try {
-        m_clientWidth = json.at("clientWidth").get<int32_t>();
-      } catch (...) {
+      const auto& value = json.at("clientWidth");
+      if (!value.is_number_integer() && !value.is_number_unsigned()) {
         return false;
       }
+      m_clientWidth = value.get<int32_t>();
     }
     if (json.contains("clientHeight") && !json.at("clientHeight").is_null()) {
-      try {
-        m_clientHeight = json.at("clientHeight").get<int32_t>();
-      } catch (...) {
+      const auto& value = json.at("clientHeight");
+      if (!value.is_number_integer() && !value.is_number_unsigned()) {
         return false;
       }
+      m_clientHeight = value.get<int32_t>();
     }
     if (json.contains("clientTop") && !json.at("clientTop").is_null()) {
-      try {
-        m_clientTop = json.at("clientTop").get<int32_t>();
-      } catch (...) {
+      const auto& value = json.at("clientTop");
+      if (!value.is_number_integer() && !value.is_number_unsigned()) {
         return false;
       }
+      m_clientTop = value.get<int32_t>();
     }
     if (json.contains("clientLeft") && !json.at("clientLeft").is_null()) {
-      try {
-        m_clientLeft = json.at("clientLeft").get<int32_t>();
-      } catch (...) {
+      const auto& value = json.at("clientLeft");
+      if (!value.is_number_integer() && !value.is_number_unsigned()) {
         return false;
       }
+      m_clientLeft = value.get<int32_t>();
     }
     return true;
   }

@@ -27,32 +27,32 @@ class MediaDevicesProfile {
     }
     m_IsSet = true;
     if (json.contains("micros") && !json.at("micros").is_null()) {
-      try {
-        m_micros = json.at("micros").get<int32_t>();
-      } catch (...) {
+      const auto& value = json.at("micros");
+      if (!value.is_number_integer() && !value.is_number_unsigned()) {
         return false;
       }
+      m_micros = value.get<int32_t>();
     }
     if (json.contains("webcams") && !json.at("webcams").is_null()) {
-      try {
-        m_webcams = json.at("webcams").get<int32_t>();
-      } catch (...) {
+      const auto& value = json.at("webcams");
+      if (!value.is_number_integer() && !value.is_number_unsigned()) {
         return false;
       }
+      m_webcams = value.get<int32_t>();
     }
     if (json.contains("speakers") && !json.at("speakers").is_null()) {
-      try {
-        m_speakers = json.at("speakers").get<int32_t>();
-      } catch (...) {
+      const auto& value = json.at("speakers");
+      if (!value.is_number_integer() && !value.is_number_unsigned()) {
         return false;
       }
+      m_speakers = value.get<int32_t>();
     }
     if (json.contains("enabled") && !json.at("enabled").is_null()) {
-      try {
-        m_enabled = json.at("enabled").get<bool>();
-      } catch (...) {
+      const auto& value = json.at("enabled");
+      if (!value.is_boolean()) {
         return false;
       }
+      m_enabled = value.get<bool>();
     }
     return true;
   }

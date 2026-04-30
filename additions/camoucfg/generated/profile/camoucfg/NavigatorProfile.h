@@ -27,119 +27,119 @@ class NavigatorProfile {
     }
     m_IsSet = true;
     if (json.contains("userAgent") && !json.at("userAgent").is_null()) {
-      try {
-        m_userAgent = json.at("userAgent").get<std::string>();
-      } catch (...) {
+      const auto& value = json.at("userAgent");
+      if (!value.is_string()) {
         return false;
       }
+      m_userAgent = value.get<std::string>();
     }
     if (json.contains("doNotTrack") && !json.at("doNotTrack").is_null()) {
-      try {
-        m_doNotTrack = json.at("doNotTrack").get<std::string>();
-      } catch (...) {
+      const auto& value = json.at("doNotTrack");
+      if (!value.is_string()) {
         return false;
       }
+      m_doNotTrack = value.get<std::string>();
     }
     if (json.contains("appCodeName") && !json.at("appCodeName").is_null()) {
-      try {
-        m_appCodeName = json.at("appCodeName").get<std::string>();
-      } catch (...) {
+      const auto& value = json.at("appCodeName");
+      if (!value.is_string()) {
         return false;
       }
+      m_appCodeName = value.get<std::string>();
     }
     if (json.contains("appName") && !json.at("appName").is_null()) {
-      try {
-        m_appName = json.at("appName").get<std::string>();
-      } catch (...) {
+      const auto& value = json.at("appName");
+      if (!value.is_string()) {
         return false;
       }
+      m_appName = value.get<std::string>();
     }
     if (json.contains("appVersion") && !json.at("appVersion").is_null()) {
-      try {
-        m_appVersion = json.at("appVersion").get<std::string>();
-      } catch (...) {
+      const auto& value = json.at("appVersion");
+      if (!value.is_string()) {
         return false;
       }
+      m_appVersion = value.get<std::string>();
     }
     if (json.contains("oscpu") && !json.at("oscpu").is_null()) {
-      try {
-        m_oscpu = json.at("oscpu").get<std::string>();
-      } catch (...) {
+      const auto& value = json.at("oscpu");
+      if (!value.is_string()) {
         return false;
       }
+      m_oscpu = value.get<std::string>();
     }
     if (json.contains("language") && !json.at("language").is_null()) {
-      try {
-        m_language = json.at("language").get<std::string>();
-      } catch (...) {
+      const auto& value = json.at("language");
+      if (!value.is_string()) {
         return false;
       }
+      m_language = value.get<std::string>();
     }
     if (json.contains("languages") && !json.at("languages").is_null()) {
       m_languages = json.at("languages");
     }
     if (json.contains("platform") && !json.at("platform").is_null()) {
-      try {
-        m_platform = json.at("platform").get<std::string>();
-      } catch (...) {
+      const auto& value = json.at("platform");
+      if (!value.is_string()) {
         return false;
       }
+      m_platform = value.get<std::string>();
     }
     if (json.contains("hardwareConcurrency") && !json.at("hardwareConcurrency").is_null()) {
-      try {
-        m_hardwareConcurrency = json.at("hardwareConcurrency").get<int32_t>();
-      } catch (...) {
+      const auto& value = json.at("hardwareConcurrency");
+      if (!value.is_number_integer() && !value.is_number_unsigned()) {
         return false;
       }
+      m_hardwareConcurrency = value.get<int32_t>();
     }
     if (json.contains("product") && !json.at("product").is_null()) {
-      try {
-        m_product = json.at("product").get<std::string>();
-      } catch (...) {
+      const auto& value = json.at("product");
+      if (!value.is_string()) {
         return false;
       }
+      m_product = value.get<std::string>();
     }
     if (json.contains("productSub") && !json.at("productSub").is_null()) {
-      try {
-        m_productSub = json.at("productSub").get<std::string>();
-      } catch (...) {
+      const auto& value = json.at("productSub");
+      if (!value.is_string()) {
         return false;
       }
+      m_productSub = value.get<std::string>();
     }
     if (json.contains("maxTouchPoints") && !json.at("maxTouchPoints").is_null()) {
-      try {
-        m_maxTouchPoints = json.at("maxTouchPoints").get<int32_t>();
-      } catch (...) {
+      const auto& value = json.at("maxTouchPoints");
+      if (!value.is_number_integer() && !value.is_number_unsigned()) {
         return false;
       }
+      m_maxTouchPoints = value.get<int32_t>();
     }
     if (json.contains("cookieEnabled") && !json.at("cookieEnabled").is_null()) {
-      try {
-        m_cookieEnabled = json.at("cookieEnabled").get<bool>();
-      } catch (...) {
+      const auto& value = json.at("cookieEnabled");
+      if (!value.is_boolean()) {
         return false;
       }
+      m_cookieEnabled = value.get<bool>();
     }
     if (json.contains("globalPrivacyControl") && !json.at("globalPrivacyControl").is_null()) {
-      try {
-        m_globalPrivacyControl = json.at("globalPrivacyControl").get<bool>();
-      } catch (...) {
+      const auto& value = json.at("globalPrivacyControl");
+      if (!value.is_boolean()) {
         return false;
       }
+      m_globalPrivacyControl = value.get<bool>();
     }
     if (json.contains("buildID") && !json.at("buildID").is_null()) {
-      try {
-        m_buildID = json.at("buildID").get<std::string>();
-      } catch (...) {
+      const auto& value = json.at("buildID");
+      if (!value.is_string()) {
         return false;
       }
+      m_buildID = value.get<std::string>();
     }
     if (json.contains("onLine") && !json.at("onLine").is_null()) {
-      try {
-        m_onLine = json.at("onLine").get<bool>();
-      } catch (...) {
+      const auto& value = json.at("onLine");
+      if (!value.is_boolean()) {
         return false;
       }
+      m_onLine = value.get<bool>();
     }
     return true;
   }

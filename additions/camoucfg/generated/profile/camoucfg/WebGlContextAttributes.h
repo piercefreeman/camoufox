@@ -27,60 +27,60 @@ class WebGlContextAttributes {
     }
     m_IsSet = true;
     if (json.contains("alpha") && !json.at("alpha").is_null()) {
-      try {
-        m_alpha = json.at("alpha").get<bool>();
-      } catch (...) {
+      const auto& value = json.at("alpha");
+      if (!value.is_boolean()) {
         return false;
       }
+      m_alpha = value.get<bool>();
     }
     if (json.contains("antialias") && !json.at("antialias").is_null()) {
-      try {
-        m_antialias = json.at("antialias").get<bool>();
-      } catch (...) {
+      const auto& value = json.at("antialias");
+      if (!value.is_boolean()) {
         return false;
       }
+      m_antialias = value.get<bool>();
     }
     if (json.contains("depth") && !json.at("depth").is_null()) {
-      try {
-        m_depth = json.at("depth").get<bool>();
-      } catch (...) {
+      const auto& value = json.at("depth");
+      if (!value.is_boolean()) {
         return false;
       }
+      m_depth = value.get<bool>();
     }
     if (json.contains("failIfMajorPerformanceCaveat") && !json.at("failIfMajorPerformanceCaveat").is_null()) {
-      try {
-        m_failIfMajorPerformanceCaveat = json.at("failIfMajorPerformanceCaveat").get<bool>();
-      } catch (...) {
+      const auto& value = json.at("failIfMajorPerformanceCaveat");
+      if (!value.is_boolean()) {
         return false;
       }
+      m_failIfMajorPerformanceCaveat = value.get<bool>();
     }
     if (json.contains("powerPreference") && !json.at("powerPreference").is_null()) {
-      try {
-        m_powerPreference = json.at("powerPreference").get<std::string>();
-      } catch (...) {
+      const auto& value = json.at("powerPreference");
+      if (!value.is_string()) {
         return false;
       }
+      m_powerPreference = value.get<std::string>();
     }
     if (json.contains("premultipliedAlpha") && !json.at("premultipliedAlpha").is_null()) {
-      try {
-        m_premultipliedAlpha = json.at("premultipliedAlpha").get<bool>();
-      } catch (...) {
+      const auto& value = json.at("premultipliedAlpha");
+      if (!value.is_boolean()) {
         return false;
       }
+      m_premultipliedAlpha = value.get<bool>();
     }
     if (json.contains("preserveDrawingBuffer") && !json.at("preserveDrawingBuffer").is_null()) {
-      try {
-        m_preserveDrawingBuffer = json.at("preserveDrawingBuffer").get<bool>();
-      } catch (...) {
+      const auto& value = json.at("preserveDrawingBuffer");
+      if (!value.is_boolean()) {
         return false;
       }
+      m_preserveDrawingBuffer = value.get<bool>();
     }
     if (json.contains("stencil") && !json.at("stencil").is_null()) {
-      try {
-        m_stencil = json.at("stencil").get<bool>();
-      } catch (...) {
+      const auto& value = json.at("stencil");
+      if (!value.is_boolean()) {
         return false;
       }
+      m_stencil = value.get<bool>();
     }
     return true;
   }
