@@ -1,0 +1,128 @@
+diff --git a/build/moz.configure/toolchain.configure b/build/moz.configure/toolchain.configure
+index 000000000000..000000000000 100644
+--- a/build/moz.configure/toolchain.configure
++++ b/build/moz.configure/toolchain.configure
+@@ -228,6 +228,12 @@ with only_when(host_is_osx | target_is_osx):
+     def mac_sdk_min_version():
+         return "26.1"
+ 
++    def mac_sdk_bootstrap_version():
++        # Keep the bootstrapped SDK metadata in sync with Firefox main:
++        # https://searchfox.org/firefox-main/source/taskcluster/kinds/toolchain/macos-sdk.yml
++        # Do not raise mac_sdk_min_version here; local Xcode 26.2 SDKs remain valid for Firefox 146.
++        return "26.4"
++
+     @depends(
+         "--with-macos-sdk",
+         host,
+@@ -235,7 +241,7 @@ with only_when(host_is_osx | target_is_osx):
+-            "MacOSX{}.sdk".format(mac_sdk_min_version()),
++            "MacOSX{}.sdk".format(mac_sdk_bootstrap_version()),
+             when=depends("--with-macos-sdk")(lambda x: not x),
+             allow_failure=True,
+         ),
+diff --git a/taskcluster/kinds/openh264-plugin/kind.yml b/taskcluster/kinds/openh264-plugin/kind.yml
+index 000000000000..000000000000 100644
+--- a/taskcluster/kinds/openh264-plugin/kind.yml
++++ b/taskcluster/kinds/openh264-plugin/kind.yml
+@@ -120,7 +120,7 @@ tasks:
+                 - linux64-clang
+                 - linux64-dump_syms
+                 - linux64-nasm
+-                - macosx64-sdk-26.1
++                - macosx64-sdk-26.4
+     macosx64-aarch64/opt:
+         attributes:
+             build_platform: macosx64-aarch64
+@@ -144,7 +144,7 @@ tasks:
+                 - linux64-clang
+                 - linux64-dump_syms
+                 - linux64-nasm
+-                - macosx64-sdk-26.1
++                - macosx64-sdk-26.4
+     win32/opt:
+         attributes:
+             build_platform: win32
+diff --git a/taskcluster/kinds/toolchain/macos-sdk.yml b/taskcluster/kinds/toolchain/macos-sdk.yml
+index 000000000000..000000000000 100644
+--- a/taskcluster/kinds/toolchain/macos-sdk.yml
++++ b/taskcluster/kinds/toolchain/macos-sdk.yml
+@@ -25,30 +25,33 @@ macosx64-sdk-13.3:
+             - Library/Developer/CommandLineTools/SDKs/MacOSX13.3.sdk
+         toolchain-artifact: project/gecko/mac-sdk/MacOSX13.3.sdk.tar.zst
+ 
+-macosx64-sdk-26.1:
+-    description: "macOS 26.1 SDK"
++# Keep this entry in sync with Firefox main when Apple's CLTools links expire:
++# https://searchfox.org/firefox-main/source/taskcluster/kinds/toolchain/macos-sdk.yml
++macosx64-sdk-26.4:
++    description: "macOS 26.4 SDK"
+     treeherder:
+-        symbol: TM(sdk26.1)
++        symbol: TM(sdk26.4)
+     run:
+         arguments:
+-            - https://swcdn.apple.com/content/downloads/22/09/093-00219-A_WIA1LP39TY/evbam2mb02xqr05ju9ddb95y8qil8kz9tm/CLTools_macOSNMOS_SDK.pkg
+-            - f6a5f44b3652f5abdf7ad2602f54ad38774404f45264a4e70cfccc58b8b39aed2a89f74ef22c44bf932d0a55b062ebc3651f73fa06ff755ee5da53b9dcc62fba
+-            - Library/Developer/CommandLineTools/SDKs/MacOSX26.1.sdk
+-        toolchain-artifact: project/gecko/mac-sdk/MacOSX26.1.sdk.tar.zst
++            - https://web.archive.org/web/20260406133131/https://swcdn.apple.com/content/downloads/32/53/047-96692-A_OAHIHT53YB/ybtshxmrcju8m2qvw3w5elr4rajtg1x3y3/CLTools_macOSNMOS_SDK.pkg
++            - 8c0571820cbf6eb977610a08922a2158ff3ed86389d4faa7eba34288f467047c6bacccc23aa6991f0d18450e393dd56cf581b08010fac45254db2c649610e9fc
++            - Library/Developer/CommandLineTools/SDKs/MacOSX26.4.sdk
++        toolchain-artifact: project/gecko/mac-sdk/MacOSX26.4.sdk.tar.zst
+         toolchain-alias:
+             - macosx64-sdk
+             - macosx64-sdk-toolchain
+-            - MacOSX26.1.sdk
++            - MacOSX26.4.sdk
+ 
+ ios-sdk-18.4:
+     description: "iPhoneOS18.4 SDK"
+diff --git a/taskcluster/kinds/toolchain/misc.yml b/taskcluster/kinds/toolchain/misc.yml
+index 000000000000..000000000000 100644
+--- a/taskcluster/kinds/toolchain/misc.yml
++++ b/taskcluster/kinds/toolchain/misc.yml
+@@ -251,7 +251,7 @@ macosx-custom-car:
+         toolchain-artifact: public/build/car_macosx.tar.zst
+     fetches:
+         toolchain:
+-            - MacOSX26.1.sdk
++            - MacOSX26.4.sdk
+ 
+ macosx-arm64-custom-car:
+     description: "Custom chromium-as-release build for mac (apple silicon)"
+@@ -287,7 +287,7 @@ macosx-arm64-custom-car:
+         toolchain-artifact: public/build/car_macosx_arm.tar.zst
+     fetches:
+         toolchain:
+-            - MacOSX26.1.sdk
++            - MacOSX26.4.sdk
+ 
+ android-custom-car:
+     description: "Custom chromium-as-release build for Android"
+diff --git a/taskcluster/scripts/misc/build-cpython.sh b/taskcluster/scripts/misc/build-cpython.sh
+index 000000000000..000000000000 100755
+--- a/taskcluster/scripts/misc/build-cpython.sh
++++ b/taskcluster/scripts/misc/build-cpython.sh
+@@ -32,7 +32,7 @@ case `uname -s` in
+         # NOTE: both CFLAGS and CPPFLAGS need to be set here, otherwise
+         # configure step fails.
+-        sysroot_flags="-isysroot ${MOZ_FETCHES_DIR}/MacOSX26.1.sdk -mmacosx-version-min=${macosx_version_min}"
++        sysroot_flags="-isysroot ${MOZ_FETCHES_DIR}/MacOSX26.4.sdk -mmacosx-version-min=${macosx_version_min}"
+         export CPPFLAGS="${sysroot_flags} -I${xz_prefix}/include"
+         export CFLAGS=${sysroot_flags}
+         export LDFLAGS="${LDFLAGS} ${sysroot_flags} -L${xz_prefix}/lib"
+diff --git a/taskcluster/scripts/misc/build-custom-car.sh b/taskcluster/scripts/misc/build-custom-car.sh
+index 000000000000..000000000000 100755
+--- a/taskcluster/scripts/misc/build-custom-car.sh
++++ b/taskcluster/scripts/misc/build-custom-car.sh
+@@ -55,7 +55,7 @@ fi
+ 
+ # Logic for macosx64
+ if [[ $(uname -s) == "Darwin" ]]; then
+   # Modify the config with fetched sdk path
+-  export MACOS_SYSROOT="$MOZ_FETCHES_DIR/MacOSX26.1.sdk"
++  export MACOS_SYSROOT="$MOZ_FETCHES_DIR/MacOSX26.4.sdk"
+   # Bug 1990712 & 1989676
+   # HACK: Create a stub DarwinBasic.modulemap to satisfy Ninja’s dependency graph.
+   # This file does not exist in Command Line Tools SDKs. It seems only the full
