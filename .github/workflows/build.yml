@@ -87,17 +87,34 @@ jobs:
         if: matrix.target == 'linux'
         # Originally from here: https://github.com/AdityaGarg8/remove-unwanted-software/blob/master/action.yml
         run: |
-          sudo apt-get remove -y '^aspnetcore-.*' > /dev/null
-          sudo apt-get remove -y '^dotnet-.*' > /dev/null
-          sudo apt-get remove -y '^llvm-.*' > /dev/null
-          sudo apt-get remove -y 'php.*' > /dev/null
-          sudo apt-get remove -y '^mongodb-.*' > /dev/null
-          sudo apt-get remove -y '^mysql-.*' > /dev/null
-          sudo apt-get remove -y azure-cli google-chrome-stable firefox ${POWERSHELL} mono-devel libgl1-mesa-dri --fix-missing > /dev/null
-          if [[ (${CODENAME} = focal) || (${CODENAME} = jammy) ]]; then
-            sudo apt-get remove -y google-cloud-sdk --fix-missing > /dev/null
-            sudo apt-get remove -y google-cloud-cli --fix-missing > /dev/null
+          set -euo pipefail
+
+          mapfile -t packages < <(
+            {
+              dpkg-query -W -f='${binary:Package}\n' 2>/dev/null \
+                | grep -E '^(aspnetcore-.*|dotnet-.*|llvm-.*|php.*|mongodb-.*|mysql-.*)$' || true
+
+              for pkg in \
+                azure-cli \
+                firefox \
+                google-chrome-stable \
+                google-cloud-cli \
+                google-cloud-sdk \
+                libgl1-mesa-dri \
+                mono-devel \
+                "${POWERSHELL:-}"
+              do
+                if [[ -n "$pkg" ]] && dpkg-query -W -f='${Status}\n' "$pkg" 2>/dev/null | grep -q '^install ok installed$'; then
+                  printf '%s\n' "$pkg"
+                fi
+              done
+            } | sort -u
+          )
+
+          if [[ ${#packages[@]} -gt 0 ]]; then
+            sudo apt-get remove -y "${packages[@]}" > /dev/null
           fi
+
           sudo apt-get autoremove -y > /dev/null
           sudo apt-get clean > /dev/null
 
