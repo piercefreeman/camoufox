@@ -51,7 +51,9 @@ def after_each_hook(server: Server) -> Generator[None, None, None]:
 async def test_should_report_downloads_with_accept_downloads_false(
     page: Page, server: Server
 ) -> None:
-    await page.set_content(f'<a href="{server.PREFIX}/downloadWithFilename">download</a>')
+    await page.set_content(
+        f'<a href="{server.PREFIX}/downloadWithFilename">download</a>'
+    )
     async with page.expect_download() as download_info:
         await page.click("a")
     download = await download_info.value
@@ -81,14 +83,14 @@ async def test_should_report_downloads_with_accept_downloads_true(
 
 
 async def test_should_save_to_user_specified_path(
-    tmpdir: Path, browser: Browser, server: Server
+    tmp_path: Path, browser: Browser, server: Server
 ) -> None:
     page = await browser.new_page(accept_downloads=True)
     await page.set_content(f'<a href="{server.PREFIX}/download">download</a>')
     async with page.expect_download() as download_info:
         await page.click("a")
     download = await download_info.value
-    user_path = tmpdir / "download.txt"
+    user_path = tmp_path / "download.txt"
     await download.save_as(user_path)
     assert user_path.exists()
     assert user_path.read_text("utf-8") == "Hello world"
@@ -96,14 +98,14 @@ async def test_should_save_to_user_specified_path(
 
 
 async def test_should_save_to_user_specified_path_without_updating_original_path(
-    tmpdir: Path, browser: Browser, server: Server
+    tmp_path: Path, browser: Browser, server: Server
 ) -> None:
     page = await browser.new_page(accept_downloads=True)
     await page.set_content(f'<a href="{server.PREFIX}/download">download</a>')
     async with page.expect_download() as download_info:
         await page.click("a")
     download = await download_info.value
-    user_path = tmpdir / "download.txt"
+    user_path = tmp_path / "download.txt"
     await download.save_as(user_path)
     assert user_path.exists()
     assert user_path.read_text("utf-8") == "Hello world"
@@ -115,19 +117,19 @@ async def test_should_save_to_user_specified_path_without_updating_original_path
 
 
 async def test_should_save_to_two_different_paths_with_multiple_save_as_calls(
-    tmpdir: Path, browser: Browser, server: Server
+    tmp_path: Path, browser: Browser, server: Server
 ) -> None:
     page = await browser.new_page(accept_downloads=True)
     await page.set_content(f'<a href="{server.PREFIX}/download">download</a>')
     async with page.expect_download() as download_info:
         await page.click("a")
     download = await download_info.value
-    user_path = tmpdir / "download.txt"
+    user_path = tmp_path / "download.txt"
     await download.save_as(user_path)
     assert user_path.exists()
     assert user_path.read_text("utf-8") == "Hello world"
 
-    anotheruser_path = tmpdir / "download (2).txt"
+    anotheruser_path = tmp_path / "download (2).txt"
     await download.save_as(anotheruser_path)
     assert anotheruser_path.exists()
     assert anotheruser_path.read_text("utf-8") == "Hello world"
@@ -135,32 +137,32 @@ async def test_should_save_to_two_different_paths_with_multiple_save_as_calls(
 
 
 async def test_should_save_to_overwritten_filepath(
-    tmpdir: Path, browser: Browser, server: Server
+    tmp_path: Path, browser: Browser, server: Server
 ) -> None:
     page = await browser.new_page(accept_downloads=True)
     await page.set_content(f'<a href="{server.PREFIX}/download">download</a>')
     async with page.expect_download() as download_info:
         await page.click("a")
     download = await download_info.value
-    user_path = tmpdir / "download.txt"
+    user_path = tmp_path / "download.txt"
     await download.save_as(user_path)
-    assert len(list(Path(tmpdir).glob("*.*"))) == 1
+    assert len(list(tmp_path.glob("*.*"))) == 1
     await download.save_as(user_path)
-    assert len(list(Path(tmpdir).glob("*.*"))) == 1
+    assert len(list(tmp_path.glob("*.*"))) == 1
     assert user_path.exists()
     assert user_path.read_text("utf-8") == "Hello world"
     await page.close()
 
 
 async def test_should_create_subdirectories_when_saving_to_non_existent_user_specified_path(
-    tmpdir: Path, browser: Browser, server: Server
+    tmp_path: Path, browser: Browser, server: Server
 ) -> None:
     page = await browser.new_page(accept_downloads=True)
     await page.set_content(f'<a href="{server.PREFIX}/download">download</a>')
     async with page.expect_download() as download_info:
         await page.click("a")
     download = await download_info.value
-    nested_path = tmpdir / "these" / "are" / "directories" / "download.txt"
+    nested_path = tmp_path / "these" / "are" / "directories" / "download.txt"
     await download.save_as(nested_path)
     assert nested_path.exists()
     assert nested_path.read_text("utf-8") == "Hello world"
@@ -168,14 +170,14 @@ async def test_should_create_subdirectories_when_saving_to_non_existent_user_spe
 
 
 async def test_should_error_when_saving_with_downloads_disabled(
-    tmpdir: Path, browser: Browser, server: Server
+    tmp_path: Path, browser: Browser, server: Server
 ) -> None:
     page = await browser.new_page(accept_downloads=False)
     await page.set_content(f'<a href="{server.PREFIX}/download">download</a>')
     async with page.expect_download() as download_info:
         await page.click("a")
     download = await download_info.value
-    user_path = tmpdir / "download.txt"
+    user_path = tmp_path / "download.txt"
     with pytest.raises(Error) as exc:
         await download.save_as(user_path)
     assert (
@@ -190,14 +192,14 @@ async def test_should_error_when_saving_with_downloads_disabled(
 
 
 async def test_should_error_when_saving_after_deletion(
-    tmpdir: Path, browser: Browser, server: Server
+    tmp_path: Path, browser: Browser, server: Server
 ) -> None:
     page = await browser.new_page(accept_downloads=True)
     await page.set_content(f'<a href="{server.PREFIX}/download">download</a>')
     async with page.expect_download() as download_info:
         await page.click("a")
     download = await download_info.value
-    user_path = tmpdir / "download.txt"
+    user_path = tmp_path / "download.txt"
     await download.delete()
     with pytest.raises(Error) as exc:
         await download.save_as(user_path)
@@ -205,7 +207,9 @@ async def test_should_error_when_saving_after_deletion(
     await page.close()
 
 
-async def test_should_report_non_navigation_downloads(browser: Browser, server: Server) -> None:
+async def test_should_report_non_navigation_downloads(
+    browser: Browser, server: Server
+) -> None:
     # Mac WebKit embedder does not download in this case, although Safari does.
     def handle_download(request: TestServerRequest) -> None:
         request.setHeader("Content-Type", "application/octet-stream")
@@ -216,7 +220,9 @@ async def test_should_report_non_navigation_downloads(browser: Browser, server: 
 
     page = await browser.new_page(accept_downloads=True)
     await page.goto(server.EMPTY_PAGE)
-    await page.set_content(f'<a download="file.txt" href="{server.PREFIX}/download">download</a>')
+    await page.set_content(
+        f'<a download="file.txt" href="{server.PREFIX}/download">download</a>'
+    )
     async with page.expect_download() as download_info:
         await page.click("a")
     download = await download_info.value
@@ -269,7 +275,9 @@ async def test_download_report_download_path_within_page_on_handle_for_blobs(
 
 
 @pytest.mark.only_browser("chromium")
-async def test_should_report_alt_click_downloads(browser: Browser, server: Server) -> None:
+async def test_should_report_alt_click_downloads(
+    browser: Browser, server: Server
+) -> None:
     # Firefox does not download on alt-click by default.
     # Our WebKit embedder does not download on alt-click, although Safari does.
     def handle_download(request: TestServerRequest) -> None:
@@ -291,9 +299,13 @@ async def test_should_report_alt_click_downloads(browser: Browser, server: Serve
     await page.close()
 
 
-async def test_should_report_new_window_downloads(browser: Browser, server: Server) -> None:
+async def test_should_report_new_window_downloads(
+    browser: Browser, server: Server
+) -> None:
     page = await browser.new_page(accept_downloads=True)
-    await page.set_content(f'<a target=_blank href="{server.PREFIX}/download">download</a>')
+    await page.set_content(
+        f'<a target=_blank href="{server.PREFIX}/download">download</a>'
+    )
     async with page.expect_download() as download_info:
         await page.click("a")
     download = await download_info.value

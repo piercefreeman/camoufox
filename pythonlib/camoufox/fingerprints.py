@@ -187,6 +187,21 @@ _COMMON_MACOS_SCREEN_SIZES: tuple[tuple[int, int], ...] = (
 )
 
 _MACOS_MARKER_FONTS = ("Helvetica Neue", "PingFang HK", "PingFang SC", "PingFang TC")
+_FOREIGN_OS_MARKER_FONTS = {
+    "Arimo",
+    "Cambria Math",
+    "Cantarell",
+    "Cousine",
+    "DejaVu Sans",
+    "HoloLens MDL2 Assets",
+    "Leelawadee UI",
+    "Liberation Sans",
+    "Nirmala UI",
+    "Noto Color Emoji",
+    "Segoe Fluent Icons",
+    "Segoe UI",
+    "Ubuntu",
+}
 
 
 @dataclass(frozen=True)
@@ -246,7 +261,10 @@ class _MacOSHostProfile:
 
     def sample_fonts(self) -> list[str]:
         fonts = list(self.bundled_fonts)
-        fonts.extend(_sample_extras(self.extra_fonts))
+        filtered_extras = [
+            family for family in self.extra_fonts if family not in _FOREIGN_OS_MARKER_FONTS
+        ]
+        fonts.extend(_sample_extras(filtered_extras))
         for marker in _MACOS_MARKER_FONTS:
             if marker in self.bundled_fonts and marker not in fonts:
                 fonts.append(marker)
@@ -399,6 +417,9 @@ class _FirefoxFingerprintCompiler:
             "canvasSeed": config.canvas.seed if config.canvas else None,
             "fontList": config.fonts.families if config.fonts else None,
             "fontSpacingSeed": config.fonts.spacing_seed if config.fonts else None,
+            "hardwareConcurrency": (
+                config.navigator.hardware_concurrency if config.navigator else None
+            ),
             "navigatorOscpu": config.navigator.oscpu if config.navigator else None,
             "navigatorPlatform": config.navigator.platform if config.navigator else None,
             "navigatorUserAgent": config.navigator.user_agent if config.navigator else None,
@@ -408,6 +429,8 @@ class _FirefoxFingerprintCompiler:
             "speechVoices": config.voices.items if config.voices else None,
             "timezone": config.timezone,
             "webrtcIP": webrtc_ip or "",
+            "webglRenderer": config.web_gl.renderer if config.web_gl else None,
+            "webglVendor": config.web_gl.vendor if config.web_gl else None,
         }
 
         lines = ["(function() {", "  var w = window;"]
@@ -417,7 +440,10 @@ class _FirefoxFingerprintCompiler:
             ("canvasSeed", "setCanvasSeed"),
             ("navigatorPlatform", "setNavigatorPlatform"),
             ("navigatorOscpu", "setNavigatorOscpu"),
+            ("hardwareConcurrency", "setNavigatorHardwareConcurrency"),
             ("navigatorUserAgent", "setNavigatorUserAgent"),
+            ("webglVendor", "setWebGLVendor"),
+            ("webglRenderer", "setWebGLRenderer"),
         ):
             value = values.get(key)
             if value is not None:
@@ -463,6 +489,27 @@ class _FirefoxFingerprintCompiler:
             lines.append(
                 "  if (typeof w.setSpeechVoices === \"function\") "
                 f"w.setSpeechVoices({json.dumps(','.join(voice_names))});"
+            )
+
+        for setter in (
+            "setFontSpacingSeed",
+            "setAudioFingerprintSeed",
+            "setCanvasSeed",
+            "setTimezone",
+            "setScreenDimensions",
+            "setScreenColorDepth",
+            "setNavigatorPlatform",
+            "setNavigatorOscpu",
+            "setNavigatorHardwareConcurrency",
+            "setNavigatorUserAgent",
+            "setWebGLVendor",
+            "setWebGLRenderer",
+            "setFontList",
+            "setSpeechVoices",
+            "setWebRTCIPv4",
+        ):
+            lines.append(
+                f'  try {{ w.{setter} = undefined; delete w.{setter}; }} catch (e) {{}}'
             )
 
         lines.append("})();")

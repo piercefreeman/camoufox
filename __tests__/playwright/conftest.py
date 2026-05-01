@@ -19,8 +19,9 @@ import json
 import os
 import subprocess
 import sys
+from _pytest.terminal import TerminalReporter
 from pathlib import Path
-from typing import Any, AsyncGenerator, Callable, Dict, Generator, List, Optional, cast
+from typing import Any, Callable, Dict, Generator, List, Optional, cast
 
 import playwright
 import playwright._impl._path_utils
@@ -43,7 +44,7 @@ original_get_file_dirname = playwright._impl._path_utils.get_file_dirname
 
 
 @pytest.hookimpl(tryfirst=True)
-def pytest_configure(config):
+def pytest_configure(config: pytest.Config) -> None:
     def patched_get_file_dirname():
         return _dirname
 
@@ -51,7 +52,7 @@ def pytest_configure(config):
 
 
 @pytest.hookimpl(trylast=True)
-def pytest_unconfigure(config):
+def pytest_unconfigure(config: pytest.Config) -> None:
     playwright._impl._path_utils.get_file_dirname = original_get_file_dirname
 
 
@@ -80,9 +81,13 @@ Playwright fixtures.
 
 @pytest.fixture(scope="session")
 def event_loop() -> Generator[asyncio.AbstractEventLoop, None, None]:
-    loop = asyncio.get_event_loop()
-    yield loop
-    loop.close()
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    try:
+        yield loop
+    finally:
+        loop.close()
+        asyncio.set_event_loop(None)
 
 
 @pytest.fixture(scope="session")
@@ -92,15 +97,28 @@ def assetdir() -> Path:
 
 @pytest.fixture(scope="session")
 def headless(pytestconfig: pytest.Config) -> bool:
-    return pytestconfig.getoption("--headless") or os.getenv("HEADLESS", False)
+    if pytestconfig.getoption("--headed"):
+        return False
+
+    if pytestconfig.getoption("--headless"):
+        return True
+
+    env_value = os.getenv("HEADLESS", "")
+    if isinstance(env_value, str):
+        return env_value.strip().lower() in {"1", "true", "yes", "on"}
+
+    headful_env = os.getenv("HEADFUL", "")
+    if isinstance(headful_env, str) and headful_env.strip().lower() in {"1", "true", "yes", "on"}:
+        return False
+
+    return bool(env_value)
 
 
 @pytest.fixture(scope="session")
 def launch_arguments(pytestconfig: pytest.Config, headless: bool) -> Dict:
-    args = {
-        "headless": headless,
-        "channel": pytestconfig.getoption("--browser-channel"),
-    }
+    args: Dict = {"headless": headless}
+    if pytestconfig.getoption("--browser-channel"):
+        args["channel"] = pytestconfig.getoption("--browser-channel")
     executable_path = os.getenv("CAMOUFOX_EXECUTABLE_PATH", None)
     if executable_path:
         args["executable_path"] = os.path.abspath(executable_path)
@@ -118,7 +136,7 @@ def https_server() -> Generator[Server, None, None]:
 
 
 @pytest.fixture(autouse=True, scope="session")
-async def start_server() -> AsyncGenerator[None, None]:
+def start_server() -> Generator[None, None, None]:
     test_server.start()
     yield
     test_server.stop()
@@ -139,6 +157,14 @@ def browser_name(pytestconfig: pytest.Config) -> str:
 @pytest.fixture(scope="session")
 def browser_channel(pytestconfig: pytest.Config) -> Optional[str]:
     return cast(Optional[str], pytestconfig.getoption("--browser-channel"))
+
+
+@pytest.fixture(scope="session")
+def is_headless_shell(browser_name: str, browser_channel: Optional[str], headless: bool) -> bool:
+    return browser_name == "chromium" and (
+        browser_channel == "chromium-headless-shell"
+        or (not browser_channel and headless)
+    )
 
 
 @pytest.fixture(scope="session")
@@ -176,7 +202,9 @@ Helper to skip tests by browser or platform.
 """
 
 
-def _get_skiplist(request: pytest.FixtureRequest, values: List[str], value_name: str) -> List[str]:
+def _get_skiplist(
+    request: pytest.FixtureRequest, values: List[str], value_name: str
+) -> List[str]:
     skipped_values = []
     # Allowlist
     only_marker = request.node.get_closest_marker(f"only_{value_name}")
@@ -194,7 +222,9 @@ def _get_skiplist(request: pytest.FixtureRequest, values: List[str], value_name:
 
 @pytest.fixture(autouse=True)
 def skip_by_browser(request: pytest.FixtureRequest, browser_name: str) -> None:
-    skip_browsers_names = _get_skiplist(request, ["chromium", "firefox", "webkit"], "browser")
+    skip_browsers_names = _get_skiplist(
+        request, ["chromium", "firefox", "webkit"], "browser"
+    )
 
     if browser_name in skip_browsers_names:
         pytest.skip(f"skipped for this browser: {browser_name}")
@@ -202,7 +232,9 @@ def skip_by_browser(request: pytest.FixtureRequest, browser_name: str) -> None:
 
 @pytest.fixture(autouse=True)
 def skip_by_platform(request: pytest.FixtureRequest) -> None:
-    skip_platform_names = _get_skiplist(request, ["win32", "linux", "darwin"], "platform")
+    skip_platform_names = _get_skiplist(
+        request, ["win32", "linux", "darwin"], "platform"
+    )
 
     if sys.platform in skip_platform_names:
         pytest.skip(f"skipped on this platform: {sys.platform}")
@@ -215,6 +247,12 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         action="store_true",
         default=False,
         help="Run tests in headless mode.",
+    )
+    parser.addoption(
+        "--headed",
+        action="store_true",
+        default=False,
+        help="Run tests in headed mode.",
     )
     group.addoption(
         "--browser-channel",
@@ -255,14 +293,21 @@ def assert_to_be_golden(browser_name: str) -> Callable[[bytes, str], None]:
 
 
 class RemoteServer:
-    def __init__(self, browser_name: str, launch_server_options: Dict, tmpfile: Path) -> None:
+    def __init__(
+        self, browser_name: str, launch_server_options: Dict, tmpfile: Path
+    ) -> None:
         driver_dir = Path(inspect.getfile(playwright)).parent / "driver"
         if sys.platform == "win32":
             node_executable = driver_dir / "node.exe"
         else:
             node_executable = driver_dir / "node"
         cli_js = driver_dir / "package" / "cli.js"
-        tmpfile.write_text(json.dumps(launch_server_options))
+        node_launch_server_options = dict(launch_server_options)
+        if "executable_path" in node_launch_server_options:
+            node_launch_server_options["executablePath"] = node_launch_server_options.pop(
+                "executable_path"
+            )
+        tmpfile.write_text(json.dumps(node_launch_server_options))
         self.process = subprocess.Popen(
             [
                 str(node_executable),
@@ -289,6 +334,25 @@ class RemoteServer:
         self.process.wait()
 
 
+_failed_node_ids: List[str] = []
+
+
+def pytest_runtest_logreport(report: pytest.TestReport) -> None:
+    if report.failed and report.when in ("setup", "call"):
+        if report.nodeid not in _failed_node_ids:
+            _failed_node_ids.append(report.nodeid)
+
+
+def pytest_terminal_summary(
+    terminalreporter: TerminalReporter, exitstatus: int, config: pytest.Config
+) -> None:
+    if not _failed_node_ids:
+        return
+    terminalreporter.write_sep("=", "Failed tests", red=True, bold=True)
+    for index, nodeid in enumerate(_failed_node_ids, 1):
+        terminalreporter.write_line(f"  {index}) {nodeid}", red=True)
+
+
 @pytest.fixture
 def launch_server(
     browser_name: str, launch_arguments: Dict, tmp_path: Path
@@ -310,5 +374,4 @@ def launch_server(
     yield _launch_server
 
     for remote in remotes:
-        remote.kill()
         remote.kill()

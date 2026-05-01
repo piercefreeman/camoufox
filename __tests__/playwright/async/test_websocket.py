@@ -16,7 +16,6 @@ import asyncio
 from typing import Union
 
 import pytest
-from flaky import flaky
 
 from playwright.async_api import Error, Page, WebSocket
 from tests.server import Server, WebSocketProtocol
@@ -151,8 +150,9 @@ async def test_should_emit_binary_frame_events(page: Page, server: Server) -> No
     assert received == ["incoming", b"\x04\x02"]
 
 
-@flaky
-async def test_should_reject_wait_for_event_on_close_and_error(page: Page, server: Server) -> None:
+async def test_should_reject_wait_for_event_on_close_and_error(
+    page: Page, server: Server
+) -> None:
     server.send_on_web_socket_connection(b"incoming")
     async with page.expect_event("websocket") as ws_info:
         await page.evaluate(
@@ -169,7 +169,9 @@ async def test_should_reject_wait_for_event_on_close_and_error(page: Page, serve
     assert exc_info.value.message == "Socket closed"
 
 
-async def test_should_emit_error_event(page: Page, server: Server, browser_name: str) -> None:
+async def test_should_emit_error_event(
+    page: Page, server: Server, browser_name: str, browser_channel: str
+) -> None:
     future: "asyncio.Future[str]" = asyncio.Future()
 
     def _on_ws_socket_error(err: str) -> None:
@@ -190,4 +192,4 @@ async def test_should_emit_error_event(page: Page, server: Server, browser_name:
     if browser_name == "firefox":
         assert err == "CLOSE_ABNORMAL"
     else:
-        assert ": 404" in err
+        assert ("" if browser_channel == "msedge" else ": 404") in err

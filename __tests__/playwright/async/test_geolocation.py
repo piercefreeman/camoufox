@@ -14,8 +14,8 @@
 
 
 import pytest
-from playwright.async_api import Browser, BrowserContext, Error, Page
 
+from playwright.async_api import Browser, BrowserContext, Error, Page
 from tests.server import Server
 
 
@@ -35,7 +35,8 @@ async def test_should_throw_when_invalid_longitude(context: BrowserContext) -> N
     with pytest.raises(Error) as exc:
         await context.set_geolocation({"latitude": 10, "longitude": 200})
     assert (
-        "geolocation.longitude: precondition -180 <= LONGITUDE <= 180 failed." in exc.value.message
+        "geolocation.longitude: precondition -180 <= LONGITUDE <= 180 failed."
+        in exc.value.message
     )
 
 
@@ -47,7 +48,7 @@ async def test_should_isolate_contexts(
     await page.goto(server.EMPTY_PAGE)
 
     context2 = await browser.new_context(
-        permissions=["geolocation"], geolocation={"latitude": 20, "longitude": 20}
+        permissions=["geolocation"], geolocation={"latitude": 10.5, "longitude": 10.5}
     )
 
     page2 = await context2.new_page()
@@ -65,7 +66,7 @@ async def test_should_isolate_contexts(
       resolve({latitude: position.coords.latitude, longitude: position.coords.longitude})
     }))"""
     )
-    assert geolocation2 == {"latitude": 20, "longitude": 20}
+    assert geolocation2 == {"latitude": 10.5, "longitude": 10.5}
 
     await context2.close()
 
@@ -119,7 +120,6 @@ async def test_watch_position_should_be_notified(
     assert "lat=40 lng=50" in all_messages
 
 
-@pytest.mark.skip(reason="Not supported by Camoufox")
 async def test_should_use_context_options_for_popup(
     page: Page, context: BrowserContext, server: Server
 ) -> None:

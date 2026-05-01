@@ -87,6 +87,7 @@ markers = [
 ]
 junit_family = "xunit2"
 asyncio_mode = "auto"
+testpaths = ["__tests__"]
 
 [tool.setuptools]
 include-package-data = true

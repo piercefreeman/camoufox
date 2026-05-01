@@ -17,12 +17,11 @@ import asyncio
 import contextlib
 import gzip
 import mimetypes
-import os
+import pathlib
 import socket
 import threading
 from contextlib import closing
 from http import HTTPStatus
-from pathlib import Path
 from typing import (
     Any,
     Callable,
@@ -34,6 +33,7 @@ from typing import (
     Set,
     Tuple,
     TypeVar,
+    Union,
     cast,
 )
 from urllib.parse import urlparse
@@ -41,12 +41,15 @@ from urllib.parse import urlparse
 from autobahn.twisted.resource import WebSocketResource
 from autobahn.twisted.websocket import WebSocketServerFactory, WebSocketServerProtocol
 from OpenSSL import crypto
+from pyee import EventEmitter
 from twisted.internet import reactor as _twisted_reactor
 from twisted.internet import ssl
 from twisted.internet.selectreactor import SelectReactor
 from twisted.web import http
 
-_dirname = Path(os.path.abspath(__file__)).parent
+from playwright._impl._path_utils import get_file_dirname
+
+_dirname = get_file_dirname()
 reactor = cast(SelectReactor, _twisted_reactor)
 
 
@@ -83,12 +86,13 @@ class TestServerRequest(http.Request):
             self.content.seek(0, 0)
         else:
             self.post_body = None
-        uri = urlparse(self.uri.decode())
-        path = uri.path
+        path = urlparse(self.uri.decode()).path
 
         request_subscriber = server.request_subscribers.get(path)
         if request_subscriber:
-            request_subscriber._loop.call_soon_threadsafe(request_subscriber.set_result, self)
+            request_subscriber._loop.call_soon_threadsafe(
+                request_subscriber.set_result, self
+            )
             server.request_subscribers.pop(path)
 
         if path == "/ws":
@@ -106,6 +110,7 @@ class TestServerRequest(http.Request):
             if not creds_correct:
                 self.setHeader(b"www-authenticate", 'Basic realm="Secure Area"')
                 self.setResponseCode(HTTPStatus.UNAUTHORIZED)
+                self.write(b"HTTP Error 401 Unauthorized: Access is denied")
                 self.finish()
                 return
         if server.csp.get(path):
@@ -113,15 +118,23 @@ class TestServerRequest(http.Request):
         if server.routes.get(path):
             server.routes[path](self)
             return
+
+        self._serve_file(server.static_path / path[1:], path)
+
+    def serve_file(self, path: pathlib.Path) -> None:
+        return self._serve_file(path, urlparse(self.uri.decode()).path)
+
+    def _serve_file(self, path: pathlib.Path, request_path: str) -> None:
+        server = self.channel.factory.server_instance
         file_content = None
         try:
-            file_content = (server.static_path / path[1:]).read_bytes()
+            file_content = path.read_bytes()
             content_type = mimetypes.guess_type(path)[0]
             if content_type and content_type.startswith("text/"):
                 content_type += "; charset=utf-8"
             self.setHeader(b"Content-Type", content_type)
             self.setHeader(b"Cache-Control", "no-cache, no-store")
-            if path in server.gzip_routes:
+            if request_path in server.gzip_routes:
                 self.setHeader("Content-Encoding", "gzip")
                 self.write(gzip.compress(file_content))
             else:
@@ -129,7 +142,10 @@ class TestServerRequest(http.Request):
                 self.write(file_content)
             self.setResponseCode(HTTPStatus.OK)
         except (FileNotFoundError, IsADirectoryError, PermissionError):
+            self.setHeader(b"Content-Type", "text/plain")
             self.setResponseCode(HTTPStatus.NOT_FOUND)
+            if self.method != "HEAD":
+                self.write(f"File not found: {path}".encode())
         self.finish()
 
 
@@ -165,7 +181,7 @@ class Server:
     def listen(self, factory: TestServerFactory) -> None:
         pass
 
-    def start(self) -> None:
+    def start(self, static_path: pathlib.Path = _dirname / "assets") -> None:
         request_subscribers: Dict[str, asyncio.Future] = {}
         auth: Dict[str, Tuple[str, str]] = {}
         csp: Dict[str, str] = {}
@@ -177,13 +193,13 @@ class Server:
         self.routes = routes
         self._ws_handlers: List[Callable[["WebSocketProtocol"], None]] = []
         self.gzip_routes = gzip_routes
-        self.static_path = _dirname / "assets"
+        self.static_path = static_path
         factory = TestServerFactory()
         factory.server_instance = self
 
         ws_factory = WebSocketServerFactory()
         ws_factory.protocol = WebSocketProtocol
-        ws_factory.server_instance = self
+        setattr(ws_factory, "server_instance", self)
         self._ws_resource = WebSocketResource(ws_factory)
 
         self.listen(factory)
@@ -195,13 +211,34 @@ class Server:
         self.request_subscribers[path] = future
         return await future
 
+    def wait_for_web_socket(self) -> 'asyncio.Future["WebSocketProtocol"]':
+        future: asyncio.Future[WebSocketProtocol] = asyncio.Future()
+        self.once_web_socket_connection(future.set_result)
+        return future
+
     @contextlib.contextmanager
-    def expect_request(self, path: str) -> Generator[ExpectResponse[TestServerRequest], None, None]:
+    def expect_request(
+        self, path: str
+    ) -> Generator[ExpectResponse[TestServerRequest], None, None]:
         future = asyncio.create_task(self.wait_for_request(path))
 
         cb_wrapper: ExpectResponse[TestServerRequest] = ExpectResponse()
 
         def done_cb(task: asyncio.Task) -> None:
+            cb_wrapper._value = future.result()
+
+        future.add_done_callback(done_cb)
+        yield cb_wrapper
+
+    @contextlib.contextmanager
+    def expect_websocket(
+        self,
+    ) -> Generator[ExpectResponse["WebSocketProtocol"], None, None]:
+        future = self.wait_for_web_socket()
+
+        cb_wrapper: ExpectResponse["WebSocketProtocol"] = ExpectResponse()
+
+        def done_cb(_: asyncio.Future) -> None:
             cb_wrapper._value = future.result()
 
         future.add_done_callback(done_cb)
@@ -221,7 +258,9 @@ class Server:
         self.routes.clear()
         self._ws_handlers.clear()
 
-    def set_route(self, path: str, callback: Callable[[TestServerRequest], Any]) -> None:
+    def set_route(
+        self, path: str, callback: Callable[[TestServerRequest], Any]
+    ) -> None:
         self.routes[path] = callback
 
     def enable_gzip(self, path: str) -> None:
@@ -238,41 +277,86 @@ class Server:
     def send_on_web_socket_connection(self, data: bytes) -> None:
         self.once_web_socket_connection(lambda ws: ws.sendMessage(data))
 
-    def once_web_socket_connection(self, handler: Callable[["WebSocketProtocol"], None]) -> None:
+    def once_web_socket_connection(
+        self, handler: Callable[["WebSocketProtocol"], None]
+    ) -> None:
         self._ws_handlers.append(handler)
 
 
 class HTTPServer(Server):
+    def __init__(self) -> None:
+        self._listeners: list[Any] = []
+        super().__init__()
+
     def listen(self, factory: http.HTTPFactory) -> None:
-        reactor.listenTCP(self.PORT, factory, interface="127.0.0.1")
+        self._listeners.append(
+            reactor.listenTCP(self.PORT, factory, interface="127.0.0.1")
+        )
         try:
-            reactor.listenTCP(self.PORT, factory, interface="::1")
+            self._listeners.append(
+                reactor.listenTCP(self.PORT, factory, interface="::1")
+            )
         except Exception:
             pass
+
+    def stop(self) -> None:
+        for listener in self._listeners:
+            listener.stopListening()
+        self._listeners.clear()
 
 
 class HTTPSServer(Server):
     protocol = "https"
 
+    def __init__(self) -> None:
+        self._listeners: list[Any] = []
+        super().__init__()
+
     def listen(self, factory: http.HTTPFactory) -> None:
         cert = ssl.PrivateCertificate.fromCertificateAndKeyPair(
-            ssl.Certificate.loadPEM((_dirname / "testserver" / "cert.pem").read_bytes()),
+            ssl.Certificate.loadPEM(
+                (_dirname / "testserver" / "cert.pem").read_bytes()
+            ),
             ssl.KeyPair.load(
                 (_dirname / "testserver" / "key.pem").read_bytes(), crypto.FILETYPE_PEM
             ),
         )
         contextFactory = cert.options()
-        reactor.listenSSL(self.PORT, factory, contextFactory, interface="127.0.0.1")
+        self._listeners.append(
+            reactor.listenSSL(self.PORT, factory, contextFactory, interface="127.0.0.1")
+        )
         try:
-            reactor.listenSSL(self.PORT, factory, contextFactory, interface="::1")
+            self._listeners.append(
+                reactor.listenSSL(self.PORT, factory, contextFactory, interface="::1")
+            )
         except Exception:
             pass
 
+    def stop(self) -> None:
+        for listener in self._listeners:
+            listener.stopListening()
+        self._listeners.clear()
+
 
 class WebSocketProtocol(WebSocketServerProtocol):
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.events = EventEmitter()
+
+    def onClose(self, wasClean: bool, code: int, reason: str) -> None:
+        super().onClose(wasClean, code, reason)
+        self.events.emit(
+            "close",
+            code,
+            reason,
+        )
+
+    def onMessage(self, payload: Union[str, bytes], isBinary: bool) -> None:
+        self.events.emit("message", payload, isBinary)
+
     def onOpen(self) -> None:
-        for handler in self.factory.server_instance._ws_handlers.copy():
-            self.factory.server_instance._ws_handlers.remove(handler)
+        for handler in getattr(self.factory, "server_instance")._ws_handlers.copy():
+            getattr(self.factory, "server_instance")._ws_handlers.remove(handler)
             handler(self)
 
 
@@ -284,7 +368,9 @@ class TestServer:
     def start(self) -> None:
         self.server.start()
         self.https_server.start()
-        self.thread = threading.Thread(target=lambda: reactor.run(installSignalHandlers=False))
+        self.thread = threading.Thread(
+            target=lambda: reactor.run(installSignalHandlers=False)
+        )
         self.thread.start()
 
     def stop(self) -> None:

@@ -16,15 +16,16 @@ import asyncio
 import os
 import re
 from pathlib import Path
-from typing import Callable
+from typing import AsyncContextManager, Callable
 
 import pytest
-from flaky import flaky
-from playwright.async_api import BrowserType, Error, Playwright, Route
 
-from ..conftest import RemoteServer
+from playwright.async_api import BrowserType, Error, Playwright, Route, expect
+from tests.conftest import RemoteServer
 from tests.server import Server, TestServerRequest, WebSocketProtocol
-from tests.utils import chromium_version_less_than, parse_trace
+from tests.utils import chromium_version_less_than
+
+from .conftest import TraceViewerPage
 
 
 async def test_should_print_custom_ws_close_error(
@@ -209,12 +210,12 @@ async def test_should_not_allow_getting_the_path(
 async def test_prevent_getting_video_path(
     browser_type: BrowserType,
     launch_server: Callable[[], RemoteServer],
-    tmpdir: Path,
+    tmp_path: Path,
     server: Server,
 ) -> None:
     remote_server = launch_server()
     browser = await browser_type.connect(remote_server.ws_endpoint)
-    page = await browser.new_page(record_video_dir=tmpdir)
+    page = await browser.new_page(record_video_dir=tmp_path)
     await page.goto(server.PREFIX + "/grid.html")
     await browser.close()
     assert page.video
@@ -266,8 +267,6 @@ async def test_should_fulfill_with_global_fetch_result(
     remote.kill()
 
 
-@pytest.mark.skip(reason="Not supported by Camoufox")
-@flaky
 async def test_should_upload_large_file(
     browser_type: BrowserType,
     launch_server: Callable[[], RemoteServer],
@@ -328,6 +327,7 @@ async def test_should_record_trace_with_source(
     server: Server,
     tmp_path: Path,
     browser_type: BrowserType,
+    show_trace_viewer: Callable[[Path], AsyncContextManager[TraceViewerPage]],
 ) -> None:
     remote = launch_server()
     browser = await browser_type.connect(remote.ws_endpoint)
@@ -344,14 +344,28 @@ async def test_should_record_trace_with_source(
     await context.close()
     await browser.close()
 
-    (resources, events) = parse_trace(path)
-    current_file_content = Path(__file__).read_bytes()
-    found_current_file = False
-    for name, resource in resources.items():
-        if resource == current_file_content:
-            found_current_file = True
-            break
-    assert found_current_file
+    async with show_trace_viewer(path) as trace_viewer:
+        await expect(trace_viewer.action_titles).to_have_text(
+            [
+                re.compile(r'Navigate to "/empty\.html"'),
+                re.compile(r"Set content"),
+                re.compile(r"Click"),
+            ]
+        )
+        await trace_viewer.show_source_tab()
+        await expect(trace_viewer.stack_frames).to_contain_text(
+            [
+                re.compile(r"test_should_record_trace_with_source"),
+            ]
+        )
+        await trace_viewer.select_action("Set content")
+        # Check that the source file is shown
+        await expect(
+            trace_viewer.page.locator(".source-tab-file-name")
+        ).to_have_attribute("title", re.compile(r".*test_browsertype_connect\.py"))
+        await expect(trace_viewer.page.locator(".source-line-running")).to_contain_text(
+            'page.set_content("<button>Click</button>")'
+        )
 
 
 async def test_should_record_trace_with_relative_trace_path(
@@ -397,7 +411,9 @@ async def test_set_input_files_should_preserve_last_modified_timestamp(
     files = ["file-to-upload.txt", "file-to-upload-2.txt"]
     await input.set_input_files([assetdir / file for file in files])
     assert await input.evaluate("input => [...input.files].map(f => f.name)") == files
-    timestamps = await input.evaluate("input => [...input.files].map(f => f.lastModified)")
+    timestamps = await input.evaluate(
+        "input => [...input.files].map(f => f.lastModified)"
+    )
     expected_timestamps = [os.path.getmtime(assetdir / file) * 1000 for file in files]
 
     # On Linux browser sometimes reduces the timestamp by 1ms: 1696272058110.0715  -> 1696272058109 or even
@@ -430,7 +446,9 @@ async def test_should_upload_a_folder(
     (dir / "sub-dir").mkdir()
     (dir / "sub-dir" / "really.txt").write_text("sub-dir file content")
     await input.set_input_files(dir)
-    assert set(await input.evaluate("e => [...e.files].map(f => f.webkitRelativePath)")) == set(
+    assert set(
+        await input.evaluate("e => [...e.files].map(f => f.webkitRelativePath)")
+    ) == set(
         [
             "file-upload-test/file1.txt",
             "file-upload-test/file2",
@@ -444,7 +462,9 @@ async def test_should_upload_a_folder(
             ),
         ]
     )
-    webkit_relative_paths = await input.evaluate("e => [...e.files].map(f => f.webkitRelativePath)")
+    webkit_relative_paths = await input.evaluate(
+        "e => [...e.files].map(f => f.webkitRelativePath)"
+    )
     for i, webkit_relative_path in enumerate(webkit_relative_paths):
         content = await input.evaluate(
             """(e, i) => {

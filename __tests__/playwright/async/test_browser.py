@@ -49,5 +49,22 @@ async def test_version_should_work(browser: Browser, is_chromium: bool) -> None:
         assert re.match(r"^\d+\.\d+", version)
 
 
-async def test_should_return_browser_type(browser: Browser, browser_type: BrowserType) -> None:
+async def test_should_return_browser_type(
+    browser: Browser, browser_type: BrowserType
+) -> None:
     assert browser.browser_type is browser_type
+
+
+async def test_bind_should_return_endpoint_and_allow_unbind(
+    browser_type: BrowserType,
+    launch_arguments: dict,
+) -> None:
+    browser = await browser_type.launch(**launch_arguments)
+    try:
+        result = await browser.bind("test-server")
+        assert "endpoint" in result
+        assert isinstance(result["endpoint"], str)
+        assert len(result["endpoint"]) > 0
+        await browser.unbind()
+    finally:
+        await browser.close()

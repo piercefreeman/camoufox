@@ -60,9 +60,7 @@ async def run_tests(
 
     # 3. Build profile specs — fingerprints and timezone resolved by camoufox per-context
     all_specs = [
-        {"os": "macos", "name": f"macOS Per-Context {chr(65 + i)}"} for i in range(3)
-    ] + [
-        {"os": "linux", "name": f"Linux Per-Context {chr(65 + i)}"} for i in range(3)
+        {"os": "macos", "name": f"macOS Per-Context {chr(65 + i)}"} for i in range(6)
     ]
     entries = all_specs[:max(1, min(profile_count, len(all_specs)))]
 

@@ -13,7 +13,7 @@
 # limitations under the License.
 
 import asyncio
-from typing import Any, AsyncGenerator, Awaitable, Callable, Dict, Generator, List
+from typing import Any, AsyncGenerator, Awaitable, Callable, Dict, Generator
 
 import pytest
 
@@ -34,12 +34,6 @@ from .utils import utils as utils_object
 @pytest.fixture
 def utils() -> Generator[Utils, None, None]:
     yield utils_object
-
-
-# Will mark all the tests as async
-def pytest_collection_modifyitems(items: List[pytest.Item]) -> None:
-    for item in items:
-        item.add_marker(pytest.mark.asyncio)
 
 
 @pytest.fixture(scope="session")

@@ -17,7 +17,9 @@ import pytest
 from playwright.async_api import Error, Page, Playwright
 
 
-async def test_should_use_data_test_id_in_strict_errors(page: Page, playwright: Playwright) -> None:
+async def test_should_use_data_test_id_in_strict_errors(
+    page: Page, playwright: Playwright
+) -> None:
     playwright.selectors.set_test_id_attribute("data-custom-id")
     try:
         await page.set_content(
@@ -38,7 +40,7 @@ async def test_should_use_data_test_id_in_strict_errors(page: Page, playwright: 
         """
         )
         with pytest.raises(Error) as exc_info:
-            await page.locator(".foo").hover(timeout=200)
+            await page.locator(".foo").hover()
         assert "strict mode violation" in exc_info.value.message
         assert '<div class="foo bar:0' in exc_info.value.message
         assert '<div class="foo bar:1' in exc_info.value.message

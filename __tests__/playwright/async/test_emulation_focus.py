@@ -12,11 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import asyncio
-from typing import Callable
 
-import pytest
 from playwright.async_api import Page
-
 from tests.server import Server
 
 from .utils import Utils
@@ -42,8 +39,9 @@ async def test_should_focus_popups_by_default(page: Page, server: Server) -> Non
     assert await page.evaluate("document.hasFocus()")
 
 
-@pytest.mark.skip(reason="Not supported by Camoufox")
-async def test_should_provide_target_for_keyboard_events(page: Page, server: Server) -> None:
+async def test_should_provide_target_for_keyboard_events(
+    page: Page, server: Server
+) -> None:
     page2 = await page.context.new_page()
     await asyncio.gather(
         page.goto(server.PREFIX + "/input/textarea.html"),
@@ -66,7 +64,9 @@ async def test_should_provide_target_for_keyboard_events(page: Page, server: Ser
     assert results == [text, text2]
 
 
-async def test_should_not_affect_mouse_event_target_page(page: Page, server: Server) -> None:
+async def test_should_not_affect_mouse_event_target_page(
+    page: Page, server: Server
+) -> None:
     page2 = await page.context.new_page()
     click_counter = """() => {
       document.onclick = () => window.click_count = (window.click_count || 0) + 1;
@@ -105,31 +105,9 @@ async def test_should_change_document_activeElement(page: Page, server: Server) 
     assert active == ["INPUT", "TEXTAREA"]
 
 
-@pytest.mark.skip(reason="Not supported by Camoufox")
-async def test_should_not_affect_screenshots(
-    page: Page, server: Server, assert_to_be_golden: Callable[[bytes, str], None]
+async def test_should_change_focused_iframe(
+    page: Page, server: Server, utils: Utils
 ) -> None:
-    # Firefox headed produces a different image.
-    page2 = await page.context.new_page()
-    await asyncio.gather(
-        page.set_viewport_size({"width": 500, "height": 500}),
-        page.goto(server.PREFIX + "/grid.html"),
-        page2.set_viewport_size({"width": 50, "height": 50}),
-        page2.goto(server.PREFIX + "/grid.html"),
-    )
-    await asyncio.gather(
-        page.focus("body"),
-        page2.focus("body"),
-    )
-    screenshots = await asyncio.gather(
-        page.screenshot(),
-        page2.screenshot(),
-    )
-    assert_to_be_golden(screenshots[0], "screenshot-sanity.png")
-    assert_to_be_golden(screenshots[1], "grid-cell-0.png")
-
-
-async def test_should_change_focused_iframe(page: Page, server: Server, utils: Utils) -> None:
     await page.goto(server.EMPTY_PAGE)
     [frame1, frame2] = await asyncio.gather(
         utils.attach_frame(page, "frame1", server.PREFIX + "/input/textarea.html"),

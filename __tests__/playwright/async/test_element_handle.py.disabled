@@ -16,8 +16,8 @@ import asyncio
 from typing import Optional, cast
 
 import pytest
-from playwright.async_api import Browser, ElementHandle, Error, FloatRect, Page
 
+from playwright.async_api import Browser, ElementHandle, Error, FloatRect, Page
 from tests.server import Server
 
 from .utils import Utils
@@ -43,7 +43,9 @@ async def test_bounding_box_handle_nested_frames(page: Page, server: Server) -> 
     assert box == {"x": 24, "y": 224, "width": 268, "height": 18}
 
 
-async def test_bounding_box_return_null_for_invisible_elements(page: Page, server: Server) -> None:
+async def test_bounding_box_return_null_for_invisible_elements(
+    page: Page, server: Server
+) -> None:
     await page.set_content('<div style="display:none">hi</div>')
     element = await page.query_selector("div")
     assert element
@@ -81,7 +83,9 @@ async def test_bounding_box_with_SVG_nodes(page: Page, server: Server) -> None:
 
 @pytest.mark.skip_browser("firefox")
 async def test_bounding_box_with_page_scale(browser: Browser, server: Server) -> None:
-    context = await browser.new_context(viewport={"width": 400, "height": 400}, is_mobile=True)
+    context = await browser.new_context(
+        viewport={"width": 400, "height": 400}, is_mobile=True
+    )
     page = await context.new_page()
     await page.goto(server.PREFIX + "/input/button.html")
     button = await page.query_selector("button")
@@ -155,7 +159,9 @@ async def test_content_frame(page: Page, server: Server, utils: Utils) -> None:
     assert frame == page.frames[1]
 
 
-async def test_content_frame_for_non_iframes(page: Page, server: Server, utils: Utils) -> None:
+async def test_content_frame_for_non_iframes(
+    page: Page, server: Server, utils: Utils
+) -> None:
     await page.goto(server.EMPTY_PAGE)
     await utils.attach_frame(page, "frame1", server.EMPTY_PAGE)
     frame = page.frames[1]
@@ -163,11 +169,15 @@ async def test_content_frame_for_non_iframes(page: Page, server: Server, utils: 
     assert await element_handle.content_frame() is None
 
 
-async def test_content_frame_for_document_element(page: Page, server: Server, utils: Utils) -> None:
+async def test_content_frame_for_document_element(
+    page: Page, server: Server, utils: Utils
+) -> None:
     await page.goto(server.EMPTY_PAGE)
     await utils.attach_frame(page, "frame1", server.EMPTY_PAGE)
     frame = page.frames[1]
-    element_handle = cast(ElementHandle, await frame.evaluate_handle("document.documentElement"))
+    element_handle = cast(
+        ElementHandle, await frame.evaluate_handle("document.documentElement")
+    )
     assert await element_handle.content_frame() is None
 
 
@@ -183,13 +193,17 @@ async def test_owner_frame_for_cross_process_iframes(
     page: Page, server: Server, utils: Utils
 ) -> None:
     await page.goto(server.EMPTY_PAGE)
-    await utils.attach_frame(page, "frame1", server.CROSS_PROCESS_PREFIX + "/empty.html")
+    await utils.attach_frame(
+        page, "frame1", server.CROSS_PROCESS_PREFIX + "/empty.html"
+    )
     frame = page.frames[1]
     element_handle = cast(ElementHandle, await frame.evaluate_handle("document.body"))
     assert await element_handle.owner_frame() == frame
 
 
-async def test_owner_frame_for_document(page: Page, server: Server, utils: Utils) -> None:
+async def test_owner_frame_for_document(
+    page: Page, server: Server, utils: Utils
+) -> None:
     await page.goto(server.EMPTY_PAGE)
     await utils.attach_frame(page, "frame1", server.EMPTY_PAGE)
     frame = page.frames[1]
@@ -197,7 +211,9 @@ async def test_owner_frame_for_document(page: Page, server: Server, utils: Utils
     assert await element_handle.owner_frame() == frame
 
 
-async def test_owner_frame_for_iframe_elements(page: Page, server: Server, utils: Utils) -> None:
+async def test_owner_frame_for_iframe_elements(
+    page: Page, server: Server, utils: Utils
+) -> None:
     await page.goto(server.EMPTY_PAGE)
     await utils.attach_frame(page, "frame1", server.EMPTY_PAGE)
     frame = page.main_frame
@@ -249,7 +265,9 @@ async def test_owner_frame_for_detached_elements(page: Page, server: Server) -> 
 async def test_owner_frame_for_adopted_elements(page: Page, server: Server) -> None:
     await page.goto(server.EMPTY_PAGE)
     async with page.expect_popup() as popup_info:
-        await page.evaluate("url => window.__popup = window.open(url)", server.EMPTY_PAGE)
+        await page.evaluate(
+            "url => window.__popup = window.open(url)", server.EMPTY_PAGE
+        )
     popup = await popup_info.value
     div_handle = cast(
         ElementHandle,
@@ -317,7 +335,9 @@ async def test_click_throw_for_detached_nodes(page: Page, server: Server) -> Non
     assert "Element is not attached to the DOM" in exc_info.value.message
 
 
-async def test_click_throw_for_hidden_nodes_with_force(page: Page, server: Server) -> None:
+async def test_click_throw_for_hidden_nodes_with_force(
+    page: Page, server: Server
+) -> None:
     await page.goto(server.PREFIX + "/input/button.html")
     button = await page.query_selector("button")
     assert button
@@ -339,7 +359,9 @@ async def test_click_throw_for_recursively_hidden_nodes_with_force(
     assert "Element is not visible" in exc_info.value.message
 
 
-async def test_click_throw_for__br__elements_with_force(page: Page, server: Server) -> None:
+async def test_click_throw_for__br__elements_with_force(
+    page: Page, server: Server
+) -> None:
     await page.set_content("hello<br>goodbye")
     br = await page.query_selector("br")
     assert br
@@ -371,7 +393,9 @@ async def test_hover(page: Page, server: Server) -> None:
     button = await page.query_selector("#button-6")
     assert button
     await button.hover()
-    assert await page.evaluate('document.querySelector("button:hover").id') == "button-6"
+    assert (
+        await page.evaluate('document.querySelector("button:hover").id') == "button-6"
+    )
 
 
 async def test_hover_when_node_is_removed(page: Page, server: Server) -> None:
@@ -380,7 +404,9 @@ async def test_hover_when_node_is_removed(page: Page, server: Server) -> None:
     button = await page.query_selector("#button-6")
     assert button
     await button.hover()
-    assert await page.evaluate('document.querySelector("button:hover").id') == "button-6"
+    assert (
+        await page.evaluate('document.querySelector("button:hover").id') == "button-6"
+    )
 
 
 async def test_scroll(page: Page, server: Server) -> None:
@@ -406,7 +432,9 @@ async def test_scroll(page: Page, server: Server) -> None:
         await page.evaluate("() => window.scrollTo(0, 0)")
 
 
-async def test_scroll_should_throw_for_detached_element(page: Page, server: Server) -> None:
+async def test_scroll_should_throw_for_detached_element(
+    page: Page, server: Server
+) -> None:
     await page.set_content("<div>Hello</div>")
     div = await page.query_selector("div")
     assert div
@@ -500,10 +528,15 @@ async def test_select_textarea(
         assert await textarea.evaluate("el => el.selectionStart") == 0
         assert await textarea.evaluate("el => el.selectionEnd") == 10
     else:
-        assert await page.evaluate("() => window.getSelection().toString()") == "some value"
+        assert (
+            await page.evaluate("() => window.getSelection().toString()")
+            == "some value"
+        )
 
 
-async def test_select_input(page: Page, server: Server, is_firefox: bool, is_webkit: bool) -> None:
+async def test_select_input(
+    page: Page, server: Server, is_firefox: bool, is_webkit: bool
+) -> None:
     await page.goto(server.PREFIX + "/input/textarea.html")
     input = await page.query_selector("input")
     assert input
@@ -513,7 +546,10 @@ async def test_select_input(page: Page, server: Server, is_firefox: bool, is_web
         assert await input.evaluate("el => el.selectionStart") == 0
         assert await input.evaluate("el => el.selectionEnd") == 10
     else:
-        assert await page.evaluate("() => window.getSelection().toString()") == "some value"
+        assert (
+            await page.evaluate("() => window.getSelection().toString()")
+            == "some value"
+        )
 
 
 async def test_select_text_select_plain_div(page: Page, server: Server) -> None:
@@ -568,7 +604,9 @@ async def test_a_nice_preview(page: Page, server: Server) -> None:
     assert str(outer) == 'JSHandle@<div id="outer" name="value">…</div>'
     assert str(inner) == 'JSHandle@<div id="inner">Text,↵more text</div>'
     assert str(text) == "JSHandle@#text=Text,↵more text"
-    assert str(check) == 'JSHandle@<input checked id="check" foo="bar"" type="checkbox"/>'
+    assert (
+        str(check) == 'JSHandle@<input checked id="check" foo="bar"" type="checkbox"/>'
+    )
 
 
 async def test_get_attribute(page: Page, server: Server) -> None:
@@ -695,7 +733,9 @@ async def test_is_enabled_and_is_disabled_should_work(page: Page) -> None:
 
 
 async def test_is_editable_should_work(page: Page) -> None:
-    await page.set_content("<input id=input1 disabled><textarea></textarea><input id=input2>")
+    await page.set_content(
+        "<input id=input1 disabled><textarea></textarea><input id=input2>"
+    )
     await page.eval_on_selector("textarea", "t => t.readOnly = true")
     input1 = await page.query_selector("#input1")
     assert input1

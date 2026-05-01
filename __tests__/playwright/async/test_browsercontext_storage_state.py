@@ -16,7 +16,7 @@ import asyncio
 import json
 from pathlib import Path
 
-from playwright.async_api import Browser, BrowserContext, Page
+from playwright.async_api import Browser, BrowserContext, Page, StorageState
 from tests.server import Server
 
 
@@ -44,27 +44,60 @@ async def test_should_capture_local_storage(context: BrowserContext) -> None:
 
 
 async def test_should_set_local_storage(browser: Browser) -> None:
-    context = await browser.new_context(
-        storage_state={
-            "origins": [
+    storage_state: StorageState = {
+        "origins": [
+            {
+                "origin": "https://www.example.com",
+                "localStorage": [{"name": "name1", "value": "value1"}],
+            }
+        ]
+    }
+    # We intentionally hide the indexed_db part in our API for now
+    storage_state["origins"][0]["indexedDB"] = [  # type: ignore
+        {
+            "name": "db",
+            "version": 42,
+            "stores": [
                 {
-                    "origin": "https://www.example.com",
-                    "localStorage": [{"name": "name1", "value": "value1"}],
+                    "name": "store",
+                    "autoIncrement": False,
+                    "records": [{"key": "bar", "value": "foo"}],
+                    "indexes": [],
                 }
-            ]
+            ],
         }
-    )
+    ]
+    context = await browser.new_context(storage_state=storage_state)
 
     page = await context.new_page()
-    await page.route("**/*", lambda route: asyncio.create_task(route.fulfill(body="<html></html>")))
+    await page.route(
+        "**/*", lambda route: asyncio.create_task(route.fulfill(body="<html></html>"))
+    )
     await page.goto("https://www.example.com")
     local_storage = await page.evaluate("window.localStorage")
     assert local_storage == {"name1": "value1"}
+
+    indexed_db = await page.evaluate(
+        """async () => {
+        return new Promise((resolve, reject) => {
+            const openRequest = indexedDB.open('db', 42);
+            openRequest.addEventListener('success', () => {
+                const db = openRequest.result;
+                const transaction = db.transaction('store', 'readonly');
+                const getRequest = transaction.objectStore('store').get('bar');
+                getRequest.addEventListener('success', () => resolve(getRequest.result));
+                getRequest.addEventListener('error', () => reject(getRequest.error));
+            });
+            openRequest.addEventListener('error', () => reject(openRequest.error));
+        });
+    }"""
+    )
+    assert indexed_db == "foo"
     await context.close()
 
 
 async def test_should_round_trip_through_the_file(
-    browser: Browser, context: BrowserContext, tmpdir: Path
+    browser: Browser, context: BrowserContext, tmp_path: Path
 ) -> None:
     page1 = await context.new_page()
     await page1.route(
@@ -80,7 +113,7 @@ async def test_should_round_trip_through_the_file(
         }"""
     )
 
-    path = tmpdir / "storage-state.json"
+    path = tmp_path / "storage-state.json"
     state = await context.storage_state(path=path)
     with open(path, "r") as f:
         written = json.load(f)
@@ -100,6 +133,32 @@ async def test_should_round_trip_through_the_file(
     await context2.close()
 
 
+async def test_set_storage_state_should_apply_state_to_existing_context(
+    browser: Browser,
+) -> None:
+    src = await browser.new_context()
+    src_page = await src.new_page()
+    await src_page.route(
+        "**/*",
+        lambda route: asyncio.create_task(route.fulfill(body="<html></html>")),
+    )
+    await src_page.goto("https://www.example.com")
+    await src_page.evaluate('() => localStorage.setItem("k", "v")')
+    state = await src.storage_state()
+    await src.close()
+
+    dst = await browser.new_context()
+    dst_page = await dst.new_page()
+    await dst_page.route(
+        "**/*",
+        lambda route: asyncio.create_task(route.fulfill(body="<html></html>")),
+    )
+    await dst.set_storage_state(state)
+    await dst_page.goto("https://www.example.com")
+    assert await dst_page.evaluate('() => localStorage.getItem("k")') == "v"
+    await dst.close()
+
+
 async def test_should_serialiser_storage_state_with_lone_surrogates(
     page: Page, context: BrowserContext, server: Server
 ) -> None:
@@ -110,3 +169,48 @@ async def test_should_serialiser_storage_state_with_lone_surrogates(
     storage_state = await context.storage_state()
     # 65533 is the Unicode replacement character
     assert storage_state["origins"][0]["localStorage"][0]["value"] == chr(65533)
+
+
+async def test_should_serialise_indexed_db(page: Page, server: Server) -> None:
+    await page.goto(server.EMPTY_PAGE)
+    await page.evaluate(
+        """async () => {
+            await new Promise((resolve, reject) => {
+                const openRequest = indexedDB.open('db', 42);
+                openRequest.onupgradeneeded = () => {
+                openRequest.result.createObjectStore('store');
+                };
+                openRequest.onsuccess = () => {
+                const request = openRequest.result.transaction('store', 'readwrite')
+                    .objectStore('store')
+                    .put('foo', 'bar');
+                request.addEventListener('success', resolve);
+                request.addEventListener('error', reject);
+                };
+            });
+        }"""
+    )
+    assert await page.context.storage_state() == {"cookies": [], "origins": []}
+    assert await page.context.storage_state(indexed_db=True) == {
+        "cookies": [],
+        "origins": [
+            {
+                "origin": f"http://localhost:{server.PORT}",
+                "localStorage": [],
+                "indexedDB": [
+                    {
+                        "name": "db",
+                        "version": 42,
+                        "stores": [
+                            {
+                                "name": "store",
+                                "autoIncrement": False,
+                                "records": [{"key": "bar", "value": "foo"}],
+                                "indexes": [],
+                            }
+                        ],
+                    }
+                ],
+            }
+        ],
+    }

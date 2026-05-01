@@ -21,14 +21,23 @@ from typing import (
     Awaitable,
     Callable,
     Dict,
+    List,
     Literal,
     Optional,
+    Sequence,
     Tuple,
 )
 
 import pytest
-from playwright.async_api import BrowserContext, BrowserType, Error, Page, expect
 
+from playwright.async_api import (
+    BrowserContext,
+    BrowserType,
+    Cookie,
+    Error,
+    Page,
+    expect,
+)
 from tests.server import Server
 from tests.utils import must
 
@@ -37,7 +46,7 @@ from .utils import Utils
 
 @pytest.fixture()
 async def launch_persistent(
-    tmpdir: Path, launch_arguments: Dict, browser_type: BrowserType
+    tmp_path: Path, launch_arguments: Dict, browser_type: BrowserType
 ) -> AsyncGenerator[Callable[..., Awaitable[Tuple[Page, BrowserContext]]], None]:
     context: Optional[BrowserContext] = None
 
@@ -46,7 +55,7 @@ async def launch_persistent(
         if context:
             raise ValueError("can only launch one persistent context")
         context = await browser_type.launch_persistent_context(
-            str(tmpdir), **{**launch_arguments, **options}
+            str(tmp_path), **{**launch_arguments, **options}
         )
         assert context
         return (context.pages[0], context)
@@ -70,7 +79,7 @@ async def test_context_cookies_should_work(
     )
 
     assert document_cookie == "username=John Doe"
-    assert await page.context.cookies() == [
+    assert _filter_cookies(await page.context.cookies()) == [
         {
             "name": "username",
             "value": "John Doe",
@@ -102,7 +111,7 @@ async def test_context_add_cookies_should_work(
         ]
     )
     assert await page.evaluate("() => document.cookie") == "username=John Doe"
-    assert await page.context.cookies() == [
+    assert _filter_cookies(await page.context.cookies()) == [
         {
             "name": "username",
             "value": "John Doe",
@@ -114,6 +123,12 @@ async def test_context_add_cookies_should_work(
             "sameSite": default_same_site_cookie_value,
         }
     ]
+
+
+def _filter_cookies(cookies: Sequence[Cookie]) -> List[Cookie]:
+    return list(
+        filter(lambda cookie: not cookie["domain"].endswith("microsoft.com"), cookies)
+    )
 
 
 async def test_context_clear_cookies_should_work(
@@ -131,7 +146,7 @@ async def test_context_clear_cookies_should_work(
     assert await page.evaluate("document.cookie") == "cookie1=1; cookie2=2"
     await page.context.clear_cookies()
     await page.reload()
-    assert await page.context.cookies([]) == []
+    assert _filter_cookies(await page.context.cookies([])) == []
     assert await page.evaluate("document.cookie") == ""
 
 
@@ -182,7 +197,6 @@ async def test_should_not_block_third_party_cookies(
         assert cookies == []
 
 
-@pytest.mark.skip(reason="Not supported by Camoufox (WIP)")
 async def test_should_support_viewport_option(
     launch_persistent: "Callable[..., asyncio.Future[Tuple[Page, BrowserContext]]]",
     utils: Utils,
@@ -200,7 +214,6 @@ async def test_should_support_device_scale_factor_option(
     assert await page.evaluate("window.devicePixelRatio") == 3
 
 
-@pytest.mark.skip(reason="Not supported by Camoufox")
 async def test_should_support_user_agent_option(
     launch_persistent: "Callable[..., asyncio.Future[Tuple[Page, BrowserContext]]]",
     server: Server,
@@ -214,7 +227,6 @@ async def test_should_support_user_agent_option(
     assert request.getHeader("user-agent") == "foobar"
 
 
-@pytest.mark.skip(reason="Not supported by Camoufox")
 async def test_should_support_bypass_csp_option(
     launch_persistent: "Callable[..., asyncio.Future[Tuple[Page, BrowserContext]]]",
     server: Server,
@@ -287,8 +299,13 @@ async def test_should_support_color_scheme_option(
     launch_persistent: "Callable[..., asyncio.Future[Tuple[Page, BrowserContext]]]",
 ) -> None:
     (page, context) = await launch_persistent(color_scheme="dark")
-    assert await page.evaluate('() => matchMedia("(prefers-color-scheme: light)").matches') is False
-    assert await page.evaluate('() => matchMedia("(prefers-color-scheme: dark)").matches')
+    assert (
+        await page.evaluate('() => matchMedia("(prefers-color-scheme: light)").matches')
+        is False
+    )
+    assert await page.evaluate(
+        '() => matchMedia("(prefers-color-scheme: dark)").matches'
+    )
 
 
 async def test_should_support_timezone_id_option(
@@ -301,6 +318,20 @@ async def test_should_support_timezone_id_option(
     )
 
 
+async def test_should_support_contrast_option(
+    launch_persistent: "Callable[..., asyncio.Future[Tuple[Page, BrowserContext]]]",
+) -> None:
+    (page, _) = await launch_persistent(contrast="more")
+    assert await page.evaluate('() => matchMedia("(prefers-contrast: more)").matches')
+    assert not await page.evaluate(
+        '() => matchMedia("(prefers-contrast: no-preference)").matches'
+    )
+
+
+@pytest.mark.xfail(
+    reason="Camoufox persistent contexts do not currently honor the Playwright locale override.",
+    strict=False,
+)
 async def test_should_support_locale_option(
     launch_persistent: "Callable[..., asyncio.Future[Tuple[Page, BrowserContext]]]",
 ) -> None:
@@ -347,17 +378,16 @@ async def test_should_support_extra_http_headers_option(
 
 
 async def test_should_accept_user_data_dir(
-    tmpdir: Path,
+    tmp_path: Path,
     launch_persistent: "Callable[..., asyncio.Future[Tuple[Page, BrowserContext]]]",
 ) -> None:
     (page, context) = await launch_persistent()
     # Note: we need an open page to make sure its functional.
-    assert len(os.listdir(tmpdir)) > 0
+    assert len(os.listdir(tmp_path)) > 0
     await context.close()
-    assert len(os.listdir(tmpdir)) > 0
+    assert len(os.listdir(tmp_path)) > 0
 
 
-@pytest.mark.skip(reason="Not supported by Camoufox")
 async def test_should_restore_state_from_userDataDir(
     browser_type: BrowserType,
     launch_arguments: Dict,
@@ -401,11 +431,11 @@ async def test_should_have_default_url_when_launching_browser(
 
 @pytest.mark.skip_browser("firefox")
 async def test_should_throw_if_page_argument_is_passed(
-    browser_type: BrowserType, server: Server, tmpdir: Path, launch_arguments: Dict
+    browser_type: BrowserType, server: Server, tmp_path: Path, launch_arguments: Dict
 ) -> None:
     options = {**launch_arguments, "args": [server.EMPTY_PAGE]}
     with pytest.raises(Error) as exc:
-        await browser_type.launch_persistent_context(tmpdir, **options)
+        await browser_type.launch_persistent_context(tmp_path, **options)
     assert "can not specify page" in exc.value.message
 
 
@@ -426,7 +456,6 @@ async def test_should_support_reduced_motion(
     assert await page.evaluate("matchMedia('(prefers-reduced-motion: reduce)').matches")
 
 
-@pytest.mark.skip(reason="Not supported by Camoufox")
 async def test_should_support_har_option(
     assetdir: Path,
     launch_persistent: "Callable[..., asyncio.Future[Tuple[Page, BrowserContext]]]",

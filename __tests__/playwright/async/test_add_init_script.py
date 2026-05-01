@@ -15,11 +15,9 @@
 from pathlib import Path
 from typing import Optional
 
-import pytest
 from playwright.async_api import BrowserContext, Error, Page
 
 
-@pytest.mark.skip(reason="Not supported by Camoufox")
 async def test_add_init_script_evaluate_before_anything_else_on_the_page(
     page: Page,
 ) -> None:
@@ -28,14 +26,12 @@ async def test_add_init_script_evaluate_before_anything_else_on_the_page(
     assert await page.evaluate("window.result") == 123
 
 
-@pytest.mark.skip(reason="Not supported by Camoufox")
 async def test_add_init_script_work_with_a_path(page: Page, assetdir: Path) -> None:
     await page.add_init_script(path=assetdir / "injectedfile.js")
     await page.goto("data:text/html,<script>window.result = window.injected</script>")
     assert await page.evaluate("window.result") == 123
 
 
-@pytest.mark.skip(reason="Not supported by Camoufox")
 async def test_add_init_script_work_with_content(page: Page) -> None:
     await page.add_init_script("window.injected = 123")
     await page.goto("data:text/html,<script>window.result = window.injected</script>")
@@ -52,7 +48,6 @@ async def test_add_init_script_throw_without_path_and_content(page: Page) -> Non
     assert error.message == "Either path or script parameter must be specified"
 
 
-@pytest.mark.skip(reason="Not supported by Camoufox")
 async def test_add_init_script_work_with_browser_context_scripts(
     page: Page, context: BrowserContext
 ) -> None:
@@ -63,7 +58,6 @@ async def test_add_init_script_work_with_browser_context_scripts(
     assert await page.evaluate("window.result") == 123
 
 
-@pytest.mark.skip(reason="Not supported by Camoufox")
 async def test_add_init_script_work_with_browser_context_scripts_with_a_path(
     page: Page, context: BrowserContext, assetdir: Path
 ) -> None:
@@ -73,7 +67,6 @@ async def test_add_init_script_work_with_browser_context_scripts_with_a_path(
     assert await page.evaluate("window.result") == 123
 
 
-@pytest.mark.skip(reason="Not supported by Camoufox")
 async def test_add_init_script_work_with_browser_context_scripts_for_already_created_pages(
     page: Page, context: BrowserContext
 ) -> None:

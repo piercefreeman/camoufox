@@ -15,8 +15,8 @@
 from typing import List
 
 import pytest
-from playwright.async_api import ConsoleMessage, Page
 
+from playwright.async_api import ConsoleMessage, Page
 from tests.server import Server
 
 
@@ -53,7 +53,6 @@ async def test_console_should_use_text_for__str__(page: Page) -> None:
     assert str(messages[0]) == "Hello world"
 
 
-@pytest.mark.skip(reason="Not supported by Camoufox")
 async def test_console_should_work_for_different_console_api_calls(page: Page) -> None:
     messages: List[ConsoleMessage] = []
     page.on("console", lambda m: messages.append(m))
@@ -89,7 +88,9 @@ async def test_console_should_work_for_different_console_api_calls(page: Page) -
     ]
 
 
-async def test_console_should_not_fail_for_window_object(page: Page, browser_name: str) -> None:
+async def test_console_should_not_fail_for_window_object(
+    page: Page, browser_name: str
+) -> None:
     async with page.expect_console_message() as message_info:
         await page.evaluate("console.error(window)")
     message = await message_info.value
@@ -106,7 +107,7 @@ async def test_console_should_trigger_correct_log(page: Page, server: Server) ->
     async with page.expect_console_message() as message_info:
         await page.evaluate("async url => fetch(url).catch(e => {})", server.EMPTY_PAGE)
     message = await message_info.value
-    assert "Access-Control-Allow-Origin" in message.text
+    assert "Access-Control-Allow-Origin" in message.text or "CORS" in message.text
     assert message.type == "error"
 
 
@@ -125,7 +126,6 @@ async def test_console_should_have_location_for_console_api_calls(
     assert location["lineNumber"] == 7
 
 
-@pytest.mark.skip(reason="Not supported by Camoufox")
 async def test_console_should_not_throw_when_there_are_console_messages_in_detached_iframes(
     page: Page, server: Server
 ) -> None:

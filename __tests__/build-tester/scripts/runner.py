@@ -37,6 +37,14 @@ from server import start_http_server
 from wsl import get_windows_host_ip, is_elf_binary
 
 
+def _user_agent_os(user_agent: str) -> str:
+    if "Macintosh" in user_agent:
+        return "mac"
+    if "Windows" in user_agent:
+        return "win"
+    return "lin"
+
+
 # ─── Per-Context Phase ────────────────────────────────────────────────────────
 
 async def run_per_context_phase(
@@ -189,10 +197,11 @@ async def run_tests(
     print("Presets generated.")
 
     # 3. Inject timezones and WebRTC
-    all_presets_flat = (
-        presets["macPerContext"] + presets["linuxPerContext"]
-        + [presets["macGlobal"], presets["linuxGlobal"]]
-    )
+    all_presets_flat = [
+        *presets["macPerContext"],
+        *presets["linuxPerContext"],
+        *[preset for preset in (presets["macGlobal"], presets["linuxGlobal"]) if preset],
+    ]
     for i, p in enumerate(all_presets_flat):
         inject_timezone(p, TEST_TIMEZONES[i % len(TEST_TIMEZONES)])
         inject_webrtc_ip(p)
@@ -209,9 +218,18 @@ async def run_tests(
             "preset": p,
             "profile": preset_to_profile_config(p, f"Linux Per-Context {chr(65 + i)}", "linux", "per-context"),
         })
+    global_presets = [preset for preset in (presets["macGlobal"], presets["linuxGlobal"]) if preset]
     global_entries = [
-        {"preset": presets["macGlobal"], "profile": preset_to_profile_config(presets["macGlobal"], "macOS Global", "macos", "global")},
-        {"preset": presets["linuxGlobal"], "profile": preset_to_profile_config(presets["linuxGlobal"], "Linux Global", "linux", "global")},
+        {
+            "preset": preset,
+            "profile": preset_to_profile_config(
+                preset,
+                "macOS Global" if len(global_presets) == 1 else f"macOS Global {chr(65 + i)}",
+                "macos",
+                "global",
+            ),
+        }
+        for i, preset in enumerate(global_presets)
     ]
 
     # Apply profile count limit
@@ -285,7 +303,15 @@ async def run_tests(
 
             browser = None
             try:
-                env = {**dict(os.environ), "CAMOU_CONFIG": json.dumps(preset["camouConfig"])}
+                from camoufox.utils import get_env_vars
+
+                env = {
+                    **dict(os.environ),
+                    **get_env_vars(
+                        preset["camouConfig"],
+                        _user_agent_os(profile["userAgent"]),
+                    ),
+                }
                 browser = await firefox.launch(
                     executable_path=binary_path,
                     headless=True,

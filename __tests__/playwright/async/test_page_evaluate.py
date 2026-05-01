@@ -65,6 +65,29 @@ async def test_evaluate_transfer_arrays(page: Page) -> None:
     assert result == [1, 2, 3]
 
 
+async def test_evaluate_transfer_typed_arrays(page: Page) -> None:
+    async def test_typed_array(
+        typed_array: str, expected: list[float], value_suffix: Optional[str]
+    ) -> None:
+        value_suffix = "" if value_suffix is None else value_suffix
+        result = await page.evaluate(
+            f"() => new {typed_array}([1{value_suffix}, 2{value_suffix}, 3{value_suffix}])"
+        )
+        assert result == expected
+
+    await test_typed_array("Int8Array", [1, 2, 3], None)
+    await test_typed_array("Uint8Array", [1, 2, 3], None)
+    await test_typed_array("Uint8ClampedArray", [1, 2, 3], None)
+    await test_typed_array("Int16Array", [1, 2, 3], None)
+    await test_typed_array("Uint16Array", [1, 2, 3], None)
+    await test_typed_array("Int32Array", [1, 2, 3], None)
+    await test_typed_array("Uint32Array", [1, 2, 3], None)
+    await test_typed_array("Float32Array", [1.5, 2.5, 3.5], ".5")
+    await test_typed_array("Float64Array", [1.5, 2.5, 3.5], ".5")
+    await test_typed_array("BigInt64Array", [1, 2, 3], "n")
+    await test_typed_array("BigUint64Array", [1, 2, 3], "n")
+
+
 async def test_evaluate_transfer_bigint(page: Page) -> None:
     assert await page.evaluate("() => 42n") == 42
     assert await page.evaluate("a => a", 17) == 17
@@ -100,7 +123,9 @@ async def test_evaluate_work_with_unicode_chars(page: Page) -> None:
 async def test_evaluate_throw_when_evaluation_triggers_reload(page: Page) -> None:
     error: Optional[Error] = None
     try:
-        await page.evaluate("() => { location.reload(); return new Promise(() => {}); }")
+        await page.evaluate(
+            "() => { location.reload(); return new Promise(() => {}); }"
+        )
     except Error as e:
         error = e
     assert error
@@ -255,9 +280,13 @@ async def test_should_pass_exception_argument(page: Page) -> None:
 
 
 async def test_evaluate_evaluate_date(page: Page) -> None:
-    result = await page.evaluate('() => ({ date: new Date("2020-05-27T01:31:38.506Z") })')
+    result = await page.evaluate(
+        '() => ({ date: new Date("2020-05-27T01:31:38.506Z") })'
+    )
     assert result == {
-        "date": datetime.fromisoformat("2020-05-27T01:31:38.506").replace(tzinfo=timezone.utc)
+        "date": datetime.fromisoformat("2020-05-27T01:31:38.506").replace(
+            tzinfo=timezone.utc
+        )
     }
 
 
@@ -268,7 +297,9 @@ async def test_evaluate_roundtrip_date_without_tzinfo(page: Page) -> None:
 
 
 async def test_evaluate_roundtrip_date(page: Page) -> None:
-    date = datetime.fromisoformat("2020-05-27T01:31:38.506").replace(tzinfo=timezone.utc)
+    date = datetime.fromisoformat("2020-05-27T01:31:38.506").replace(
+        tzinfo=timezone.utc
+    )
     result = await page.evaluate("date => date", date)
     assert result == date
 
@@ -281,8 +312,12 @@ async def test_evaluate_roundtrip_date_with_tzinfo(page: Page) -> None:
 
 
 async def test_evaluate_jsonvalue_date(page: Page) -> None:
-    date = datetime.fromisoformat("2020-05-27T01:31:38.506").replace(tzinfo=timezone.utc)
-    result = await page.evaluate('() => ({ date: new Date("2020-05-27T01:31:38.506Z") })')
+    date = datetime.fromisoformat("2020-05-27T01:31:38.506").replace(
+        tzinfo=timezone.utc
+    )
+    result = await page.evaluate(
+        '() => ({ date: new Date("2020-05-27T01:31:38.506Z") })'
+    )
     assert result == {"date": date}
 
 

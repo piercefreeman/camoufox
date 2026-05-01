@@ -15,9 +15,7 @@
 import asyncio
 from typing import Any, Callable, Coroutine, cast
 
-import pytest
 from playwright.async_api import BrowserContext, Page, Request, Route
-
 from tests.server import Server
 
 
@@ -26,7 +24,9 @@ async def test_should_work(page: Page, context: BrowserContext, server: Server) 
     await page.goto(server.EMPTY_PAGE)
 
 
-async def test_should_fall_back(page: Page, context: BrowserContext, server: Server) -> None:
+async def test_should_fall_back(
+    page: Page, context: BrowserContext, server: Server
+) -> None:
     intercepted = []
 
     def _handler1(route: Route) -> None:
@@ -74,10 +74,14 @@ async def test_should_fall_back_async_delayed(
     assert intercepted == [3, 2, 1]
 
 
-async def test_should_chain_once(page: Page, context: BrowserContext, server: Server) -> None:
+async def test_should_chain_once(
+    page: Page, context: BrowserContext, server: Server
+) -> None:
     await context.route(
         "**/madeup.txt",
-        lambda route: asyncio.create_task(route.fulfill(status=200, body="fulfilled one")),
+        lambda route: asyncio.create_task(
+            route.fulfill(status=200, body="fulfilled one")
+        ),
         times=1,
     )
     await context.route(
@@ -183,7 +187,9 @@ async def test_should_delete_header_with_undefined_value(
     assert server_req.getHeader("bar") == "b"
 
 
-async def test_should_amend_method(page: Page, context: BrowserContext, server: Server) -> None:
+async def test_should_amend_method(
+    page: Page, context: BrowserContext, server: Server
+) -> None:
     await page.goto(server.EMPTY_PAGE)
 
     method = []
@@ -193,7 +199,9 @@ async def test_should_amend_method(page: Page, context: BrowserContext, server: 
         asyncio.create_task(route.continue_())
 
     await context.route("**/*", _handler1)
-    await context.route("**/*", lambda route: asyncio.create_task(route.fallback(method="POST")))
+    await context.route(
+        "**/*", lambda route: asyncio.create_task(route.fallback(method="POST"))
+    )
 
     [request, _] = await asyncio.gather(
         server.wait_for_request("/sleep.zzz"),
@@ -204,7 +212,6 @@ async def test_should_amend_method(page: Page, context: BrowserContext, server: 
     assert request.method == b"POST"
 
 
-@pytest.mark.skip(reason="Not supported by Camoufox")
 async def test_should_override_request_url(
     page: Page, context: BrowserContext, server: Server
 ) -> None:
@@ -241,7 +248,9 @@ async def test_should_override_request_url(
     assert server_request.method == b"GET"
 
 
-async def test_should_amend_post_data(page: Page, context: BrowserContext, server: Server) -> None:
+async def test_should_amend_post_data(
+    page: Page, context: BrowserContext, server: Server
+) -> None:
     await page.goto(server.EMPTY_PAGE)
     post_data = []
 

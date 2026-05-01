@@ -5,19 +5,49 @@ Fingerprint preset generation, injection, and profile config conversion.
 import json
 import re
 import sys
+from typing import Any
 
 from constants import TEST_TIMEZONES, WEBRTC_TEST_IP
 
 
 # ─── Preset Generation ────────────────────────────────────────────────────────
 
-def convert_preset(ctx: dict) -> dict:
-    """Convert generate_context_fingerprint() result to camelCase dict."""
-    preset = ctx["preset"]
+def _config_to_dict(config: Any) -> dict[str, Any]:
+    if hasattr(config, "model_dump"):
+        return config.model_dump(by_alias=True, exclude_none=True, mode="json")
+    if isinstance(config, dict):
+        return config
+    raise TypeError(f"Unsupported config type: {type(config)!r}")
+
+
+def _voice_names(values: list[Any] | None) -> list[str]:
+    names: list[str] = []
+    for value in values or []:
+        if isinstance(value, str):
+            names.append(value)
+        elif hasattr(value, "name") and isinstance(value.name, str):
+            names.append(value.name)
+    return names
+
+
+def convert_preset(ctx: dict[str, Any]) -> dict[str, Any]:
+    """
+    Convert generate_context_fingerprint() output into the build-tester shape.
+
+    The current Camoufox helper returns:
+    - `config` as a typed CamoufoxProfile model
+    - `preset` as `None` when the identity was generated from BrowserForge
+    Older build-tester code assumed both were plain dicts.
+    """
     config = ctx["config"]
-    nav = preset.get("navigator", {})
-    screen = preset.get("screen", {})
-    webgl = preset.get("webgl", {})
+    config_dict = _config_to_dict(config)
+    navigator = getattr(config, "navigator", None)
+    screen = getattr(config, "screen", None)
+    fonts = getattr(config, "fonts", None)
+    audio = getattr(config, "audio", None)
+    canvas = getattr(config, "canvas", None)
+    voices = getattr(config, "voices", None)
+    web_gl = getattr(config, "web_gl", None)
 
     return {
         "initScript": ctx["init_script"],
@@ -28,28 +58,28 @@ def convert_preset(ctx: dict) -> dict:
             "locale": ctx["context_options"].get("locale"),
             "timezoneId": ctx["context_options"].get("timezone_id"),
         },
-        "camouConfig": config,
+        "camouConfig": config_dict,
         "profileConfig": {
-            "fontSpacingSeed": config.get("fonts:spacing_seed", 0),
-            "audioSeed": config.get("audio:seed", 0),
-            "canvasSeed": config.get("canvas:seed", 0),
-            "screenWidth": screen.get("width", 1920),
-            "screenHeight": screen.get("height", 1080),
-            "screenColorDepth": screen.get("colorDepth", 24),
-            "navigatorPlatform": nav.get("platform", ""),
-            "navigatorOscpu": config.get("navigator.oscpu", ""),
-            "navigatorUserAgent": config.get("navigator.userAgent", ""),
-            "hardwareConcurrency": nav.get("hardwareConcurrency", 0),
-            "webglVendor": webgl.get("unmaskedVendor", ""),
-            "webglRenderer": webgl.get("unmaskedRenderer", ""),
-            "timezone": config.get("timezone", preset.get("timezone", "")),
-            "fontList": config.get("fonts", preset.get("fonts", [])),
-            "speechVoices": config.get("voices", preset.get("speechVoices", [])),
+            "fontSpacingSeed": getattr(fonts, "spacing_seed", None) or 0,
+            "audioSeed": getattr(audio, "seed", None) or 0,
+            "canvasSeed": getattr(canvas, "seed", None) or 0,
+            "screenWidth": getattr(screen, "width", None) or 1920,
+            "screenHeight": getattr(screen, "height", None) or 1080,
+            "screenColorDepth": getattr(screen, "color_depth", None) or 24,
+            "navigatorPlatform": getattr(navigator, "platform", None) or "",
+            "navigatorOscpu": getattr(navigator, "oscpu", None) or "",
+            "navigatorUserAgent": getattr(navigator, "user_agent", None) or "",
+            "hardwareConcurrency": getattr(navigator, "hardware_concurrency", None) or 0,
+            "webglVendor": getattr(web_gl, "vendor", None) or "",
+            "webglRenderer": getattr(web_gl, "renderer", None) or "",
+            "timezone": getattr(config, "timezone", None) or "",
+            "fontList": list(getattr(fonts, "families", None) or []),
+            "speechVoices": _voice_names(getattr(voices, "items", None)),
         },
     }
 
 
-def generate_presets() -> dict:
+def generate_presets() -> dict[str, Any]:
     try:
         from camoufox.fingerprints import generate_context_fingerprint
     except ImportError:
@@ -61,20 +91,17 @@ def generate_presets() -> dict:
         )
         sys.exit(1)
 
-    print("  Generating 3 macOS per-context profiles...")
-    mac_per_context = [convert_preset(generate_context_fingerprint(os="macos")) for _ in range(3)]
-    print("  Generating 3 Linux per-context profiles...")
-    linux_per_context = [convert_preset(generate_context_fingerprint(os="linux")) for _ in range(3)]
-    print("  Generating macOS global profile...")
-    mac_global = convert_preset(generate_context_fingerprint(os="macos"))
-    print("  Generating Linux global profile...")
-    linux_global = convert_preset(generate_context_fingerprint(os="linux"))
+    # Camoufox now generates only host-compatible macOS identities.
+    # Keep the tester profile counts the same, but source every profile from
+    # the supported macOS path.
+    print("  Generating 8 macOS per-context profiles...")
+    mac_per_context = [convert_preset(generate_context_fingerprint(os="macos")) for _ in range(8)]
 
     return {
         "macPerContext": mac_per_context,
-        "linuxPerContext": linux_per_context,
-        "macGlobal": mac_global,
-        "linuxGlobal": linux_global,
+        "linuxPerContext": [],
+        "macGlobal": None,
+        "linuxGlobal": None,
     }
 
 

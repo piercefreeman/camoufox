@@ -19,8 +19,8 @@ from typing import Any, Callable, cast
 from urllib.parse import parse_qs
 
 import pytest
-from playwright.async_api import Browser, BrowserContext, Error, FilePayload, Page
 
+from playwright.async_api import Browser, BrowserContext, Error, FilePayload, Page
 from tests.server import Server, TestServerRequest
 from tests.utils import must
 
@@ -53,7 +53,9 @@ async def test_fetch_should_work(context: BrowserContext, server: Server) -> Non
     assert await response.text() == '{"foo": "bar"}\n'
 
 
-async def test_should_throw_on_network_error(context: BrowserContext, server: Server) -> None:
+async def test_should_throw_on_network_error(
+    context: BrowserContext, server: Server
+) -> None:
     server.set_route("/test", lambda request: request.loseConnection())
     with pytest.raises(Error, match="socket hang up"):
         await context.request.fetch(server.PREFIX + "/test")
@@ -82,21 +84,67 @@ async def test_should_add_session_cookies_to_request(
     assert server_req.getHeader("Cookie") == "username=John Doe"
 
 
-@pytest.mark.parametrize("method", ["fetch", "delete", "get", "head", "patch", "post", "put"])
+@pytest.mark.parametrize(
+    "method", ["fetch", "delete", "get", "head", "patch", "post", "put"]
+)
 async def test_should_support_query_params(
     context: BrowserContext, server: Server, method: str
 ) -> None:
     expected_params = {"p1": "v1", "парам2": "знач2"}
     [server_req, _] = await asyncio.gather(
         server.wait_for_request("/empty.html"),
-        getattr(context.request, method)(server.EMPTY_PAGE + "?p1=foo", params=expected_params),
+        getattr(context.request, method)(
+            server.EMPTY_PAGE + "?p1=foo", params=expected_params
+        ),
     )
-    assert server_req.args["p1".encode()][0].decode() == "v1"
-    assert len(server_req.args["p1".encode()]) == 1
+    assert list(map(lambda x: x.decode(), server_req.args["p1".encode()])) == [
+        "foo",
+        "v1",
+    ]
     assert server_req.args["парам2".encode()][0].decode() == "знач2"
 
 
-@pytest.mark.parametrize("method", ["fetch", "delete", "get", "head", "patch", "post", "put"])
+@pytest.mark.parametrize(
+    "method", ["fetch", "delete", "get", "head", "patch", "post", "put"]
+)
+async def test_should_support_params_passed_as_object(
+    context: BrowserContext, server: Server, method: str
+) -> None:
+    params = {
+        "param1": "value1",
+        "парам2": "знач2",
+    }
+    [server_req, _] = await asyncio.gather(
+        server.wait_for_request("/empty.html"),
+        getattr(context.request, method)(server.EMPTY_PAGE, params=params),
+    )
+    assert server_req.args["param1".encode()][0].decode() == "value1"
+    assert len(server_req.args["param1".encode()]) == 1
+    assert server_req.args["парам2".encode()][0].decode() == "знач2"
+
+
+@pytest.mark.parametrize(
+    "method", ["fetch", "delete", "get", "head", "patch", "post", "put"]
+)
+async def test_should_support_params_passed_as_strings(
+    context: BrowserContext, server: Server, method: str
+) -> None:
+    params = "?param1=value1&param1=value2&парам2=знач2"
+    [server_req, _] = await asyncio.gather(
+        server.wait_for_request("/empty.html"),
+        getattr(context.request, method)(server.EMPTY_PAGE, params=params),
+    )
+    assert list(map(lambda x: x.decode(), server_req.args["param1".encode()])) == [
+        "value1",
+        "value2",
+    ]
+    assert len(server_req.args["param1".encode()]) == 2
+    assert server_req.args["парам2".encode()][0].decode() == "знач2"
+
+
+@pytest.mark.parametrize(
+    "method", ["fetch", "delete", "get", "head", "patch", "post", "put"]
+)
 async def test_should_support_fail_on_status_code(
     context: BrowserContext, server: Server, method: str
 ) -> None:
@@ -107,7 +155,9 @@ async def test_should_support_fail_on_status_code(
         )
 
 
-@pytest.mark.parametrize("method", ["fetch", "delete", "get", "head", "patch", "post", "put"])
+@pytest.mark.parametrize(
+    "method", ["fetch", "delete", "get", "head", "patch", "post", "put"]
+)
 async def test_should_support_ignore_https_errors_option(
     context: BrowserContext, https_server: Server, method: str
 ) -> None:
@@ -208,7 +258,9 @@ async def test_should_support_post_data(
     async def support_post_data(fetch_data: Any, request_post_data: Any) -> None:
         [request, response] = await asyncio.gather(
             server.wait_for_request("/simple.json"),
-            getattr(context.request, method)(server.PREFIX + "/simple.json", data=fetch_data),
+            getattr(context.request, method)(
+                server.PREFIX + "/simple.json", data=fetch_data
+            ),
         )
         assert request.method.decode() == method.upper()
         assert request.post_body == request_post_data
@@ -249,7 +301,9 @@ async def test_should_support_application_x_www_form_urlencoded(
     assert params[b"file"] == [b"f.js"]
 
 
-async def test_should_support_multipart_form_data(context: BrowserContext, server: Server) -> None:
+async def test_should_support_multipart_form_data(
+    context: BrowserContext, server: Server
+) -> None:
     file: FilePayload = {
         "name": "f.js",
         "mimeType": "text/javascript",
@@ -267,14 +321,17 @@ async def test_should_support_multipart_form_data(context: BrowserContext, serve
         ),
     )
     assert request.method == b"POST"
-    assert cast(str, request.getHeader("Content-Type")).startswith("multipart/form-data; ")
-    assert must(request.getHeader("Content-Length")) == str(len(must(request.post_body)))
+    assert cast(str, request.getHeader("Content-Type")).startswith(
+        "multipart/form-data; "
+    )
+    assert must(request.getHeader("Content-Length")) == str(
+        len(must(request.post_body))
+    )
     assert request.args[b"firstName"] == [b"John"]
     assert request.args[b"lastName"] == [b"Doe"]
     assert request.args[b"file"][0] == file["buffer"]
 
 
-@pytest.mark.skip(reason="Not supported by Camoufox")
 async def test_should_add_default_headers(
     context: BrowserContext, page: Page, server: Server
 ) -> None:
@@ -284,10 +341,14 @@ async def test_should_add_default_headers(
     )
     assert request.getHeader("Accept") == "*/*"
     assert request.getHeader("Accept-Encoding") == "gzip,deflate,br"
-    assert request.getHeader("User-Agent") == await page.evaluate("() => navigator.userAgent")
+    assert request.getHeader("User-Agent") == await page.evaluate(
+        "() => navigator.userAgent"
+    )
 
 
-async def test_should_work_after_context_dispose(context: BrowserContext, server: Server) -> None:
+async def test_should_work_after_context_dispose(
+    context: BrowserContext, server: Server
+) -> None:
     await context.close(reason="Test ended.")
     with pytest.raises(Error, match="Test ended."):
         await context.request.get(server.EMPTY_PAGE)
