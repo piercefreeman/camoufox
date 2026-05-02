@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import argparse
+import os
+import subprocess
 import shutil
 import stat
 import sys
 from pathlib import Path
-from zipfile import ZipFile
 
 
 EXECUTABLE_PATTERNS = (
@@ -16,17 +17,6 @@ EXECUTABLE_PATTERNS = (
     "**/camoufox-bin",
     "**/camoufox.exe",
 )
-
-MACH_O_MAGICS = {
-    b"\xfe\xed\xfa\xce",
-    b"\xce\xfa\xed\xfe",
-    b"\xfe\xed\xfa\xcf",
-    b"\xcf\xfa\xed\xfe",
-    b"\xca\xfe\xba\xbe",
-    b"\xbe\xba\xfe\xca",
-    b"\xca\xfe\xba\xbf",
-    b"\xbf\xba\xfe\xca",
-}
 
 
 def parse_args() -> argparse.Namespace:
@@ -76,31 +66,12 @@ def resolve_executable(extract_dir: Path) -> Path:
     raise SystemExit(f"Could not find a Camoufox executable under {extract_dir}")
 
 
-def looks_executable(path: Path) -> bool:
-    if not path.is_file():
-        return False
-
-    try:
-        with path.open("rb") as handle:
-            header = handle.read(8)
-    except OSError:
-        return False
-
-    if header.startswith(b"#!"):
-        return True
-    if header[:4] == b"\x7fELF":
-        return True
-    if header[:4] in MACH_O_MAGICS:
-        return True
-    return False
-
-
-def restore_executable_bits(extract_dir: Path) -> None:
-    for path in extract_dir.rglob("*"):
-        if not looks_executable(path):
-            continue
-        mode = path.stat().st_mode
-        path.chmod(mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+def extract_artifact(artifact: Path, extract_dir: Path) -> None:
+    if sys.platform == "darwin":
+        command = ["ditto", "-x", "-k", str(artifact), str(extract_dir)]
+    else:
+        command = ["unzip", "-q", str(artifact), "-d", str(extract_dir)]
+    subprocess.run(command, check=True, env=os.environ.copy())
 
 
 def write_output(path: Path, executable_path: Path) -> None:
@@ -117,11 +88,7 @@ def main() -> int:
         shutil.rmtree(extract_dir)
     extract_dir.mkdir(parents=True, exist_ok=True)
 
-    with ZipFile(artifact) as archive:
-        archive.extractall(extract_dir)
-
-    # Python's ZipFile extraction does not preserve Unix executable bits.
-    restore_executable_bits(extract_dir)
+    extract_artifact(artifact, extract_dir)
 
     executable = resolve_executable(extract_dir)
     print(executable)

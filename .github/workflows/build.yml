@@ -203,6 +203,11 @@ jobs:
       - name: Build
         run: python3 ./multibuild.py --target ${{ matrix.target }} --arch ${{ matrix.arch }}
 
+      - name: Repair macOS zip permissions
+        if: matrix.target == 'macos'
+        run: |
+          bash scripts/repair_macos_release_zip.sh dist/*.zip
+
       - name: Inspect built archives
         run: |
           echo "PWD=$(pwd)"

@@ -4,7 +4,6 @@ from pathlib import Path
 
 import pytest
 
-from __tests__.integration_probe import get_external_executable_bootstrap_failure
 import run_tests as service_tester
 
 pytestmark = pytest.mark.integration
@@ -39,8 +38,6 @@ def test_service_tester_integration(pytestconfig: pytest.Config) -> None:
     executable_path = os.getenv("CAMOUFOX_EXECUTABLE_PATH")
     if not executable_path:
         pytest.skip("Service tester requires CAMOUFOX_EXECUTABLE_PATH.")
-    if bootstrap_failure := get_external_executable_bootstrap_failure(executable_path):
-        pytest.xfail(bootstrap_failure)
 
     exit_code = asyncio.run(
         service_tester.run_tests(
