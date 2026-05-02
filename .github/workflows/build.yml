@@ -2,6 +2,15 @@ name: Build and Release
 
 on:
   workflow_dispatch:
+    inputs:
+      runner_profile:
+        description: Runner profile to use for build and integration jobs
+        required: false
+        default: standard
+        type: choice
+        options:
+          - standard
+          - fast
   pull_request:
     types: [opened, reopened, synchronize, labeled]
   push:
@@ -19,8 +28,37 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+    outputs:
+      runner_profile: ${{ steps.runner-profile.outputs.runner_profile }}
 
     steps:
+      - name: Resolve runner profile
+        id: runner-profile
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          WORKFLOW_DISPATCH_RUNNER_PROFILE: ${{ github.event.inputs.runner_profile || 'standard' }}
+          PR_LABELS_JSON: ${{ toJson(github.event.pull_request.labels.*.name) }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          event_name = os.environ["EVENT_NAME"]
+          runner_profile = "standard"
+
+          if event_name == "workflow_dispatch":
+              runner_profile = os.environ["WORKFLOW_DISPATCH_RUNNER_PROFILE"] or "standard"
+          elif event_name == "pull_request":
+              labels = set(json.loads(os.environ.get("PR_LABELS_JSON") or "[]"))
+              if "full-build-fast" in labels:
+                  runner_profile = "fast"
+
+          github_output = Path(os.environ["GITHUB_OUTPUT"])
+          with github_output.open("a", encoding="utf-8") as fh:
+              fh.write(f"runner_profile={runner_profile}\n")
+          PY
+
       - name: Ensure tag release exists
         if: github.event_name == 'push' || github.event_name == 'release'
         env:
@@ -46,8 +84,8 @@ jobs:
 
   build:
     needs: prepare-release
-    name: Build ${{ matrix.target }} ${{ matrix.arch }}
-    if: github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-build')
+    name: Build ${{ matrix.target }} ${{ matrix.arch }} (${{ needs.prepare-release.outputs.runner_profile }})
+    if: github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-build') || contains(github.event.pull_request.labels.*.name, 'full-build-fast')
     permissions:
       contents: write
     strategy:
@@ -57,17 +95,21 @@ jobs:
           - target: linux
             arch: x86_64
             runner: ubuntu-24.04
+            runner_fast: ubuntu-24.04-8core
           - target: linux
             arch: arm64
             runner: ubuntu-24.04-arm
+            runner_fast: ubuntu-24.04-arm-8core
           - target: macos
             arch: arm64
             runner: macos-26
+            runner_fast: macos-26-xlarge
           - target: macos
             arch: x86_64
             runner: macos-26-intel
+            runner_fast: macos-26-large
 
-    runs-on: ${{ matrix.runner }}
+    runs-on: ${{ needs.prepare-release.outputs.runner_profile == 'fast' && matrix.runner_fast || matrix.runner }}
 
     steps:
       - name: Maximize build space
@@ -255,9 +297,11 @@ jobs:
           limit-access-to-actor: true
 
   integration:
-    needs: build
-    name: Integration ${{ matrix.target }} ${{ matrix.arch }}
-    if: github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-build')
+    needs:
+      - prepare-release
+      - build
+    name: Integration ${{ matrix.target }} ${{ matrix.arch }} (${{ needs.prepare-release.outputs.runner_profile }})
+    if: github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-build') || contains(github.event.pull_request.labels.*.name, 'full-build-fast')
     strategy:
       fail-fast: false
       matrix:
@@ -265,17 +309,21 @@ jobs:
           - target: linux
             arch: x86_64
             runner: ubuntu-24.04
+            runner_fast: ubuntu-24.04-8core
           - target: linux
             arch: arm64
             runner: ubuntu-24.04-arm
+            runner_fast: ubuntu-24.04-arm-8core
           - target: macos
             arch: arm64
             runner: macos-26
+            runner_fast: macos-26-xlarge
           - target: macos
             arch: x86_64
             runner: macos-26-intel
+            runner_fast: macos-26-large
 
-    runs-on: ${{ matrix.runner }}
+    runs-on: ${{ needs.prepare-release.outputs.runner_profile == 'fast' && matrix.runner_fast || matrix.runner }}
 
     steps:
       - uses: actions/checkout@v4
