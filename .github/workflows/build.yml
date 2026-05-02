@@ -104,10 +104,13 @@ jobs:
             arch: arm64
             runner: macos-26
             runner_fast: macos-26-xlarge
-          - target: macos
-            arch: x86_64
-            runner: macos-26-intel
-            runner_fast: macos-26-large
+          # Intel macOS builds are intentionally disabled:
+          # Apple has effectively deprecated Intel Macs, and the CI lane is slow
+          # and unstable enough that it no longer justifies the build time/cost.
+          # - target: macos
+          #   arch: x86_64
+          #   runner: macos-26-intel
+          #   runner_fast: macos-26-large
 
     runs-on: ${{ needs.prepare-release.outputs.runner_profile == 'fast' && matrix.runner_fast || matrix.runner }}
 
@@ -318,10 +321,12 @@ jobs:
             arch: arm64
             runner: macos-26
             runner_fast: macos-26-xlarge
-          - target: macos
-            arch: x86_64
-            runner: macos-26-intel
-            runner_fast: macos-26-large
+          # Intel macOS integration is intentionally disabled alongside the
+          # build lane for the same deprecation and CI cost/stability reasons.
+          # - target: macos
+          #   arch: x86_64
+          #   runner: macos-26-intel
+          #   runner_fast: macos-26-large
 
     runs-on: ${{ needs.prepare-release.outputs.runner_profile == 'fast' && matrix.runner_fast || matrix.runner }}
 
