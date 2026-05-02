@@ -48,6 +48,8 @@ closedsrc
 
 .venv
 *.pem
+# Playwright integration tests depend on committed TLS fixtures under __tests__/playwright.
+!__tests__/playwright/**/*.pem
 .DS_store
 
 # Build outputs
