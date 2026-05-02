@@ -5,6 +5,8 @@ from pathlib import Path
 
 import pytest
 
+from __tests__.integration_probe import get_external_executable_bootstrap_failure
+
 pytestmark = pytest.mark.integration
 
 BUILD_TESTER_DIR = Path(__file__).resolve().parent
@@ -18,6 +20,8 @@ def test_build_tester_integration(pytestconfig: pytest.Config) -> None:
     executable_path = os.getenv("CAMOUFOX_EXECUTABLE_PATH")
     if not executable_path:
         pytest.skip("Build tester requires CAMOUFOX_EXECUTABLE_PATH.")
+    if bootstrap_failure := get_external_executable_bootstrap_failure(executable_path):
+        pytest.xfail(bootstrap_failure)
 
     command = [
         sys.executable,

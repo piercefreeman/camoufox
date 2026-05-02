@@ -31,6 +31,8 @@ from pixelmatch import pixelmatch
 from pixelmatch.contrib.PIL import from_PIL_to_raw_data
 from playwright._impl._path_utils import get_file_dirname
 
+from __tests__.integration_probe import get_external_executable_bootstrap_failure
+
 from .server import Server, test_server
 
 _dirname = get_file_dirname()
@@ -61,11 +63,22 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
     skip_integration = pytest.mark.skip(
         reason="Playwright integration tests are disabled; pass --integration to run them."
     )
+    playwright_root = _dirname.resolve()
+    executable_path = os.getenv("CAMOUFOX_EXECUTABLE_PATH")
+    bootstrap_failure = None
+    if integration_enabled and executable_path:
+        bootstrap_failure = get_external_executable_bootstrap_failure(executable_path)
 
     for item in items:
+        item_path = Path(str(getattr(item, "path", item.fspath))).resolve()
+        if not item_path.is_relative_to(playwright_root):
+            continue
+
         item.add_marker(pytest.mark.integration)
         if not integration_enabled:
             item.add_marker(skip_integration)
+        elif bootstrap_failure:
+            item.add_marker(pytest.mark.skip(reason=bootstrap_failure))
 
 
 def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
