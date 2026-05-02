@@ -17,6 +17,17 @@ EXECUTABLE_PATTERNS = (
     "**/camoufox.exe",
 )
 
+MACH_O_MAGICS = {
+    b"\xfe\xed\xfa\xce",
+    b"\xce\xfa\xed\xfe",
+    b"\xfe\xed\xfa\xcf",
+    b"\xcf\xfa\xed\xfe",
+    b"\xca\xfe\xba\xbe",
+    b"\xbe\xba\xfe\xca",
+    b"\xca\xfe\xba\xbf",
+    b"\xbf\xba\xfe\xca",
+}
+
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
@@ -65,6 +76,33 @@ def resolve_executable(extract_dir: Path) -> Path:
     raise SystemExit(f"Could not find a Camoufox executable under {extract_dir}")
 
 
+def looks_executable(path: Path) -> bool:
+    if not path.is_file():
+        return False
+
+    try:
+        with path.open("rb") as handle:
+            header = handle.read(8)
+    except OSError:
+        return False
+
+    if header.startswith(b"#!"):
+        return True
+    if header[:4] == b"\x7fELF":
+        return True
+    if header[:4] in MACH_O_MAGICS:
+        return True
+    return False
+
+
+def restore_executable_bits(extract_dir: Path) -> None:
+    for path in extract_dir.rglob("*"):
+        if not looks_executable(path):
+            continue
+        mode = path.stat().st_mode
+        path.chmod(mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+
+
 def write_output(path: Path, executable_path: Path) -> None:
     with path.open("a", encoding="utf-8") as handle:
         handle.write(f"executable_path={executable_path}\n")
@@ -81,6 +119,9 @@ def main() -> int:
 
     with ZipFile(artifact) as archive:
         archive.extractall(extract_dir)
+
+    # Python's ZipFile extraction does not preserve Unix executable bits.
+    restore_executable_bits(extract_dir)
 
     executable = resolve_executable(extract_dir)
     print(executable)

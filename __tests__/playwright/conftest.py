@@ -24,7 +24,6 @@ from pathlib import Path
 from typing import Any, Callable, Dict, Generator, List, Optional, cast
 
 import playwright
-import playwright._impl._path_utils
 import pytest
 from PIL import Image
 from pixelmatch import pixelmatch
@@ -36,26 +35,6 @@ from __tests__.integration_probe import get_external_executable_bootstrap_failur
 from .server import Server, test_server
 
 _dirname = get_file_dirname()
-
-
-"""
-Patch playwright to not rely on module path for assets.
-"""
-
-original_get_file_dirname = playwright._impl._path_utils.get_file_dirname
-
-
-@pytest.hookimpl(tryfirst=True)
-def pytest_configure(config: pytest.Config) -> None:
-    def patched_get_file_dirname():
-        return _dirname
-
-    playwright._impl._path_utils.get_file_dirname = patched_get_file_dirname
-
-
-@pytest.hookimpl(trylast=True)
-def pytest_unconfigure(config: pytest.Config) -> None:
-    playwright._impl._path_utils.get_file_dirname = original_get_file_dirname
 
 
 def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:

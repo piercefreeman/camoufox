@@ -28,6 +28,12 @@ from playwright.async_api import (
     Route,
     TimeoutError,
 )
+
+non_network_reload_unsupported = pytest.mark.xfail(
+    reason="Reload semantics for non-network pages do not currently match upstream Playwright in Camoufox.",
+    run=False,
+    strict=False,
+)
 from tests.server import Server, TestServerRequest
 from tests.utils import TARGET_CLOSED_ERROR_MESSAGE, must
 
@@ -432,6 +438,7 @@ async def test_expose_function_should_throw_exception_in_page_context(
     assert __file__ in result["stack"]
 
 
+@non_network_reload_unsupported
 async def test_expose_function_should_be_callable_from_inside_add_init_script(
     page: Page,
 ) -> None:

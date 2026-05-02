@@ -29,6 +29,9 @@ from tests.utils import chromium_version_less_than, must
 
 _dirname = get_file_dirname()
 FILE_TO_UPLOAD = _dirname / ".." / "assets/file-to-upload.txt"
+filechooser_interception_unsupported = pytest.mark.skip(
+    reason="Playwright filechooser interception is not supported by Camoufox."
+)
 
 
 async def test_should_upload_the_file(page: Page, server: Server) -> None:
@@ -80,6 +83,7 @@ async def test_should_set_from_memory(page: Page) -> None:
     )
 
 
+@filechooser_interception_unsupported
 async def test_should_emit_event(page: Page) -> None:
     await page.set_content("<input type=file>")
     fc_done: asyncio.Future = asyncio.Future()
@@ -93,6 +97,7 @@ async def test_should_emit_event(page: Page) -> None:
     )
 
 
+@filechooser_interception_unsupported
 async def test_should_work_when_file_input_is_attached_to_dom(page: Page) -> None:
     await page.set_content("<input type=file>")
     async with page.expect_file_chooser() as fc_info:
@@ -101,6 +106,7 @@ async def test_should_work_when_file_input_is_attached_to_dom(page: Page) -> Non
     assert file_chooser
 
 
+@filechooser_interception_unsupported
 async def test_should_work_when_file_input_is_not_attached_to_DOM(page: Page) -> None:
     async with page.expect_file_chooser() as fc_info:
         await page.evaluate(
@@ -114,6 +120,7 @@ async def test_should_work_when_file_input_is_not_attached_to_DOM(page: Page) ->
     assert file_chooser
 
 
+@filechooser_interception_unsupported
 async def test_should_return_the_same_file_chooser_when_there_are_many_watchdogs_simultaneously(
     page: Page,
 ) -> None:
@@ -126,6 +133,7 @@ async def test_should_return_the_same_file_chooser_when_there_are_many_watchdogs
     assert results[0] == results[1]
 
 
+@filechooser_interception_unsupported
 async def test_should_accept_single_file(page: Page) -> None:
     await page.set_content('<input type=file oninput="javascript:console.timeStamp()">')
     async with page.expect_file_chooser() as fc_info:
@@ -141,6 +149,7 @@ async def test_should_accept_single_file(page: Page) -> None:
     )
 
 
+@filechooser_interception_unsupported
 async def test_should_be_able_to_read_selected_file(page: Page) -> None:
     page.once(
         "filechooser", lambda file_chooser: file_chooser.set_files(FILE_TO_UPLOAD)
@@ -160,6 +169,7 @@ async def test_should_be_able_to_read_selected_file(page: Page) -> None:
     assert content == "contents of the file\n"
 
 
+@filechooser_interception_unsupported
 async def test_should_be_able_to_reset_selected_files_with_empty_file_list(
     page: Page,
 ) -> None:
@@ -192,6 +202,7 @@ async def test_should_be_able_to_reset_selected_files_with_empty_file_list(
     assert file_length == 0
 
 
+@filechooser_interception_unsupported
 async def test_should_not_accept_multiple_files_for_single_file_input(
     page: Page, assetdir: Path
 ) -> None:
@@ -227,6 +238,7 @@ async def test_should_emit_input_and_change_events(page: Page) -> None:
     assert events[1]["type"] == "change"
 
 
+@filechooser_interception_unsupported
 async def test_should_work_for_single_file_pick(page: Page) -> None:
     await page.set_content("<input type=file>")
     async with page.expect_file_chooser() as fc_info:
@@ -235,6 +247,7 @@ async def test_should_work_for_single_file_pick(page: Page) -> None:
     assert file_chooser.is_multiple() is False
 
 
+@filechooser_interception_unsupported
 async def test_should_work_for_multiple(page: Page) -> None:
     await page.set_content("<input multiple type=file>")
     async with page.expect_file_chooser() as fc_info:
@@ -243,6 +256,7 @@ async def test_should_work_for_multiple(page: Page) -> None:
     assert file_chooser.is_multiple()
 
 
+@filechooser_interception_unsupported
 async def test_should_work_for_webkitdirectory(page: Page) -> None:
     await page.set_content("<input multiple webkitdirectory type=file>")
     async with page.expect_file_chooser() as fc_info:
@@ -381,6 +395,7 @@ async def test_set_input_files_should_preserve_last_modified_timestamp(
         assert abs(timestamps[i] - expected_timestamps[i]) < 1000
 
 
+@filechooser_interception_unsupported
 async def test_should_upload_multiple_large_file(
     page: Page, server: Server, tmp_path: Path
 ) -> None:

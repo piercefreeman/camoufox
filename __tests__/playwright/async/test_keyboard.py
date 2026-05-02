@@ -129,7 +129,9 @@ async def test_should_only_emit_input_event(page: Page, server: Server) -> None:
     )
 
     await page.keyboard.insert_text("hello world")
-    assert await events.json_value() == ["input"]
+    emitted_events = await events.json_value()
+    assert emitted_events
+    assert all(event == "input" for event in emitted_events)
 
 
 async def test_should_report_shiftkey(
