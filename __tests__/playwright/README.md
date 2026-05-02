@@ -22,7 +22,7 @@ From the repo root, sync the shared `pythonlib`-backed `uv` environment:
 
 ```bash
 uv sync --group dev --group playwright-tests --locked
-uv run --group dev --group playwright-tests python -m playwright install firefox
+uv run --group dev --group playwright-tests python -m playwright install firefox ffmpeg
 ```
 
 ### Running the tests

@@ -379,6 +379,9 @@ jobs:
       - name: Sync integration test environment
         run: uv sync --group dev --group playwright-tests --locked
 
+      - name: Install Playwright ffmpeg
+        run: uv run --group dev --group playwright-tests --locked playwright install ffmpeg
+
       - name: Install Linux runtime dependencies
         if: matrix.target == 'linux'
         run: |
