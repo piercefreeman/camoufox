@@ -21,6 +21,8 @@ import pytest
 from playwright.async_api import BrowserType
 from tests.server import Server
 
+pytestmark = pytest.mark.requires_display
+
 
 async def test_should_have_default_url_when_launching_browser(
     browser_type: BrowserType, launch_arguments: Dict, tmp_path: Path

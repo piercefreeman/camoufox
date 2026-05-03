@@ -1,13 +1,9 @@
 from __future__ import annotations
 
 import json
-import platform
 import re
-import subprocess
-import sys
-from collections.abc import Iterable, Sequence
 from dataclasses import asdict, dataclass
-from random import randint, randrange, sample
+from random import randrange
 from typing import Any, ClassVar, cast
 
 from browserforge.fingerprints import (
@@ -17,16 +13,18 @@ from browserforge.fingerprints import (
 )
 
 from ._generated_profile import (
-    AudioProfile,
     CamoufoxProfile,
-    CanvasProfile,
-    FontsProfile,
     LocaleProfile,
     NavigatorProfile,
     ScreenProfile,
-    SpeechVoice,
-    VoicesProfile,
     WindowProfile,
+)
+from .fingerprinting.common import HostTargetOS, LINUX, MACOS, TargetOS, WINDOWS
+from .fingerprinting import (
+    HostFingerprintAdapter,
+    current_host_target_os,
+    get_host_adapter,
+    normalize_target_os,
 )
 
 _GENERATED_FINGERPRINT_IDS: set[int] = set()
@@ -45,8 +43,9 @@ def generate_context_fingerprint(
     """
     Build the per-context fingerprint payload used by `BrowserContext.add_init_script()`.
 
-    When `preset` is omitted, BrowserForge generates the Firefox/macOS
-    skeleton and Camoufox normalizes it into a smaller host-compatible config.
+    When `preset` is omitted, BrowserForge generates the Firefox skeleton for
+    the current host OS and Camoufox normalizes it into a smaller
+    host-compatible config.
     When `fingerprint` is provided, that BrowserForge fingerprint is reused
     directly so the caller can keep browser-launch and per-context geometry in
     sync.
@@ -58,22 +57,24 @@ def generate_context_fingerprint(
     - `context_options`: the Playwright context kwargs derived from that config
     - `init_script`: the JavaScript initializer that applies per-context values
     """
-    compiler = _FirefoxFingerprintCompiler.current()
     _debug_log(debug, "Preparing fingerprinted browser context.")
 
     if fingerprint is not None and preset is not None:
         raise ValueError("Pass either `fingerprint` or `preset`, not both.")
 
     if fingerprint is not None:
+        compiler = _FirefoxFingerprintCompiler.current(_browserforge_target_os(fingerprint))
         _debug_log(debug, "Reusing caller-supplied BrowserForge fingerprint.")
         config = compiler.compile_browserforge(fingerprint, ff_version)
         screen = compiler.screen_from_browserforge(fingerprint, config)
     elif preset is None:
+        compiler = _FirefoxFingerprintCompiler.current(os)
         _debug_log(debug, "Generating BrowserForge Firefox skeleton.")
         fingerprint = generate_fingerprint(os=os, debug=debug)
         config = compiler.compile_browserforge(fingerprint, ff_version)
         screen = compiler.screen_from_browserforge(fingerprint, config)
     else:
+        compiler = _FirefoxFingerprintCompiler.current(_preset_target_os(preset))
         _debug_log(debug, "Compiling explicit preset through the host-compatibility layer.")
         config = compiler.compile_preset(preset, ff_version)
         screen = compiler.screen_from_preset(preset, config)
@@ -108,14 +109,15 @@ def generate_fingerprint(
     **config: Any,
 ) -> Fingerprint:
     """
-    Generate a BrowserForge Firefox fingerprint constrained to the real macOS host.
+    Generate a BrowserForge Firefox fingerprint constrained to the real host OS.
 
     This is the lowest-level public constructor for the active fingerprint flow.
     The generated object still looks like BrowserForge output; call
     `from_browserforge()` to compile it into a Camoufox config map.
     """
-    _debug_log(debug, f"Requesting BrowserForge fingerprint for os={config.get('os') or 'macos'}.")
-    fingerprint = _FirefoxFingerprintCompiler.current().generate(window=window, **config)
+    requested_os = config.get("os") or current_host_target_os()
+    _debug_log(debug, f"Requesting BrowserForge fingerprint for os={requested_os}.")
+    fingerprint = _FirefoxFingerprintCompiler.current(requested_os).generate(window=window, **config)
     _GENERATED_FINGERPRINT_IDS.add(id(fingerprint))
     _debug_log(debug, "BrowserForge fingerprint generated successfully.")
     return fingerprint
@@ -127,9 +129,12 @@ def from_browserforge(fingerprint: Fingerprint, ff_version: str | None = None) -
 
     Only a small set of values are carried forward: Firefox navigator fields,
     screen/window geometry, timezone/locale, noise seeds, and the sampled font
-    and voice inventories that are actually present on the local macOS host.
+    and voice inventories that are actually present on the local host.
     """
-    return _FirefoxFingerprintCompiler.current().compile_browserforge(fingerprint, ff_version)
+    return _FirefoxFingerprintCompiler.current(_browserforge_target_os(fingerprint)).compile_browserforge(
+        fingerprint,
+        ff_version,
+    )
 
 
 def from_preset(preset: dict[str, Any], ff_version: str | None = None) -> CamoufoxProfile:
@@ -140,7 +145,10 @@ def from_preset(preset: dict[str, Any], ff_version: str | None = None) -> Camouf
     Camoufox to normalize it the same way as BrowserForge output. Camoufox no
     longer ships a bundled preset corpus.
     """
-    return _FirefoxFingerprintCompiler.current().compile_preset(preset, ff_version)
+    return _FirefoxFingerprintCompiler.current(_preset_target_os(preset)).compile_preset(
+        preset,
+        ff_version,
+    )
 
 
 def is_generated_fingerprint(fingerprint: Fingerprint) -> bool:
@@ -155,55 +163,6 @@ def _debug_log(enabled: bool, message: str) -> None:
         print(f"[camoufox:fingerprint] {message}")
 
 
-_HOST_ARCH_MAP = {
-    "aarch64": "arm64",
-    "amd64": "x86_64",
-    "arm64": "arm64",
-    "i386": "i686",
-    "i686": "i686",
-    "x86": "x86_64",
-    "x86_64": "x86_64",
-}
-
-_SYSTEM_FONT_PREFIXES = (
-    "/System/Library/Fonts",
-    "/System/Library/AssetsV2",
-    "/Library/Apple/System/Library/Fonts",
-)
-
-_COMMON_MACOS_SCREEN_SIZES: tuple[tuple[int, int], ...] = (
-    (1280, 800),
-    (1440, 900),
-    (1512, 982),
-    (1680, 1050),
-    (1728, 1117),
-    (1792, 1120),
-    (1920, 1080),
-    (2048, 1280),
-    (2560, 1600),
-    (2560, 1664),
-    (3024, 1964),
-    (3456, 2234),
-)
-
-_MACOS_MARKER_FONTS = ("Helvetica Neue", "PingFang HK", "PingFang SC", "PingFang TC")
-_FOREIGN_OS_MARKER_FONTS = {
-    "Arimo",
-    "Cambria Math",
-    "Cantarell",
-    "Cousine",
-    "DejaVu Sans",
-    "HoloLens MDL2 Assets",
-    "Leelawadee UI",
-    "Liberation Sans",
-    "Nirmala UI",
-    "Noto Color Emoji",
-    "Segoe Fluent Icons",
-    "Segoe UI",
-    "Ubuntu",
-}
-
-
 @dataclass(frozen=True)
 class _CompiledScreen:
     width: int | None
@@ -213,83 +172,28 @@ class _CompiledScreen:
 
 
 @dataclass(frozen=True)
-class _FontRecord:
-    family: str
-    path: str
-
-
-@dataclass(frozen=True)
-class _MacOSHostProfile:
-    architecture: str
-    gpu_vendor: str | None
-    gpu_family: str | None
-    bundled_fonts: tuple[str, ...]
-    extra_fonts: tuple[str, ...]
-    bundled_voices: tuple[str, ...]
-    extra_voices: tuple[str, ...]
-
-    _cached: ClassVar[_MacOSHostProfile | None] = None
-
-    @classmethod
-    def current(cls) -> _MacOSHostProfile:
-        if cls._cached is None:
-            cls._cached = cls._probe()
-        return cls._cached
-
-    @classmethod
-    def _probe(cls) -> _MacOSHostProfile:
-        _normalize_target_os("macos")
-
-        gpu_vendor, gpu_family = _probe_gpu_family()
-        fonts = _probe_fonts()
-        voices = _probe_voices()
-
-        bundled_fonts = tuple(record.family for record in fonts if _is_system_font(record.path))
-        extra_fonts = tuple(record.family for record in fonts if not _is_system_font(record.path))
-        bundled_voices = tuple(name for name in voices if _is_bundled_voice(name))
-        extra_voices = tuple(name for name in voices if not _is_bundled_voice(name))
-
-        return cls(
-            architecture=_normalize_architecture(platform.machine()),
-            gpu_vendor=gpu_vendor,
-            gpu_family=gpu_family,
-            bundled_fonts=_dedupe(bundled_fonts),
-            extra_fonts=_dedupe(extra_fonts),
-            bundled_voices=_dedupe(bundled_voices),
-            extra_voices=_dedupe(extra_voices),
-        )
-
-    def sample_fonts(self) -> list[str]:
-        fonts = list(self.bundled_fonts)
-        filtered_extras = [
-            family for family in self.extra_fonts if family not in _FOREIGN_OS_MARKER_FONTS
-        ]
-        fonts.extend(_sample_extras(filtered_extras))
-        for marker in _MACOS_MARKER_FONTS:
-            if marker in self.bundled_fonts and marker not in fonts:
-                fonts.append(marker)
-        return _dedupe_list(fonts)
-
-    def sample_voices(self) -> list[str]:
-        voices = list(self.bundled_voices)
-        voices.extend(_sample_extras(self.extra_voices))
-        return _dedupe_list(voices)
-
-
-@dataclass(frozen=True)
 class _FirefoxFingerprintCompiler:
+    target_os: HostTargetOS
+    host: HostFingerprintAdapter
     generator: FingerprintGenerator
 
-    _cached: ClassVar[_FirefoxFingerprintCompiler | None] = None
+    _cached: ClassVar[dict[HostTargetOS, "_FirefoxFingerprintCompiler"]] = {}
 
     @classmethod
-    def current(cls) -> _FirefoxFingerprintCompiler:
-        if cls._cached is None:
-            cls._cached = cls(generator=FingerprintGenerator(browser="firefox", os=("macos",)))
-        return cls._cached
+    def current(cls, target_os: Any | None = None) -> _FirefoxFingerprintCompiler:
+        normalized = normalize_target_os(target_os)
+        cached = cls._cached.get(normalized)
+        if cached is None:
+            cached = cls(
+                target_os=normalized,
+                host=get_host_adapter(normalized),
+                generator=FingerprintGenerator(browser="firefox", os=(normalized,)),
+            )
+            cls._cached[normalized] = cached
+        return cached
 
     def generate(self, window: tuple[int, int] | None = None, **config: Any) -> Fingerprint:
-        config["os"] = _normalize_target_os(config.get("os"))
+        config["os"] = normalize_target_os(config.get("os") or self.target_os)
         fingerprint = self.generator.generate(**config)
         if window:
             _apply_window_override(fingerprint, *window)
@@ -300,6 +204,7 @@ class _FirefoxFingerprintCompiler:
         fingerprint: Fingerprint,
         ff_version: str | None,
     ) -> CamoufoxProfile:
+        normalize_target_os(_browserforge_target_os(fingerprint))
         source = asdict(fingerprint)
         navigator = source.get("navigator", {})
         screen = asdict(fingerprint.screen)
@@ -310,11 +215,11 @@ class _FirefoxFingerprintCompiler:
             window=_window_from_mapping(screen),
         )
         _copy_screen_offsets(profile, fingerprint.screen)
-        self._finalize_config(profile)
+        self.host.finalize_config(profile)
         return profile
 
     def compile_preset(self, preset: dict[str, Any], ff_version: str | None) -> CamoufoxProfile:
-        _normalize_target_os(_preset_target_os(preset))
+        normalize_target_os(_preset_target_os(preset))
 
         navigator = preset.get("navigator", {})
         screen = preset.get("screen", {})
@@ -361,7 +266,7 @@ class _FirefoxFingerprintCompiler:
         if isinstance(device_pixel_ratio, int | float):
             window_profile.device_pixel_ratio = float(device_pixel_ratio)
 
-        self._finalize_config(profile)
+        self.host.finalize_config(profile)
         return profile
 
     def screen_from_browserforge(
@@ -515,12 +420,6 @@ class _FirefoxFingerprintCompiler:
         lines.append("})();")
         return "\n".join(lines)
 
-    def _finalize_config(self, config: CamoufoxProfile) -> None:
-        _ensure_oscpu(config)
-        _snap_screen_to_common_macos_sizes(config)
-        _merge_host_inventories(config, _MacOSHostProfile.current())
-        _merge_seed_values(config)
-
 
 def _apply_locale_override(config: CamoufoxProfile, locale: str) -> None:
     from .locales import normalize_locale
@@ -533,49 +432,6 @@ def _apply_locale_override(config: CamoufoxProfile, locale: str) -> None:
     config.navigator.language = parsed.as_string
     if parsed.script:
         config.locale.script = parsed.script
-
-
-def _normalize_target_os(value: Any | None) -> str:
-    candidates: Sequence[str]
-    if value is None:
-        candidates = ("macos",)
-    elif isinstance(value, str):
-        candidates = (value,)
-    else:
-        candidates = tuple(value)
-
-    for candidate in candidates:
-        if candidate != "macos":
-            raise NotImplementedError(
-                f'Camoufox fingerprinting currently supports only the real macOS host. Refusing "{candidate}".'
-            )
-
-    if sys.platform != "darwin":
-        raise NotImplementedError("Camoufox fingerprinting is currently implemented only for macOS hosts.")
-
-    return "macos"
-
-
-def _normalize_architecture(machine: str) -> str:
-    return _HOST_ARCH_MAP.get(machine.lower(), machine.lower())
-
-
-def _dedupe(items: Iterable[str]) -> tuple[str, ...]:
-    return tuple(dict.fromkeys(item for item in items if item))
-
-
-def _dedupe_list(items: Iterable[str]) -> list[str]:
-    return list(_dedupe(items))
-
-
-def _sample_extras(items: Sequence[str]) -> list[str]:
-    if not items:
-        return []
-
-    count = randint(0, min(50, len(items)))  # nosec
-    if count == 0:
-        return []
-    return sample(list(items), count)
 
 
 def _as_optional_int(value: Any) -> int | None:
@@ -692,27 +548,6 @@ def _compiled_screen_from_profile(config: CamoufoxProfile, source_screen: dict[s
         or _extract_device_pixel_ratio(source_screen),
     )
 
-
-def _merge_seed_values(config: CamoufoxProfile) -> None:
-    config.fonts = config.fonts or FontsProfile()
-    config.audio = config.audio or AudioProfile()
-    config.canvas = config.canvas or CanvasProfile()
-    if config.fonts.spacing_seed is None:
-        config.fonts.spacing_seed = randint(1, 4_294_967_295)  # nosec
-    if config.audio.seed is None:
-        config.audio.seed = randint(1, 4_294_967_295)  # nosec
-    if config.canvas.seed is None:
-        config.canvas.seed = randint(1, 4_294_967_295)  # nosec
-
-
-def _merge_host_inventories(config: CamoufoxProfile, host: _MacOSHostProfile) -> None:
-    config.fonts = config.fonts or FontsProfile()
-    config.voices = config.voices or VoicesProfile()
-    config.fonts.families = host.sample_fonts()
-    sampled_voices: list[str | SpeechVoice] = list(host.sample_voices())
-    config.voices.items = sampled_voices
-
-
 def _copy_screen_offsets(config: CamoufoxProfile, screen: ScreenFingerprint) -> None:
     config.window = config.window or WindowProfile()
     if config.window.screen_x is None:
@@ -744,17 +579,6 @@ def _apply_window_override(fingerprint: Fingerprint, outer_width: int, outer_hei
     if hasattr(screen, "screenY"):
         cast(Any, screen).screenY = max((screen.height - outer_height) // 2, 0)
 
-
-def _ensure_oscpu(config: CamoufoxProfile) -> None:
-    if not config.navigator:
-        return
-    if config.navigator.oscpu:
-        return
-
-    if config.navigator.platform == "MacIntel":
-        config.navigator.oscpu = "Intel Mac OS X 10.15"
-
-
 def _patch_firefox_version(value: str, ff_version: str | None) -> str:
     if not ff_version:
         return value
@@ -769,154 +593,33 @@ def _derive_app_version(user_agent: str) -> str:
         return "5.0"
     return f"5.0 ({match.group(1)})"
 
-
-def _snap_screen_to_common_macos_sizes(config: CamoufoxProfile) -> None:
-    if not config.screen:
-        return
-
-    width = _as_optional_int(config.screen.width)
-    height = _as_optional_int(config.screen.height)
-    if width is None or height is None:
-        return
-
-    snapped_width, snapped_height = min(
-        _COMMON_MACOS_SCREEN_SIZES,
-        key=lambda size: abs(size[0] - width) + abs(size[1] - height),
+def _preset_target_os(preset: dict[str, Any]) -> TargetOS:
+    navigator = preset.get("navigator", {})
+    return _infer_target_os(
+        navigator.get("platform"),
+        navigator.get("oscpu"),
+        navigator.get("userAgent"),
     )
 
-    config.screen.width = snapped_width
-    config.screen.height = snapped_height
-    config.screen.avail_width = snapped_width
-    config.screen.avail_height = snapped_height
 
-    if not config.window:
-        return
-
-    outer_width = _as_optional_int(config.window.outer_width)
-    inner_width = _as_optional_int(config.window.inner_width)
-    if outer_width is not None:
-        width_delta = outer_width - inner_width if inner_width is not None else 0
-        config.window.outer_width = min(outer_width, snapped_width)
-        if inner_width is not None:
-            config.window.inner_width = max(config.window.outer_width - width_delta, 0)
-
-    outer_height = _as_optional_int(config.window.outer_height)
-    inner_height = _as_optional_int(config.window.inner_height)
-    if outer_height is not None:
-        height_delta = outer_height - inner_height if inner_height is not None else 0
-        config.window.outer_height = min(outer_height, snapped_height)
-        if inner_height is not None:
-            config.window.inner_height = max(config.window.outer_height - height_delta, 0)
+def _browserforge_target_os(fingerprint: Fingerprint) -> TargetOS:
+    navigator = getattr(fingerprint, "navigator", None)
+    return _infer_target_os(
+        getattr(navigator, "platform", None),
+        getattr(navigator, "oscpu", None),
+        getattr(navigator, "userAgent", None),
+    )
 
 
-def _probe_gpu_family() -> tuple[str | None, str | None]:
-    data = _run_host_json("system_profiler", "SPDisplaysDataType", "-json")
-    for entry in data.get("SPDisplaysDataType", []):
-        renderer = entry.get("sppci_model") or entry.get("_name") or ""
-        vendor = _normalize_gpu_vendor(f"{entry.get('spdisplays_vendor', '')} {renderer}")
-        family = _normalize_gpu_family(renderer)
-        return vendor, family
-    return None, None
-
-
-def _probe_fonts() -> tuple[_FontRecord, ...]:
-    data = _run_host_json("system_profiler", "SPFontsDataType", "-json")
-    records: list[_FontRecord] = []
-    seen: set[str] = set()
-
-    for entry in data.get("SPFontsDataType", []):
-        if entry.get("enabled") != "yes":
+def _infer_target_os(*values: Any) -> TargetOS:
+    for value in values:
+        if not isinstance(value, str):
             continue
-
-        font_path = entry.get("path", "")
-        for face in entry.get("typefaces", []):
-            if face.get("enabled") != "yes" or face.get("valid") == "no":
-                continue
-            family = face.get("family")
-            if not isinstance(family, str) or family in seen:
-                continue
-            seen.add(family)
-            records.append(_FontRecord(family=family, path=font_path))
-
-    return tuple(records)
-
-
-def _probe_voices() -> tuple[str, ...]:
-    output = _run_host_text("say", "-v", "?")
-    names: list[str] = []
-
-    for line in output.splitlines():
-        match = re.match(r"^(?P<name>.+?)\s{2,}[A-Za-z_]+\s+#", line.rstrip())
-        if match:
-            names.append(match.group("name").strip())
-
-    return _dedupe(names)
-
-
-def _run_host_text(*args: str) -> str:
-    result = subprocess.run(
-        args,
-        check=True,
-        capture_output=True,
-        encoding="utf-8",
-        errors="replace",
-    )
-    return result.stdout
-
-
-def _run_host_json(*args: str) -> dict[str, Any]:
-    return json.loads(_run_host_text(*args))
-
-
-def _is_system_font(font_path: str) -> bool:
-    return any(font_path.startswith(prefix) for prefix in _SYSTEM_FONT_PREFIXES)
-
-
-def _is_bundled_voice(name: str) -> bool:
-    lowered = name.lower()
-    return "enhanced" not in lowered and "premium" not in lowered and "(" not in lowered
-
-
-def _preset_target_os(preset: dict[str, Any]) -> str:
-    user_agent = preset.get("navigator", {}).get("userAgent", "")
-    if isinstance(user_agent, str) and "Macintosh" in user_agent:
-        return "macos"
-    return "macos"
-
-
-def _normalize_gpu_vendor(text: str) -> str | None:
-    lowered = text.lower()
-    if "apple" in lowered:
-        return "apple"
-    if "intel" in lowered:
-        return "intel"
-    if "nvidia" in lowered:
-        return "nvidia"
-    if any(marker in lowered for marker in ("amd", "ati", "radeon")):
-        return "amd"
-    return None
-
-
-def _normalize_gpu_family(text: str) -> str | None:
-    lowered = text.lower()
-    if not lowered:
-        return None
-    if re.search(r"apple m[1-9]", lowered):
-        return "apple_m_series"
-    if "intel(r) hd graphics 400" in lowered:
-        return "intel_hd_400"
-    if "intel(r) hd graphics" in lowered or "intel hd graphics" in lowered:
-        return "intel_hd"
-    if "intel iris" in lowered:
-        return "intel_iris"
-    if "intel arc" in lowered:
-        return "intel_arc"
-    if "radeon r9 200" in lowered:
-        return "amd_radeon_r9_200"
-    if "radeon hd 3200" in lowered:
-        return "amd_radeon_hd_3200"
-    if "geforce gtx 980" in lowered:
-        return "nvidia_gtx_980"
-    if "geforce gtx 480" in lowered:
-        return "nvidia_gtx_480"
-    return _normalize_gpu_vendor(text)
+        lowered = value.lower()
+        if "linux" in lowered or "x11" in lowered:
+            return LINUX
+        if "mac" in lowered or "darwin" in lowered:
+            return MACOS
+        if "windows" in lowered or lowered.startswith("win"):
+            return WINDOWS
+    return current_host_target_os()

@@ -46,11 +46,11 @@ uv run --group dev --group playwright-tests --locked python \
 
 ## What It Tests
 
-8 profiles total, run in two phases:
+8 profiles total, all generated through the current host-compatible fingerprint path.
 
-**Per-context phase (6 profiles)** — 3 macOS + 3 Linux profiles open simultaneously in a single browser instance, each with an isolated fingerprint injected via `addInitScript`. Tests that fingerprints are unique and don't leak between contexts.
+**Per-context phase (8 profiles)** — 8 host-aligned profiles open simultaneously in a single browser instance, each with an isolated fingerprint injected via `addInitScript`. Tests that fingerprints are unique and don't leak between contexts.
 
-**Global phase (2 profiles)** — 1 macOS + 1 Linux profile launched with fingerprint config passed via the `CAMOU_CONFIG` environment variable. Tests that browser-level fingerprint injection works correctly.
+There is currently no global preset generation in this tester. The per-context presets are generated for the current host OS so the Python fingerprint pipeline and the raw binary stay OS-aligned.
 
 Each profile is scored across:
 
@@ -81,7 +81,7 @@ Each profile is scored across:
 | Global mode | Yes (`CAMOU_CONFIG` env var) | No |
 | Match validation | Yes (checks injected values match page) | No |
 | Proxy support | No | Yes |
-| Profile count | 8 (6 per-context + 2 global) | 6 (per-context only) |
+| Profile count | 8 (per-context only) | 6 (per-context only) |
 
 ## The Checks Bundle
 

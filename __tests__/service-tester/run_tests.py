@@ -58,10 +58,21 @@ async def run_tests(
     proxies = load_proxies(proxies_path)
     print(f"Loaded {len(proxies)} proxy/proxies from {proxies_path.name}")
 
+    profile_results: list = []
+    timestamp = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+    try:
+        from camoufox.async_api import AsyncCamoufox, AsyncNewContext
+        from camoufox.fingerprinting import current_host_target_os
+    except ImportError:
+        print("ERROR: camoufox package not installed.", file=sys.stderr)
+        return 1
+
+    host_os = current_host_target_os()
+    label = "macOS" if host_os == "macos" else "Linux"
+
     # 3. Build profile specs — fingerprints and timezone resolved by camoufox per-context
-    all_specs = [
-        {"os": "macos", "name": f"macOS Per-Context {chr(65 + i)}"} for i in range(6)
-    ]
+    all_specs = [{"os": host_os, "name": f"{label} Per-Context {chr(65 + i)}"} for i in range(6)]
     entries = all_specs[:max(1, min(profile_count, len(all_specs)))]
 
     # Assign proxies round-robin across entries
@@ -87,15 +98,6 @@ async def run_tests(
             break
         except ValueError:
             continue
-
-    profile_results: list = []
-    timestamp = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
-
-    try:
-        from camoufox.async_api import AsyncCamoufox, AsyncNewContext
-    except ImportError:
-        print("ERROR: camoufox package not installed.", file=sys.stderr)
-        return 1
 
     print(f"\n{'─' * 60}")
     print(f"Per-context phase: {len(entries)} profiles (all open simultaneously)")

@@ -228,6 +228,9 @@ async def test_prevent_getting_video_path(
     remote_server.kill()
 
 
+test_prevent_getting_video_path = pytest.mark.requires_ffmpeg(test_prevent_getting_video_path)
+
+
 async def test_connect_to_closed_server_without_hangs(
     browser_type: BrowserType, launch_server: Callable[[], RemoteServer]
 ) -> None:

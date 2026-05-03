@@ -380,7 +380,38 @@ jobs:
         run: uv sync --group dev --group playwright-tests --locked
 
       - name: Install Playwright ffmpeg
-        run: uv run --group dev --group playwright-tests --locked playwright install ffmpeg
+        run: uv run --group dev --group playwright-tests --locked python -m playwright install --force ffmpeg
+
+      - name: Verify Playwright ffmpeg
+        run: |
+          uv run --group dev --group playwright-tests --locked python - <<'PY'
+          import re
+          import subprocess
+          import sys
+          from pathlib import Path
+
+          result = subprocess.run(
+              [sys.executable, "-m", "playwright", "install", "ffmpeg", "--dry-run"],
+              check=True,
+              capture_output=True,
+              text=True,
+          )
+
+          match = re.search(r"Install location:\s*(.+)", result.stdout)
+          if not match:
+              raise SystemExit("Could not resolve Playwright ffmpeg install location.")
+
+          install_dir = Path(match.group(1).strip())
+          candidates = sorted(
+              candidate
+              for candidate in install_dir.glob("ffmpeg*")
+              if candidate.is_file() and candidate.stat().st_mode & 0o111
+          )
+          if not candidates:
+              raise SystemExit(f"Playwright ffmpeg is missing from {install_dir}.")
+
+          print(f"Using Playwright ffmpeg: {candidates[0]}")
+          PY
 
       - name: Install Linux runtime dependencies
         if: matrix.target == 'linux'

@@ -146,7 +146,7 @@ def NewContext(
 
     Each context gets its own host-compatible Firefox fingerprint identity.
     BrowserForge supplies the navigator/screen skeleton, while fonts and
-    voices are sampled directly from the real macOS host inventory. GPU-facing
+    voices are sampled directly from the real host inventory. GPU-facing
     values stay real. All values are applied via addInitScript so they
     self-destruct before page scripts can detect them.
 
@@ -158,7 +158,7 @@ def NewContext(
         preset: A specific fingerprint preset dict to compile. If None,
             BrowserForge generates the fingerprint skeleton.
         os: Target OS for BrowserForge/preset sampling. The default
-            host-compatible path currently supports only the real macOS host OS.
+            host-compatible path currently supports only the real current host OS.
         ff_version: Firefox version string for UA patching.
         webrtc_ip: IPv4 address to spoof for WebRTC ICE candidates.
         proxy: Per-context proxy (Playwright format: {"server": "...", "username": "...", "password": "..."}).

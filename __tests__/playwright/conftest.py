@@ -13,10 +13,12 @@
 # limitations under the License.
 
 import asyncio
+import functools
 import inspect
 import io
 import json
 import os
+import re
 import subprocess
 import sys
 from _pytest.terminal import TerminalReporter
@@ -40,6 +42,8 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
     skip_integration = pytest.mark.skip(
         reason="Playwright integration tests are disabled; pass --integration to run them."
     )
+    resolved_headless = _resolve_headless(config)
+    ffmpeg_binary = _playwright_ffmpeg_binary()
     playwright_root = _dirname.resolve()
 
     for item in items:
@@ -50,6 +54,22 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
         item.add_marker(pytest.mark.integration)
         if not integration_enabled:
             item.add_marker(skip_integration)
+        if item.get_closest_marker("requires_display"):
+            if resolved_headless:
+                item.add_marker(
+                    pytest.mark.skip(reason="Headed-only tests are skipped in --headless runs.")
+                )
+            elif sys.platform == "linux" and not os.getenv("DISPLAY"):
+                item.add_marker(pytest.mark.skip(reason="Headed-only tests require DISPLAY on Linux."))
+        if item.get_closest_marker("requires_ffmpeg") and ffmpeg_binary is None:
+            item.add_marker(
+                pytest.mark.skip(
+                    reason=(
+                        "Playwright ffmpeg runtime is not installed. "
+                        "Run `python -m playwright install ffmpeg`."
+                    )
+                )
+            )
 
 
 def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
@@ -81,21 +101,7 @@ def assetdir() -> Path:
 
 @pytest.fixture(scope="session")
 def headless(pytestconfig: pytest.Config) -> bool:
-    if pytestconfig.getoption("--headed"):
-        return False
-
-    if pytestconfig.getoption("--headless"):
-        return True
-
-    env_value = os.getenv("HEADLESS", "")
-    if isinstance(env_value, str):
-        return env_value.strip().lower() in {"1", "true", "yes", "on"}
-
-    headful_env = os.getenv("HEADFUL", "")
-    if isinstance(headful_env, str) and headful_env.strip().lower() in {"1", "true", "yes", "on"}:
-        return False
-
-    return bool(env_value)
+    return _resolve_headless(pytestconfig)
 
 
 @pytest.fixture(scope="session")
@@ -244,6 +250,49 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         default=None,
         help="Browser channel to be used.",
     )
+
+
+def _resolve_headless(pytestconfig: pytest.Config) -> bool:
+    if pytestconfig.getoption("--headed"):
+        return False
+
+    if pytestconfig.getoption("--headless"):
+        return True
+
+    env_value = os.getenv("HEADLESS", "")
+    if isinstance(env_value, str):
+        return env_value.strip().lower() in {"1", "true", "yes", "on"}
+
+    headful_env = os.getenv("HEADFUL", "")
+    if isinstance(headful_env, str) and headful_env.strip().lower() in {"1", "true", "yes", "on"}:
+        return False
+
+    return bool(env_value)
+
+
+@functools.lru_cache(maxsize=1)
+def _playwright_ffmpeg_binary() -> Path | None:
+    try:
+        result = subprocess.run(
+            [sys.executable, "-m", "playwright", "install", "ffmpeg", "--dry-run"],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+    except (OSError, subprocess.CalledProcessError):
+        return None
+
+    match = re.search(r"Install location:\s*(.+)", result.stdout)
+    if not match:
+        return None
+
+    install_dir = Path(match.group(1).strip())
+    candidates = sorted(
+        candidate
+        for candidate in install_dir.glob("ffmpeg*")
+        if candidate.is_file() and os.access(candidate, os.X_OK)
+    )
+    return candidates[0] if candidates else None
 
 
 @pytest.fixture(scope="session")

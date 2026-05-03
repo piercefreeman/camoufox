@@ -80,6 +80,8 @@ playwright-tests = [
 [tool.pytest.ini_options]
 markers = [
     "integration",
+    "requires_display",
+    "requires_ffmpeg",
     "skip_browser",
     "only_browser",
     "skip_platform",

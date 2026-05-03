@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib
 import importlib.util
 import json
 import sys
@@ -251,15 +252,33 @@ def modules() -> tuple[Any, Any, Any]:
 
 @pytest.fixture
 def fake_host(modules: tuple[Any, Any, Any]) -> Any:
-    _, fingerprints, _ = modules
-    return fingerprints._MacOSHostProfile(
+    _ = modules
+    host_macos = importlib.import_module("camoufox.fingerprinting.host_macos")
+    voices = importlib.import_module("camoufox.fingerprinting.voices")
+    return host_macos.MacOSHostAdapter(
         architecture="arm64",
         gpu_vendor="apple",
         gpu_family="apple_m_series",
         bundled_fonts=("Helvetica Neue", "PingFang SC"),
         extra_fonts=("Fira Code", "IBM Plex Sans", "JetBrains Mono"),
-        bundled_voices=("Alex", "Samantha"),
-        extra_voices=("Moira (Enhanced)", "Karen (Premium)"),
+        bundled_voices=(voices.Voice("Alex", bundled=True), voices.Voice("Samantha", bundled=True)),
+        extra_voices=(voices.Voice("Moira (Enhanced)"), voices.Voice("Karen (Premium)")),
+    )
+
+
+@pytest.fixture
+def fake_linux_host(modules: tuple[Any, Any, Any]) -> Any:
+    _ = modules
+    host_linux = importlib.import_module("camoufox.fingerprinting.host_linux")
+    voices = importlib.import_module("camoufox.fingerprinting.voices")
+    return host_linux.LinuxHostAdapter(
+        architecture="x86_64",
+        gpu_vendor="intel",
+        gpu_family="intel_iris",
+        bundled_fonts=("Arimo", "Cousine"),
+        extra_fonts=("Fira Sans", "IBM Plex Sans", "JetBrains Mono"),
+        bundled_voices=(voices.Voice("English", bundled=True), voices.Voice("German", bundled=True)),
+        extra_voices=(),
     )
 
 
@@ -283,10 +302,15 @@ def stable_environment(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _, fingerprints, utils = modules
+    hosts = importlib.import_module("camoufox.fingerprinting.hosts")
+    host_macos = importlib.import_module("camoufox.fingerprinting.host_macos")
+    host_linux = importlib.import_module("camoufox.fingerprinting.host_linux")
 
-    monkeypatch.setattr(fingerprints.sys, "platform", "darwin")
-    monkeypatch.setattr(fingerprints._MacOSHostProfile, "_cached", fake_host)
-    monkeypatch.setattr(fingerprints, "_sample_extras", lambda items: list(items[:2]))
+    monkeypatch.setattr(hosts.sys, "platform", "darwin")
+    monkeypatch.setattr(host_macos.MacOSHostAdapter, "_cached", fake_host)
+    monkeypatch.setattr(host_linux.LinuxHostAdapter, "_cached", None)
+    monkeypatch.setattr(hosts, "_sample_extras", lambda items: list(items[:2]))
+    monkeypatch.setattr(fingerprints._FirefoxFingerprintCompiler, "_cached", {})
 
     monkeypatch.setattr(utils, "OS_NAME", "mac")
     monkeypatch.setattr(utils, "installed_verstr", lambda: "146.0.1-beta.25")
@@ -298,6 +322,28 @@ def stable_environment(
     )
     monkeypatch.setattr(utils, "add_default_addons", lambda addons, exclude: None)
     monkeypatch.setattr(utils, "confirm_paths", lambda addons: None)
+
+
+@pytest.fixture
+def fake_linux_fingerprint() -> FakeFingerprint:
+    return FakeFingerprint(
+        navigator=FakeNavigator(
+            userAgent="Mozilla/5.0 (X11; Linux x86_64; rv:145.0) Gecko/20100101 Firefox/145.0",
+            platform="Linux x86_64",
+            oscpu="Linux x86_64",
+        ),
+        screen=FakeScreen(
+            width=1536,
+            height=864,
+            availWidth=1536,
+            availHeight=864,
+            outerHeight=832,
+            outerWidth=1536,
+            innerHeight=800,
+            innerWidth=1504,
+            devicePixelRatio=1.25,
+        ),
+    )
 
 
 def test_from_browserforge_compiles_host_compatible_config(
@@ -443,6 +489,67 @@ def test_launch_options_generates_full_config_payload(
     assert payload["voices"]["items"] == ["Alex", "Samantha", "Moira (Enhanced)", "Karen (Premium)"]
     assert "webGl" not in payload
     assert 1 <= payload["window"]["history"]["length"] <= 5
+
+
+def test_from_browserforge_compiles_linux_host_compatible_config(
+    modules: tuple[Any, Any, Any],
+    fake_linux_host: Any,
+    fake_linux_fingerprint: FakeFingerprint,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _, fingerprints, utils = modules
+    hosts = importlib.import_module("camoufox.fingerprinting.hosts")
+    host_macos = importlib.import_module("camoufox.fingerprinting.host_macos")
+    host_linux = importlib.import_module("camoufox.fingerprinting.host_linux")
+
+    monkeypatch.setattr(hosts.sys, "platform", "linux")
+    monkeypatch.setattr(host_macos.MacOSHostAdapter, "_cached", None)
+    monkeypatch.setattr(host_linux.LinuxHostAdapter, "_cached", fake_linux_host)
+    monkeypatch.setattr(fingerprints._FirefoxFingerprintCompiler, "_cached", {})
+    monkeypatch.setattr(utils, "OS_NAME", "lin")
+
+    config = fingerprints.from_browserforge(fake_linux_fingerprint, ff_version="146")
+
+    assert config.navigator.user_agent.endswith("Firefox/146.0")
+    assert config.navigator.app_version.startswith("5.0 (X11; Linux x86_64")
+    assert config.navigator.platform == "Linux x86_64"
+    assert config.navigator.oscpu == "Linux x86_64"
+    assert config.screen.width == 1536
+    assert config.screen.height == 864
+    assert config.fonts.families == ["Arimo", "Cousine", "Fira Sans", "IBM Plex Sans"]
+    assert config.voices.items == ["English", "German"]
+
+
+def test_launch_options_defaults_to_linux_host_target(
+    modules: tuple[Any, Any, Any],
+    fake_linux_host: Any,
+    fake_linux_fingerprint: FakeFingerprint,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _, fingerprints, utils = modules
+    hosts = importlib.import_module("camoufox.fingerprinting.hosts")
+    host_macos = importlib.import_module("camoufox.fingerprinting.host_macos")
+    host_linux = importlib.import_module("camoufox.fingerprinting.host_linux")
+
+    monkeypatch.setattr(hosts.sys, "platform", "linux")
+    monkeypatch.setattr(host_macos.MacOSHostAdapter, "_cached", None)
+    monkeypatch.setattr(host_linux.LinuxHostAdapter, "_cached", fake_linux_host)
+    monkeypatch.setattr(fingerprints._FirefoxFingerprintCompiler, "_cached", {})
+    monkeypatch.setattr(utils, "OS_NAME", "lin")
+    monkeypatch.setattr(utils, "generate_fingerprint", lambda **_: fake_linux_fingerprint)
+    fontconfig_root = tmp_path / "fontconfigs" / "linux"
+    fontconfig_root.mkdir(parents=True)
+    (fontconfig_root / "fonts.conf").write_text('<fontconfig><dir prefix="cwd">fonts</dir></fontconfig>')
+    monkeypatch.setattr(utils, "get_path", lambda file: str(tmp_path / file))
+
+    options = utils.launch_options(env={"TEST_ENV": "1"}, headless=True)
+    payload = _decode_camou_config(options["env"])
+
+    assert utils._normalize_requested_os(None) == "linux"
+    assert payload["navigator"]["platform"] == "Linux x86_64"
+    assert payload["navigator"]["oscpu"] == "Linux x86_64"
+    assert payload["fonts"]["families"] == ["Arimo", "Cousine", "Fira Sans", "IBM Plex Sans"]
 
 
 def test_launch_options_rejects_literal_readme_placeholder_path(

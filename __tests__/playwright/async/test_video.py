@@ -39,6 +39,9 @@ async def test_should_expose_video_path(
     await page.context.close()
 
 
+test_should_expose_video_path = pytest.mark.requires_ffmpeg(test_should_expose_video_path)
+
+
 @short_page_video_materialization_unsupported
 async def test_short_video_should_throw(
     browser: Browser, tmp_path: Path, server: Server
@@ -55,6 +58,9 @@ async def test_short_video_should_throw(
             break
         await asyncio.sleep(0.1)
     assert os.path.exists(path)
+
+
+test_short_video_should_throw = pytest.mark.requires_ffmpeg(test_short_video_should_throw)
 
 
 async def test_short_video_should_throw_persistent_context(
@@ -76,6 +82,11 @@ async def test_short_video_should_throw_persistent_context(
     assert str(tmp_path) in str(path)
 
 
+test_short_video_should_throw_persistent_context = pytest.mark.requires_ffmpeg(
+    test_short_video_should_throw_persistent_context
+)
+
+
 async def test_should_not_error_if_page_not_closed_before_save_as(
     browser: Browser, tmp_path: Path, server: Server
 ) -> None:
@@ -89,6 +100,11 @@ async def test_should_not_error_if_page_not_closed_before_save_as(
     await saved
     await page.context.close()
     assert os.path.exists(out_path)
+
+
+test_should_not_error_if_page_not_closed_before_save_as = pytest.mark.requires_ffmpeg(
+    test_should_not_error_if_page_not_closed_before_save_as
+)
 
 
 async def test_should_be_None_if_not_recording(

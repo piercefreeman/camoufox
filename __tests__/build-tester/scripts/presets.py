@@ -82,6 +82,7 @@ def convert_preset(ctx: dict[str, Any]) -> dict[str, Any]:
 def generate_presets() -> dict[str, Any]:
     try:
         from camoufox.fingerprints import generate_context_fingerprint
+        from camoufox.fingerprinting import current_host_target_os
     except ImportError:
         print(
             "ERROR: camoufox Python package not installed.\n"
@@ -91,15 +92,14 @@ def generate_presets() -> dict[str, Any]:
         )
         sys.exit(1)
 
-    # Camoufox now generates only host-compatible macOS identities.
-    # Keep the tester profile counts the same, but source every profile from
-    # the supported macOS path.
-    print("  Generating 8 macOS per-context profiles...")
-    mac_per_context = [convert_preset(generate_context_fingerprint(os="macos")) for _ in range(8)]
+    host_os = current_host_target_os()
+    label = "macOS" if host_os == "macos" else "Linux"
+    print(f"  Generating 8 {label} per-context profiles...")
+    per_context = [convert_preset(generate_context_fingerprint(os=host_os)) for _ in range(8)]
 
     return {
-        "macPerContext": mac_per_context,
-        "linuxPerContext": [],
+        "macPerContext": per_context if host_os == "macos" else [],
+        "linuxPerContext": per_context if host_os == "linux" else [],
         "macGlobal": None,
         "linuxGlobal": None,
     }
