@@ -16,15 +16,14 @@ on:
   push:
     tags:
       - "*"
-  release:
-    types: [published]
 
 concurrency:
-  group: build-${{ github.event.release.tag_name || github.ref_name || github.ref }}
+  group: build-${{ github.ref_name || github.ref }}
   cancel-in-progress: true
 
 jobs:
   prepare-release:
+    if: github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-build') || contains(github.event.pull_request.labels.*.name, 'full-build-fast')
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -60,11 +59,11 @@ jobs:
           PY
 
       - name: Ensure tag release exists
-        if: github.event_name == 'push' || github.event_name == 'release'
+        if: github.event_name == 'push'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
-          RELEASE_TAG: ${{ github.event.release.tag_name || github.ref_name }}
+          RELEASE_TAG: ${{ github.ref_name }}
         run: |
           set -euo pipefail
           release_view_log="$(mktemp)"
@@ -75,16 +74,10 @@ jobs:
             exit 0
           fi
 
-          if [ "${{ github.event_name }}" != "push" ]; then
-            cat "$release_view_log" >&2
-            echo "Release $RELEASE_TAG does not exist for event ${{ github.event_name }}." >&2
-            exit 1
-          fi
-
           gh release create "$RELEASE_TAG" --repo "$GH_REPO" --draft --generate-notes --verify-tag
 
       - name: Skip release bootstrap
-        if: github.event_name != 'push' && github.event_name != 'release'
+        if: github.event_name != 'push'
         run: echo "Release bootstrap is not required for ${GITHUB_EVENT_NAME}."
 
   build:
@@ -304,11 +297,11 @@ jobs:
           if-no-files-found: error
 
       - name: Upload release asset
-        if: github.event_name == 'push' || github.event_name == 'release'
+        if: github.event_name == 'push'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
-          RELEASE_TAG: ${{ github.event.release.tag_name || github.ref_name }}
+          RELEASE_TAG: ${{ github.ref_name }}
         run: |
           set -euo pipefail
           shopt -s nullglob
