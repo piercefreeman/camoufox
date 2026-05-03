@@ -104,7 +104,7 @@ def launch_options(
     `fingerprint_preset` is now an explicit preset dictionary only. Camoufox no
     longer ships or samples a bundled preset corpus through this API.
     """
-    return _LaunchOptionBuilder(
+    return LaunchOptionBuilder(
         config=config,
         requested_os=os,
         block_images=block_images,
@@ -252,7 +252,7 @@ def _build_runtime_profile(config: CamoufoxProfile | dict[str, Any]) -> dict[str
 
 
 @dataclass
-class _LaunchOptionBuilder:
+class LaunchOptionBuilder:
     config: CamoufoxProfile | dict[str, Any] | None
     requested_os: ListOrString | None
     block_images: bool | None
