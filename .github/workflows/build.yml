@@ -63,20 +63,25 @@ jobs:
         if: github.event_name == 'push' || github.event_name == 'release'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
           RELEASE_TAG: ${{ github.event.release.tag_name || github.ref_name }}
         run: |
           set -euo pipefail
-          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+          release_view_log="$(mktemp)"
+          trap 'rm -f "$release_view_log"' EXIT
+
+          if gh release view "$RELEASE_TAG" --repo "$GH_REPO" >/dev/null 2>"$release_view_log"; then
             echo "Release $RELEASE_TAG already exists."
             exit 0
           fi
 
           if [ "${{ github.event_name }}" != "push" ]; then
+            cat "$release_view_log" >&2
             echo "Release $RELEASE_TAG does not exist for event ${{ github.event_name }}." >&2
             exit 1
           fi
 
-          gh release create "$RELEASE_TAG" --draft --generate-notes --verify-tag
+          gh release create "$RELEASE_TAG" --repo "$GH_REPO" --draft --generate-notes --verify-tag
 
       - name: Skip release bootstrap
         if: github.event_name != 'push' && github.event_name != 'release'
@@ -302,6 +307,7 @@ jobs:
         if: github.event_name == 'push' || github.event_name == 'release'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
           RELEASE_TAG: ${{ github.event.release.tag_name || github.ref_name }}
         run: |
           set -euo pipefail
@@ -313,7 +319,7 @@ jobs:
           fi
           printf 'Uploading release assets for %s:\n' "$RELEASE_TAG"
           printf '%s\n' "${files[@]}"
-          gh release upload "$RELEASE_TAG" "${files[@]}" --clobber
+          gh release upload "$RELEASE_TAG" "${files[@]}" --repo "$GH_REPO" --clobber
 
       - name: Debug failed build over SSH
         if: ${{ failure() }}
