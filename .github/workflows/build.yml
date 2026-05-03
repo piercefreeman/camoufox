@@ -2,6 +2,15 @@ name: Build and Release
 
 on:
   workflow_dispatch:
+    inputs:
+      runner_profile:
+        description: Runner profile to use for build and integration jobs
+        required: false
+        default: standard
+        type: choice
+        options:
+          - standard
+          - fast
   pull_request:
     types: [opened, reopened, synchronize, labeled]
   push:
@@ -11,21 +20,106 @@ on:
     types: [published]
 
 concurrency:
-  group: build-${{ github.event.release.tag_name || github.ref }}
+  group: build-${{ github.event.release.tag_name || github.ref_name || github.ref }}
   cancel-in-progress: true
 
 jobs:
+  prepare-release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      runner_profile: ${{ steps.runner-profile.outputs.runner_profile }}
+
+    steps:
+      - name: Resolve runner profile
+        id: runner-profile
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          WORKFLOW_DISPATCH_RUNNER_PROFILE: ${{ github.event.inputs.runner_profile || 'standard' }}
+          PR_LABELS_JSON: ${{ toJson(github.event.pull_request.labels.*.name) }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          event_name = os.environ["EVENT_NAME"]
+          runner_profile = "standard"
+
+          if event_name == "workflow_dispatch":
+              runner_profile = os.environ["WORKFLOW_DISPATCH_RUNNER_PROFILE"] or "standard"
+          elif event_name == "pull_request":
+              labels = set(json.loads(os.environ.get("PR_LABELS_JSON") or "[]"))
+              if "full-build-fast" in labels:
+                  runner_profile = "fast"
+
+          github_output = Path(os.environ["GITHUB_OUTPUT"])
+          with github_output.open("a", encoding="utf-8") as fh:
+              fh.write(f"runner_profile={runner_profile}\n")
+          PY
+
+      - name: Ensure tag release exists
+        if: github.event_name == 'push' || github.event_name == 'release'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ github.event.release.tag_name || github.ref_name }}
+        run: |
+          set -euo pipefail
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            echo "Release $RELEASE_TAG already exists."
+            exit 0
+          fi
+
+          if [ "${{ github.event_name }}" != "push" ]; then
+            echo "Release $RELEASE_TAG does not exist for event ${{ github.event_name }}." >&2
+            exit 1
+          fi
+
+          gh release create "$RELEASE_TAG" --draft --generate-notes --verify-tag
+
+      - name: Skip release bootstrap
+        if: github.event_name != 'push' && github.event_name != 'release'
+        run: echo "Release bootstrap is not required for ${GITHUB_EVENT_NAME}."
+
   build:
-    if: github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-build')
-    runs-on: ubuntu-24.04
+    needs: prepare-release
+    name: Build ${{ matrix.target }} ${{ matrix.arch }} (${{ needs.prepare-release.outputs.runner_profile }})
+    if: github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-build') || contains(github.event.pull_request.labels.*.name, 'full-build-fast')
+    permissions:
+      contents: write
+    env:
+      CCACHE_DIR: ${{ github.workspace }}/.ccache
+      CCACHE_MAXSIZE: 2G
     strategy:
       fail-fast: false
       matrix:
-        target: [linux]
-        arch: [x86_64, arm64, i686]
+        include:
+          - target: linux
+            arch: x86_64
+            runner: ubuntu-24.04
+            runner_fast: ubuntu-24.04-8core
+          - target: linux
+            arch: arm64
+            runner: ubuntu-24.04-arm
+            runner_fast: ubuntu-24.04-arm-8core
+          - target: macos
+            arch: arm64
+            runner: macos-26
+            runner_fast: macos-26-xlarge
+          # Intel macOS builds are intentionally disabled:
+          # Apple has effectively deprecated Intel Macs, and the CI lane is slow
+          # and unstable enough that it no longer justifies the build time/cost.
+          # - target: macos
+          #   arch: x86_64
+          #   runner: macos-26-intel
+          #   runner_fast: macos-26-large
+
+    runs-on: ${{ needs.prepare-release.outputs.runner_profile == 'fast' && matrix.runner_fast || matrix.runner }}
 
     steps:
       - name: Maximize build space
+        if: matrix.target == 'linux'
         uses: AdityaGarg8/remove-unwanted-software@v4.1
         with:
           remove-dotnet: "true"
@@ -38,23 +132,41 @@ jobs:
           verbose: "false"
 
       - name: Remove unwanted tools
+        if: matrix.target == 'linux'
         # Originally from here: https://github.com/AdityaGarg8/remove-unwanted-software/blob/master/action.yml
         run: |
-          sudo apt-get remove -y '^aspnetcore-.*' > /dev/null
-          sudo apt-get remove -y '^dotnet-.*' > /dev/null
-          sudo apt-get remove -y '^llvm-.*' > /dev/null
-          sudo apt-get remove -y 'php.*' > /dev/null
-          sudo apt-get remove -y '^mongodb-.*' > /dev/null
-          sudo apt-get remove -y '^mysql-.*' > /dev/null
-          sudo apt-get remove -y azure-cli google-chrome-stable firefox ${POWERSHELL} mono-devel libgl1-mesa-dri --fix-missing > /dev/null
-          if [[ (${CODENAME} = focal) || (${CODENAME} = jammy) ]]; then
-            sudo apt-get remove -y google-cloud-sdk --fix-missing > /dev/null
-            sudo apt-get remove -y google-cloud-cli --fix-missing > /dev/null
+          set -euo pipefail
+
+          mapfile -t packages < <(
+            {
+              dpkg-query -W -f='${binary:Package}\n' 2>/dev/null \
+                | grep -E '^(aspnetcore-.*|dotnet-.*|llvm-.*|php.*|mongodb-.*|mysql-.*)$' || true
+
+              for pkg in \
+                azure-cli \
+                firefox \
+                google-chrome-stable \
+                google-cloud-cli \
+                google-cloud-sdk \
+                libgl1-mesa-dri \
+                mono-devel \
+                "${POWERSHELL:-}"
+              do
+                if [[ -n "$pkg" ]] && dpkg-query -W -f='${Status}\n' "$pkg" 2>/dev/null | grep -q '^install ok installed$'; then
+                  printf '%s\n' "$pkg"
+                fi
+              done
+            } | sort -u
+          )
+
+          if [[ ${#packages[@]} -gt 0 ]]; then
+            sudo apt-get remove -y "${packages[@]}" > /dev/null
           fi
+
           sudo apt-get autoremove -y > /dev/null
           sudo apt-get clean > /dev/null
 
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 1
 
@@ -65,28 +177,60 @@ jobs:
         run: bash .github/scripts/resolve-release-version.sh
 
       - name: Set up Python
-        uses: actions/setup-python@v2
+        uses: actions/setup-python@v5
         with:
           python-version: "3.11"
 
       - name: Set up LLVM
+        if: matrix.target == 'linux'
         run: |
           wget https://apt.llvm.org/llvm.sh
           chmod +x llvm.sh
           sudo ./llvm.sh 18
           sudo apt-get install -y lld-18 clang-18
-          if [ "${{ matrix.arch }}" != "x86_64" ]; then
-            sudo apt-get install -y libc6-i386 lib32gcc-s1 lib32stdc++6 gcc-multilib g++-multilib
-          fi
           sudo update-alternatives --install /usr/bin/ld.lld ld.lld /usr/bin/ld.lld-18 100
 
-      - name: Check disk space
-        run: df -h
-
-      - name: Install dependencies
+      - name: Install Linux dependencies
+        if: matrix.target == 'linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y p7zip-full aria2 ccache unzip
+
+      - name: Install macOS dependencies
+        if: matrix.target == 'macos'
+        run: |
+          brew update
+          brew install aria2 ccache
+
+      - name: Restore ccache
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.CCACHE_DIR }}
+          key: ccache-${{ runner.os }}-${{ matrix.target }}-${{ matrix.arch }}-${{ hashFiles('upstream.sh', 'assets/base.mozconfig') }}-${{ github.sha }}
+          restore-keys: |
+            ccache-${{ runner.os }}-${{ matrix.target }}-${{ matrix.arch }}-${{ hashFiles('upstream.sh', 'assets/base.mozconfig') }}-
+
+      - name: Configure ccache
+        run: |
+          mkdir -p "$CCACHE_DIR"
+          ccache --set-config=max_size="$CCACHE_MAXSIZE"
+          ccache --set-config=compression=true
+          ccache --show-stats || true
+          ccache --zero-stats || true
+
+      - name: Check Linux disk space
+        if: matrix.target == 'linux'
+        run: df -h
+
+      - name: Check macOS native toolchain
+        if: matrix.target == 'macos'
+        run: |
+          uname -a
+          xcodebuild -version
+          macos_sdk="$(xcrun --sdk macosx --show-sdk-path)"
+          echo "$macos_sdk"
+          echo "MACOS_SDK_DIR=$macos_sdk" >> "$GITHUB_ENV"
+          df -h
 
       - name: Fetch source
         env:
@@ -94,13 +238,25 @@ jobs:
         run: |
           make fetch
 
-      - name: Setup and bootstrap
+      - name: Setup and bootstrap for Linux
+        if: matrix.target == 'linux'
         run: |
           make setup-minimal
           make mozbootstrap
           mkdir -p dist
 
+      - name: Setup and bootstrap for macOS
+        if: matrix.target == 'macos'
+        env:
+          BUILD_TARGET: ${{ matrix.target }},${{ matrix.arch }}
+        run: |
+          make setup-minimal
+          make set-target
+          make mozbootstrap
+          mkdir -p dist
+
       - name: Create swap space
+        if: matrix.target == 'linux'
         run: |
           sudo fallocate -l 16G /swapfile
           sudo chmod 600 /swapfile
@@ -111,11 +267,53 @@ jobs:
       - name: Build
         run: python3 ./multibuild.py --target ${{ matrix.target }} --arch ${{ matrix.arch }}
 
-      - name: Upload artifacts
+      - name: Show ccache stats
+        if: always()
+        run: ccache --show-stats || true
+
+      - name: Repair macOS zip permissions
+        if: matrix.target == 'macos'
+        run: |
+          bash scripts/repair_macos_release_zip.sh dist/*.zip
+
+      - name: Inspect built archives
+        run: |
+          echo "PWD=$(pwd)"
+          echo "dist tree:"
+          find dist -maxdepth 3 -print | sort
+          echo ""
+          echo "dist listing:"
+          ls -lah dist
+          echo ""
+          echo "ZIP files:"
+          find dist -maxdepth 1 -type f -name '*.zip' -print | sort
+          echo ""
+          echo "SHA256:"
+          shasum -a 256 dist/*.zip
+
+      - name: Upload workflow artifact
         uses: actions/upload-artifact@v4
         with:
           name: CamoufoxBuilds-${{ matrix.target }}-${{ matrix.arch }}
-          path: dist/*
+          path: dist/*.zip
+          if-no-files-found: error
+
+      - name: Upload release asset
+        if: github.event_name == 'push' || github.event_name == 'release'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ github.event.release.tag_name || github.ref_name }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          files=(dist/*.zip)
+          if [ ${#files[@]} -eq 0 ]; then
+            echo "No release assets found in dist." >&2
+            exit 1
+          fi
+          printf 'Uploading release assets for %s:\n' "$RELEASE_TAG"
+          printf '%s\n' "${files[@]}"
+          gh release upload "$RELEASE_TAG" "${files[@]}" --clobber
 
       - name: Debug failed build over SSH
         if: ${{ failure() }}
@@ -124,26 +322,149 @@ jobs:
         with:
           limit-access-to-actor: true
 
-  release:
-    needs: build
-    if: github.event_name == 'push' || github.event_name == 'release'
-    permissions:
-      contents: write
-    runs-on: ubuntu-latest
+  integration:
+    needs:
+      - prepare-release
+      - build
+    name: Integration ${{ matrix.target }} ${{ matrix.arch }} (${{ needs.prepare-release.outputs.runner_profile }})
+    if: github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-build') || contains(github.event.pull_request.labels.*.name, 'full-build-fast')
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: linux
+            arch: x86_64
+            runner: ubuntu-24.04
+            runner_fast: ubuntu-24.04-8core
+          - target: linux
+            arch: arm64
+            runner: ubuntu-24.04-arm
+            runner_fast: ubuntu-24.04-arm-8core
+          - target: macos
+            arch: arm64
+            runner: macos-26
+            runner_fast: macos-26-xlarge
+          # Intel macOS integration is intentionally disabled alongside the
+          # build lane for the same deprecation and CI cost/stability reasons.
+          # - target: macos
+          #   arch: x86_64
+          #   runner: macos-26-intel
+          #   runner_fast: macos-26-large
+
+    runs-on: ${{ needs.prepare-release.outputs.runner_profile == 'fast' && matrix.runner_fast || matrix.runner }}
 
     steps:
-      - name: Download all artifacts
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: __tests__/build-tester/package-lock.json
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: |
+            pyproject.toml
+            uv.lock
+
+      - name: Download build artifact
         uses: actions/download-artifact@v4
         with:
-          path: artifacts
+          name: CamoufoxBuilds-${{ matrix.target }}-${{ matrix.arch }}
+          path: dist-artifact
 
-      - name: Create Release
-        uses: softprops/action-gh-release@v1
-        with:
-          tag_name: ${{ github.event.release.tag_name || github.ref_name }}
-          files: artifacts/**/*
-          generate_release_notes: true
-          draft: ${{ github.event_name == 'push' }}
-          prerelease: ${{ github.event_name == 'release' && github.event.release.prerelease || false }}
+      - name: Inspect downloaded build artifact
+        run: |
+          echo "PWD=$(pwd)"
+          echo "Artifact tree:"
+          find dist-artifact -maxdepth 3 -print | sort
+          echo ""
+          echo "Artifact listing:"
+          ls -lah dist-artifact
+          echo ""
+          echo "ZIP files:"
+          find dist-artifact -maxdepth 1 -type f -name '*.zip' -print | sort
+          echo ""
+          echo "SHA256:"
+          shasum -a 256 dist-artifact/*.zip
+
+      - name: Sync integration test environment
+        run: uv sync --group dev --group playwright-tests --locked
+
+      - name: Install Playwright ffmpeg
+        run: uv run --group dev --group playwright-tests --locked python -m playwright install --force ffmpeg
+
+      - name: Verify Playwright ffmpeg
+        run: |
+          uv run --group dev --group playwright-tests --locked python - <<'PY'
+          import re
+          import subprocess
+          import sys
+          from pathlib import Path
+
+          result = subprocess.run(
+              [sys.executable, "-m", "playwright", "install", "ffmpeg", "--dry-run"],
+              check=True,
+              capture_output=True,
+              text=True,
+          )
+
+          match = re.search(r"Install location:\s*(.+)", result.stdout)
+          if not match:
+              raise SystemExit("Could not resolve Playwright ffmpeg install location.")
+
+          install_dir = Path(match.group(1).strip())
+          candidates = sorted(
+              candidate
+              for candidate in install_dir.glob("ffmpeg*")
+              if candidate.is_file() and candidate.stat().st_mode & 0o111
+          )
+          if not candidates:
+              raise SystemExit(f"Playwright ffmpeg is missing from {install_dir}.")
+
+          print(f"Using Playwright ffmpeg: {candidates[0]}")
+          PY
+
+      - name: Install Linux runtime dependencies
+        if: matrix.target == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y unzip
+          uv run --group dev --group playwright-tests --locked playwright install-deps firefox
+
+      - name: Resolve Camoufox executable
+        id: artifact
+        run: |
+          python3 scripts/resolve_ci_artifact.py \
+            --artifact dist-artifact \
+            --extract-dir .tmp/ci-artifacts/${{ matrix.target }}-${{ matrix.arch }} \
+            --github-output "$GITHUB_OUTPUT"
+
+      - name: Run integration tests
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CAMOUFOX_EXECUTABLE_PATH: ${{ steps.artifact.outputs.executable_path }}
+        run: |
+          uv run --group dev --group playwright-tests --locked pytest \
+            --integration \
+            --headless \
+            __tests__/build-tester/ \
+            __tests__/playwright/async/ \
+            __tests__/service-tester/
+
+      - name: Debug failed integration over SSH
+        if: ${{ failure() }}
+        uses: mxschmitt/action-tmate@v3
+        timeout-minutes: 60
+        with:
+          limit-access-to-actor: true

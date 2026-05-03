@@ -1,0 +1,155 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "camoufox"
+version = "0.5.0"
+description = "Wrapper around Playwright to help launch Camoufox"
+readme = "pythonlib/README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [
+    { name = "daijro", email = "daijro.dev@gmail.com" },
+]
+keywords = [
+    "client",
+    "fingerprint",
+    "browser",
+    "scraping",
+    "injector",
+    "firefox",
+    "playwright",
+]
+classifiers = [
+    "Topic :: Internet :: WWW/HTTP",
+    "Topic :: Internet :: WWW/HTTP :: Browsers",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+dependencies = [
+    "browserforge>=1.2.4,<2",
+    "inquirer",
+    "language-tags",
+    "lxml",
+    "numpy",
+    "orjson",
+    "platformdirs",
+    "playwright",
+    "pydantic>=2,<3",
+    "pysocks",
+    "pyyaml",
+    "requests",
+    "rich",
+    "rich-click",
+    "screeninfo",
+    "typing_extensions",
+    "ua_parser",
+]
+
+[project.urls]
+Homepage = "https://camoufox.com/python"
+Repository = "https://github.com/daijro/camoufox"
+
+[project.optional-dependencies]
+geoip = ["geoip2"]
+gui = ["PySide6"]
+
+[project.scripts]
+camoufox = "camoufox.__main__:cli"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.4.1",
+    "ruff==0.15.11",
+    "ty==0.0.31",
+]
+playwright-tests = [
+    "autobahn==23.1.2",
+    "flaky==3.8.1",
+    "Pillow==10.4.0",
+    "pixelmatch==0.3.0",
+    "pyOpenSSL==24.2.1",
+    "pytest-asyncio==0.21.2",
+    "pytest-repeat==0.9.3",
+    "pytest-timeout==2.3.1",
+    "pytest-xdist==3.6.1",
+    "service_identity==24.1.0",
+    "twisted==24.7.0",
+]
+
+[tool.pytest.ini_options]
+markers = [
+    "integration",
+    "requires_display",
+    "requires_ffmpeg",
+    "skip_browser",
+    "only_browser",
+    "skip_platform",
+    "only_platform",
+]
+junit_family = "xunit2"
+asyncio_mode = "auto"
+testpaths = ["__tests__"]
+
+[tool.setuptools]
+include-package-data = true
+
+[tool.setuptools.package-dir]
+"" = "pythonlib"
+
+[tool.setuptools.packages.find]
+where = ["pythonlib"]
+include = ["camoufox*"]
+
+[tool.setuptools.package-data]
+camoufox = [
+    "*.cfg",
+    "py.typed",
+]
+"camoufox.assets" = [
+    "*.js",
+    "*.xml",
+    "*.yml",
+]
+"camoufox.gui" = [
+    "assets/*",
+    "qml/*",
+]
+"camoufox.webgl" = [
+    "*.db",
+]
+
+[tool.ruff]
+target-version = "py310"
+
+[tool.ruff.lint]
+select = [
+    "E4",
+    "E7",
+    "E9",
+    "F",
+    "I",
+    "B",
+    "UP",
+    "SIM",
+    "RUF",
+    "PIE",
+    "RET",
+]
+ignore = [
+    "B008",
+    "E501",
+]
+
+[tool.ty.analysis]
+allowed-unresolved-imports = ["maxminddb"]
+
+[tool.ty.environment]
+python = ".venv"
+python-version = "3.10"
+
+[tool.ty.src]
+exclude = ["pythonlib/camoufox/gui/**"]
+
+[tool.ty.terminal]
+output-format = "concise"

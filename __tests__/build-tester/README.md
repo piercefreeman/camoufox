@@ -1,0 +1,101 @@
+# Camoufox Build Tester
+
+Tests a raw Camoufox binary (Firefox) directly against the same antibot-detection checks used in the service tests. Use this to validate a binary before packaging/releasing — it bypasses the Python package entirely.
+
+## Prerequisites
+
+- Python 3.9+
+- Node.js (for building the TypeScript checks bundle via `esbuild`, first run only)
+
+## Quick Start
+
+```bash
+# Point the test at a Camoufox binary
+export CAMOUFOX_EXECUTABLE_PATH=/path/to/camoufox-bin
+
+# Run the pytest-gated integration test
+uv run --group dev --group playwright-tests --locked pytest \
+  --integration \
+  __tests__/build-tester/
+```
+
+The first run will install `build-tester` npm dependencies automatically if the checks bundle has not been built yet.
+
+## Direct CLI Usage
+
+```bash
+uv run --group dev --group playwright-tests --locked python \
+  __tests__/build-tester/scripts/run_tests.py <binary_path> [options]
+```
+
+**Example:**
+```bash
+uv run --group dev --group playwright-tests --locked python \
+  __tests__/build-tester/scripts/run_tests.py /path/to/camoufox-bin/camoufox
+```
+
+## Options
+
+```
+  binary_path           Path to the Camoufox (Firefox) binary
+  --profile-count N     Number of profiles to test (1-8, default: 8)
+  --secret KEY          HMAC signing key for certificate
+  --save-cert PATH      Save certificate text to a file
+  --no-cert             Skip certificate generation
+```
+
+## What It Tests
+
+8 profiles total, all generated through the current host-compatible fingerprint path.
+
+**Per-context phase (8 profiles)** — 8 host-aligned profiles open simultaneously in a single browser instance, each with an isolated fingerprint injected via `addInitScript`. Tests that fingerprints are unique and don't leak between contexts.
+
+There is currently no global preset generation in this tester. The per-context presets are generated for the current host OS so the Python fingerprint pipeline and the raw binary stay OS-aligned.
+
+Each profile is scored across:
+
+| Category | What it checks |
+|---|---|
+| Automation Detection | Playwright/CDP artefacts |
+| JS Engine | V8 vs SpiderMonkey signals |
+| Lie Detection | Inconsistent property overrides |
+| Firefox APIs | Firefox-specific API presence |
+| Cross-Signal | Consistency across navigator, screen, etc. |
+| CSS Fingerprint | CSS rendering fingerprint |
+| Canvas Noise | Canvas hash uniqueness and stability |
+| WebGL Render | WebGL rendering hash |
+| Audio Integrity | AudioContext fingerprint |
+| Font Platform | OS-consistent font availability |
+| Speech Voices | Voice list matches declared OS |
+| WebRTC | IP spoofing (test IP injected) |
+| Stability | Fingerprint stable over time |
+| Headless Detection | No headless mode signals |
+| Match Results | Injected values actually appear in page |
+
+## How It Differs from the Service Tests
+
+| | Build Tester | Service Tests |
+|---|---|---|
+| Entry point | Raw binary path | `pip install camoufox` |
+| Fingerprint injection | Manual (`generate_context_fingerprint` + init script) | Via `AsyncNewContext` API |
+| Global mode | Yes (`CAMOU_CONFIG` env var) | No |
+| Match validation | Yes (checks injected values match page) | No |
+| Proxy support | No | Yes |
+| Profile count | 8 (per-context only) | 6 (per-context only) |
+
+## The Checks Bundle
+
+`scripts/checks-bundle.js` is a compiled artifact built from the TypeScript sources in `src/lib/checks/`. It is built automatically on first run. To force a rebuild, delete it:
+
+```bash
+rm __tests__/build-tester/scripts/checks-bundle.js
+uv run --group dev --group playwright-tests --locked python \
+  __tests__/build-tester/scripts/run_tests.py <binary_path>
+```
+
+Source files:
+- `src/lib/checks/index.ts` — entry point
+- `src/lib/checks/core.ts` — automation, JS engine, lie detection, etc.
+- `src/lib/checks/extended.ts` — canvas, WebGL, fonts, audio, etc.
+- `src/lib/checks/workers.ts` — worker thread consistency
+- `src/lib/checks/collectors.ts` — fingerprint data collectors (hashes, WebRTC, stability)

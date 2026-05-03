@@ -33,15 +33,17 @@ from ._generated_profile import (
 from ._warnings import LeakWarning
 from .addons import DefaultAddons, add_default_addons, confirm_paths
 from .exceptions import InvalidOS, InvalidPropertyType, NonFirefoxFingerprint
+from .fingerprinting import normalize_target_os
+from .fingerprinting.common import HostTargetOS
 from .fingerprints import (
     from_browserforge,
     from_preset,
     generate_fingerprint,
     is_generated_fingerprint,
 )
-from .geolocation import geoip_allowed, get_geolocation
-from .ip import Proxy, public_ip, valid_ipv4, valid_ipv6
-from .locales import handle_locale
+from .geo.geolocation import geoip_allowed, get_geolocation
+from .geo.ip import Proxy, public_ip, valid_ipv4, valid_ipv6
+from .geo.locales import handle_locale
 from .pkgman import OS_NAME, get_path, installed_verstr, launch_path
 from .virtdisplay import VirtualDisplay
 
@@ -97,12 +99,12 @@ def launch_options(
 
     The active fingerprint path is intentionally small:
     BrowserForge supplies the Firefox skeleton, and Camoufox only layers in
-    host-compatible macOS values on top of it.
+    host-compatible values for the current OS on top of it.
 
     `fingerprint_preset` is now an explicit preset dictionary only. Camoufox no
     longer ships or samples a bundled preset corpus through this API.
     """
-    return _LaunchOptionBuilder(
+    return LaunchOptionBuilder(
         config=config,
         requested_os=os,
         block_images=block_images,
@@ -250,7 +252,7 @@ def _build_runtime_profile(config: CamoufoxProfile | dict[str, Any]) -> dict[str
 
 
 @dataclass
-class _LaunchOptionBuilder:
+class LaunchOptionBuilder:
     config: CamoufoxProfile | dict[str, Any] | None
     requested_os: ListOrString | None
     block_images: bool | None
@@ -415,7 +417,7 @@ class _LaunchOptionBuilder:
         LeakWarning.warn("ff_version", self.i_know_what_im_doing)
         return str(self.ff_version)
 
-    def _build_generated_config(self, target_os: str, ff_version: str) -> CamoufoxProfile:
+    def _build_generated_config(self, target_os: HostTargetOS, ff_version: str) -> CamoufoxProfile:
         env = self._env_map()
 
         if self.fingerprint is not None:
@@ -645,15 +647,12 @@ def _generate_fontconfig(fontconfig_path: str) -> str:
     return runtime_conf
 
 
-def _normalize_requested_os(requested_os: ListOrString | None) -> str:
-    if requested_os is None:
-        return "macos"
-
-    values = [requested_os] if isinstance(requested_os, str) else list(requested_os)
-    _check_valid_os(values)
-    if any(value != "macos" for value in values):
-        raise NotImplementedError("Camoufox currently supports only macOS-compatible fingerprint generation.")
-    return "macos"
+def _normalize_requested_os(requested_os: ListOrString | None) -> HostTargetOS:
+    values = requested_os
+    if requested_os is not None:
+        values = [requested_os] if isinstance(requested_os, str) else list(requested_os)
+        _check_valid_os(cast(ListOrString, values))
+    return normalize_target_os(values)
 
 
 def _user_agent_os(config: CamoufoxProfile) -> Literal["mac", "win", "lin"]:

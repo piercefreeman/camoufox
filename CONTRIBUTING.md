@@ -42,13 +42,13 @@ Tests the **raw binary** in isolation, bypassing the Python package entirely. Fi
 **Run this when you change:** browser patches, Firefox source modifications, WebGL/canvas/audio spoofing, WebRTC IP handling, or anything in the C++/JS browser layer.
 
 ```bash
-cd build-tester
-npm install          # first time only
-pip install -r requirements.txt
-python scripts/run_tests.py /path/to/camoufox-binary
+export CAMOUFOX_EXECUTABLE_PATH=/path/to/camoufox-binary
+uv run --group dev --group playwright-tests --locked pytest \
+  --integration \
+  __tests__/build-tester/
 ```
 
-See [`build-tester/README.md`](build-tester/README.md) for full details.
+See [`__tests__/build-tester/README.md`](__tests__/build-tester/README.md) for full details.
 
 ---
 
@@ -59,13 +59,16 @@ Tests the **full stack** — the binary and the Python package together — usin
 **Run this when you change:** `pythonlib/` (fingerprint generation, `AsyncNewContext`, `NewContext`), proxy handling, or any behaviour that affects how the Python package interacts with the binary.
 
 ```bash
-cd service-tester
 # Add proxies (one per line, format: user:pass@domain:port)
-cp proxies.txt.example proxies.txt   # or create manually
-./run_tests.sh
+$EDITOR __tests__/service-tester/proxies.txt
+
+# Run the pytest-gated integration wrapper
+uv run --group dev --group playwright-tests --locked pytest \
+  --integration \
+  __tests__/service-tester/
 ```
 
-See [`service-tester/README.md`](service-tester/README.md) for full details.
+See [`__tests__/service-tester/README.md`](__tests__/service-tester/README.md) for full details.
 
 ---
 

@@ -6,11 +6,50 @@ import os
 import shutil
 import sys
 import tempfile
+from pathlib import Path
 from shlex import join
 
 from _mixin import find_src_dir, get_moz_target, list_files, run, temp_cd
 
 UNNEEDED_PATHS = {'uninstall', 'pingsender.exe', 'pingsender', 'vaapitest', 'glxtest'}
+
+_MACH_O_MAGICS = {
+    b"\xfe\xed\xfa\xce",
+    b"\xce\xfa\xed\xfe",
+    b"\xfe\xed\xfa\xcf",
+    b"\xcf\xfa\xed\xfe",
+    b"\xca\xfe\xba\xbe",
+    b"\xbe\xba\xfe\xca",
+    b"\xca\xfe\xba\xbf",
+    b"\xbf\xba\xfe\xca",
+}
+
+
+def _looks_executable(path: Path) -> bool:
+    if not path.is_file():
+        return False
+
+    try:
+        with path.open("rb") as handle:
+            header = handle.read(8)
+    except OSError:
+        return False
+
+    if header.startswith(b"#!"):
+        return True
+    if header[:4] == b"\x7fELF":
+        return True
+    if header[:4] in _MACH_O_MAGICS:
+        return True
+    return False
+
+
+def _restore_executable_bits(root: str) -> None:
+    for path in Path(root).rglob("*"):
+        if not _looks_executable(path):
+            continue
+        mode = path.stat().st_mode
+        path.chmod(mode | 0o111)
 
 
 def add_includes_to_package(package_file, includes, fonts, new_file, target):
@@ -91,6 +130,10 @@ def add_includes_to_package(package_file, includes, fonts, new_file, target):
             elif os.path.exists(os.path.join(target_dir, path)):
                 os.remove(os.path.join(target_dir, path))
 
+        # 7z extraction does not reliably preserve executable bits on Unix
+        # binaries, which breaks helper subprocess launches after re-zipping.
+        _restore_executable_bits(temp_dir)
+
         # Update package
         run(join(['7z', 'u', new_file, f'{temp_dir}/*', '-r', '-mx=9']))
 
@@ -107,7 +150,7 @@ def get_args():
     parser.add_argument('--version', required=True, help='Camoufox version')
     parser.add_argument('--release', required=True, help='Camoufox release number')
     parser.add_argument(
-        '--arch', choices=['x86_64', 'i686', 'arm64'], help='Architecture for Windows build'
+        '--arch', choices=['x86_64', 'arm64'], help='Target architecture'
     )
     parser.add_argument('--fonts', nargs='+', help='Font directories to include under fonts/')
     return parser.parse_args()

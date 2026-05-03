@@ -148,7 +148,7 @@ class GeoIPWorker(Worker):
 
     def run(self):
         try:
-            from ..geolocation import download_mmdb
+            from ..geo.geolocation import download_mmdb
 
             download_mmdb(source=self.source, progress_callback=self._progress)
             self.done.emit(True, f"Installed: {self.source}")
@@ -170,18 +170,6 @@ class Roles(IntEnum):
     Expanded = Qt.ItemDataRole.UserRole + 8
     IsPinned = Qt.ItemDataRole.UserRole + 9
 
-
-_ROLE_ATTRS = {
-    Roles.Display: 'display',
-    Roles.Build: 'build',
-    Roles.IsHeader: 'is_header',
-    Roles.IsPrerelease: 'is_prerelease',
-    Roles.IsActive: 'is_active',
-    Roles.IsInstalled: 'is_installed',
-    Roles.Section: 'section',
-    Roles.Expanded: 'expanded',
-    Roles.IsPinned: 'is_pinned',
-}
 
 _BOOL_ROLES = {
     Roles.IsHeader,
@@ -258,8 +246,7 @@ class VersionModel(QAbstractListModel):
     def data(self, index, role=Qt.ItemDataRole.DisplayRole):
         if not index.isValid() or index.row() >= len(self._items):
             return False if role in _BOOL_ROLES else ""
-        attr = _ROLE_ATTRS.get(role)
-        return getattr(self._items[index.row()], attr, "") if attr else ""
+        return _value_for_role(self._items[index.row()], role)
 
     def roleNames(self):
         return _ROLE_NAMES
@@ -273,8 +260,30 @@ class VersionModel(QAbstractListModel):
         return self._items[index] if 0 <= index < len(self._items) else None
 
 
+def _value_for_role(item: VersionItem, role: int):
+    if role == Roles.Display:
+        return item.display
+    if role == Roles.Build:
+        return item.build
+    if role == Roles.IsHeader:
+        return item.is_header
+    if role == Roles.IsPrerelease:
+        return item.is_prerelease
+    if role == Roles.IsActive:
+        return item.is_active
+    if role == Roles.IsInstalled:
+        return item.is_installed
+    if role == Roles.Section:
+        return item.section
+    if role == Roles.Expanded:
+        return item.expanded
+    if role == Roles.IsPinned:
+        return item.is_pinned
+    return ""
+
+
 OS_OPTIONS = ["(auto)", "mac", "win", "lin"]
-ARCH_OPTIONS = ["(auto)", "x86_64", "i686", "arm64"]
+ARCH_OPTIONS = ["(auto)", "x86_64", "arm64"]
 
 
 # Backend
@@ -738,7 +747,7 @@ class Backend(QObject):
         if not self._geoip_names or source not in self._geoip_names:
             return
         if source == self._geoip_installed:
-            from ..geolocation import needs_update
+            from ..geo.geolocation import needs_update
 
             if not needs_update():
                 return
@@ -751,14 +760,14 @@ class Backend(QObject):
 
     @Slot()
     def deleteGeoipData(self):
-        from ..geolocation import remove_mmdb
+        from ..geo.geolocation import remove_mmdb
 
         remove_mmdb()
         self._load_geoip()
 
     @Slot(str)
     def deleteGeoipSource(self, source):
-        from ..geolocation import MMDB_DIR, _get_geoip_config_by_name
+        from ..geo.geolocation import MMDB_DIR, _get_geoip_config_by_name
 
         try:
             name = _get_geoip_config_by_name(source)['name'].lower()
@@ -770,7 +779,7 @@ class Backend(QObject):
 
     @Slot(str)
     def setActiveGeoip(self, source):
-        from ..geolocation import _get_geoip_config_by_name, save_geoip_config
+        from ..geo.geolocation import _get_geoip_config_by_name, save_geoip_config
 
         if source not in self._geoip_downloaded:
             return
@@ -794,7 +803,7 @@ class Backend(QObject):
 
     @Slot()
     def openGeoipFolder(self):
-        from ..geolocation import MMDB_DIR
+        from ..geo.geolocation import MMDB_DIR
 
         if not MMDB_DIR.exists():
             return
@@ -818,7 +827,7 @@ class Backend(QObject):
             return
 
         try:
-            from ..geolocation import get_geolocation, get_mmdb_path
+            from ..geo.geolocation import get_geolocation, get_mmdb_path
 
             if not get_mmdb_path().exists():
                 self._lookup_result = "Database not downloaded"
@@ -851,7 +860,7 @@ class Backend(QObject):
         self._geoip_mtime = ""
 
         try:
-            from ..geolocation import (
+            from ..geo.geolocation import (
                 ALLOW_GEOIP,
                 MMDB_DIR,
                 _load_geoip_repos,

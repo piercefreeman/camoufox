@@ -20,7 +20,7 @@ pacman := python python-pip p7zip msitools wget aria2 sqlite
 .PHONY: help fetch setup setup-minimal clean set-target distclean build package \
         revert edits run bootstrap mozbootstrap dir \
         package-linux package-macos package-windows vcredist_arch patch unpatch \
-        workspace check-arg edit-cfg ff-dbg tests update-ubo-assets generate-assets-car \
+        workspace check-arg edit-cfg ff-dbg lint tests update-ubo-assets generate-assets-car \
         generate-openapi generate-openapi-python generate-openapi-cpp \
         validate-fingerprint-example verify-patches
 
@@ -50,12 +50,13 @@ help:
 	@echo "  package-macos   - Package Camoufox for macOS"
 	@echo "  package-windows - Package Camoufox for Windows"
 	@echo "  run             - Run Camoufox"
+	@echo "  lint            - Run Python static analysis"
 	@echo "  edit-cfg        - Edit camoufox.cfg"
 	@echo "  ff-dbg          - Setup vanilla Firefox with minimal patches"
 	@echo "  patch           - Apply a patch"
 	@echo "  unpatch         - Remove a patch"
 	@echo "  workspace       - Sets the workspace to a patch, assuming its applied"
-	@echo "  tests           - Runs the Playwright tests"
+	@echo "  tests           - Runs the Python integration test suites"
 	@echo "  update-ubo-assets - Update the uBOAssets.json file"
 	@echo "  generate-openapi - Generate Python and C++ profile models from OpenAPI schema"
 	@echo "  validate-fingerprint-example - Validate example/fingerprint.json against the OpenAPI schema"
@@ -218,11 +219,19 @@ workspace:
 	make first-checkpoint || true
 	make patch $(_ARGS)
 
+lint:
+	uv run --group dev --locked ruff check pythonlib/camoufox
+	uv run --group dev --locked ty check pythonlib/camoufox
+
 tests:
-	cd ./tests && \
-	bash run-tests.sh \
-		--executable-path ../$(cf_source_dir)/obj-x86_64-pc-linux-gnu/dist/bin/camoufox-bin \
-		$(if $(filter true,$(headful)),--headful,)
+	CAMOUFOX_EXECUTABLE_PATH=$(CURDIR)/$(cf_source_dir)/obj-x86_64-pc-linux-gnu/dist/bin/camoufox-bin \
+		uv run --group dev --group playwright-tests --locked pytest \
+			--integration \
+			-vv \
+			$(if $(filter true,$(headful)),, --headless) \
+			__tests__/build-tester/ \
+			__tests__/playwright/async/ \
+			__tests__/service-tester/
 
 unbusy:
 	rm -rf $(cf_source_dir)/obj-x86_64-pc-linux-gnu/dist/bin/camoufox-bin \
@@ -265,9 +274,9 @@ generate-openapi-cpp:
 		--additional-properties hideGenerationTimestamp=true,modelPackage=camoucfg
 
 validate-fingerprint-example:
-	uv run --project pythonlib python scripts/validate_fingerprint_example.py
+	uv run python scripts/validate_fingerprint_example.py
 
 verify-patches:
 	uv run scripts/verify_firefox_patches.py
 
-vcredist_arch := $(shell echo $(arch) | sed 's/x86_64/x64/' | sed 's/i686/x86/')
+vcredist_arch := $(shell echo $(arch) | sed 's/x86_64/x64/')

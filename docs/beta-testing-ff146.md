@@ -26,7 +26,7 @@ python3 multibuild.py --target <os> --arch <arch>
 | Parameter | Options |
 |-----------|---------|
 | `--target` | `linux`, `windows`, `macos` |
-| `--arch` | `x86_64`, `arm64`, `i686` |
+| `--arch` | `x86_64`, `arm64` |
 
 Build artifacts will appear in the `dist/` folder.
 

@@ -11,7 +11,7 @@ from typing import Any
 import rich_click as click
 
 from .addons import DefaultAddons, maybe_download_addons
-from .geolocation import (
+from .geo.geolocation import (
     ALLOW_GEOIP,
     GEOIP_DIR,
     _load_geoip_repos,
@@ -222,7 +222,7 @@ def cli() -> None:
 )
 @click.option(
     "--spoof-arch",
-    type=click.Choice(["auto", "x86_64", "i686", "arm64"]),
+    type=click.Choice(["auto", "x86_64", "arm64"]),
     help="Spoof architecture (auto = native)",
 )
 def sync(spoof_os, spoof_arch):

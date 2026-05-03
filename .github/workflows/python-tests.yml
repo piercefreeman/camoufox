@@ -67,16 +67,14 @@ jobs:
         with:
           enable-cache: true
           cache-dependency-glob: |
-            pythonlib/pyproject.toml
-            pythonlib/uv.lock
+            pyproject.toml
+            uv.lock
 
       - name: Sync Python dev environment
-        working-directory: pythonlib
         run: uv sync --group dev --locked
 
       - name: Run Ruff
-        working-directory: pythonlib
-        run: uv run --project . ruff check camoufox
+        run: uv run --group dev ruff check pythonlib/camoufox
 
   fingerprint-example:
     runs-on: ubuntu-24.04
@@ -96,14 +94,14 @@ jobs:
         with:
           enable-cache: true
           cache-dependency-glob: |
-            pythonlib/pyproject.toml
-            pythonlib/uv.lock
+            pyproject.toml
+            uv.lock
 
       - name: Sync Python dev environment
-        run: uv sync --project pythonlib --group dev --locked
+        run: uv sync --group dev --locked
 
       - name: Validate fingerprint example
-        run: uv run --project pythonlib python scripts/validate_fingerprint_example.py
+        run: uv run python scripts/validate_fingerprint_example.py
 
   ty:
     runs-on: ubuntu-24.04
@@ -123,16 +121,14 @@ jobs:
         with:
           enable-cache: true
           cache-dependency-glob: |
-            pythonlib/pyproject.toml
-            pythonlib/uv.lock
+            pyproject.toml
+            uv.lock
 
       - name: Sync Python dev environment
-        working-directory: pythonlib
         run: uv sync --group dev --locked
 
       - name: Run ty
-        working-directory: pythonlib
-        run: uv run --project . ty check camoufox
+        run: uv run --group dev ty check pythonlib/camoufox
 
   pytest:
     runs-on: ubuntu-24.04
@@ -159,11 +155,11 @@ jobs:
         with:
           enable-cache: true
           cache-dependency-glob: |
-            pythonlib/pyproject.toml
-            pythonlib/uv.lock
+            pyproject.toml
+            uv.lock
 
       - name: Sync Python test environment
-        run: uv sync --project pythonlib --group dev --locked
+        run: uv sync --group dev --locked
 
       - name: Run Python tests
-        run: uv run --project pythonlib --group dev pytest __tests_
+        run: uv run --group dev pytest __tests__ --ignore=__tests__/playwright
