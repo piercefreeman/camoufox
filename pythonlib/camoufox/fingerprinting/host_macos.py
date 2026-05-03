@@ -9,7 +9,7 @@ from typing import ClassVar, Self
 from .._generated_profile import CamoufoxProfile, NavigatorProfile
 from .common import HostTargetOS, MACOS
 from .fonts import Font, font_definitions_for_target_os
-from .voices import Voice, voice_definitions_for_target_os
+from .voices import Voice, dedupe_voices, voice_definitions_for_target_os
 from .hosts import (
     HostFingerprintAdapter,
     dedupe,
@@ -94,8 +94,8 @@ class MacOSHostAdapter(HostFingerprintAdapter):
             gpu_family=gpu_family,
             bundled_fonts=dedupe(bundled_fonts),
             extra_fonts=dedupe(extra_fonts),
-            bundled_voices=_dedupe_voices(bundled_voices),
-            extra_voices=_dedupe_voices(extra_voices),
+            bundled_voices=dedupe_voices(bundled_voices),
+            extra_voices=dedupe_voices(extra_voices),
         )
 
     @classmethod
@@ -245,10 +245,3 @@ def _is_system_font(font_path: str) -> bool:
 def _is_bundled_voice(name: str) -> bool:
     lowered = name.lower()
     return "enhanced" not in lowered and "premium" not in lowered and "(" not in lowered
-
-
-def _dedupe_voices(voices: list[Voice]) -> tuple[Voice, ...]:
-    seen: dict[str, Voice] = {}
-    for voice in voices:
-        seen.setdefault(voice.name, voice)
-    return tuple(seen.values())

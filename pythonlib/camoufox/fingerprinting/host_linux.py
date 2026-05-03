@@ -10,7 +10,7 @@ from typing import ClassVar, Self
 from .._generated_profile import CamoufoxProfile, NavigatorProfile
 from .common import HostTargetOS, LINUX
 from .fonts import Font, font_definitions_for_target_os
-from .voices import Voice, voice_definitions_for_target_os
+from .voices import Voice, dedupe_voices, voice_definitions_for_target_os
 from .hosts import (
     HostFingerprintAdapter,
     dedupe,
@@ -74,8 +74,8 @@ class LinuxHostAdapter(HostFingerprintAdapter):
             gpu_family=gpu_family,
             bundled_fonts=dedupe(bundled_fonts),
             extra_fonts=dedupe(extra_fonts),
-            bundled_voices=_dedupe_voices(bundled_voices),
-            extra_voices=_dedupe_voices(extra_voices),
+            bundled_voices=dedupe_voices(bundled_voices),
+            extra_voices=dedupe_voices(extra_voices),
         )
 
     @classmethod
@@ -189,10 +189,3 @@ def _is_system_font(font_path: str) -> bool:
         f"{home}/.local/share/fonts",
     )
     return not any(font_path.startswith(prefix) for prefix in user_prefixes)
-
-
-def _dedupe_voices(voices: list[Voice]) -> tuple[Voice, ...]:
-    seen: dict[str, Voice] = {}
-    for voice in voices:
-        seen.setdefault(voice.name, voice)
-    return tuple(seen.values())

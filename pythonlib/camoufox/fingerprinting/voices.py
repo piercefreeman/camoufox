@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 
 from .common import LINUX, MACOS, WINDOWS, TargetOS, empty_target_os_set, target_os_set
@@ -88,3 +89,13 @@ def blocked_voice_names_for_target_os(target_os: TargetOS) -> frozenset[str]:
         for voice in _VOICE_DEFINITIONS
         if target_os not in voice.target_os and voice.leak_signal
     )
+
+
+def dedupe_voices(voices: Iterable[Voice]) -> tuple[Voice, ...]:
+    """
+    Preserve first-seen voices while deduplicating by canonical voice name.
+    """
+    seen: dict[str, Voice] = {}
+    for voice in voices:
+        seen.setdefault(voice.name, voice)
+    return tuple(seen.values())
