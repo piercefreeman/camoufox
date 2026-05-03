@@ -7,7 +7,9 @@ from abc import ABC, abstractmethod
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from random import randint, sample
-from typing import Any, Self, TypeVar
+from typing import Any, TypeVar
+
+from typing_extensions import Self
 
 from .._generated_profile import (
     AudioProfile,

@@ -4,7 +4,9 @@ import json
 import platform
 import re
 from dataclasses import dataclass
-from typing import ClassVar, Self
+from typing import ClassVar
+
+from typing_extensions import Self
 
 from .._generated_profile import CamoufoxProfile, NavigatorProfile
 from .common import HostTargetOS, MACOS

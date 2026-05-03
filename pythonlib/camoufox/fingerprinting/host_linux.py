@@ -5,7 +5,9 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 from subprocess import CalledProcessError
-from typing import ClassVar, Self
+from typing import ClassVar
+
+from typing_extensions import Self
 
 from .._generated_profile import CamoufoxProfile, NavigatorProfile
 from .common import HostTargetOS, LINUX
