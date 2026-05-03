@@ -20,7 +20,7 @@ pacman := python python-pip p7zip msitools wget aria2 sqlite
 .PHONY: help fetch setup setup-minimal clean set-target distclean build package \
         revert edits run bootstrap mozbootstrap dir \
         package-linux package-macos package-windows vcredist_arch patch unpatch \
-        workspace check-arg edit-cfg ff-dbg tests update-ubo-assets generate-assets-car \
+        workspace check-arg edit-cfg ff-dbg lint tests update-ubo-assets generate-assets-car \
         generate-openapi generate-openapi-python generate-openapi-cpp \
         validate-fingerprint-example verify-patches
 
@@ -50,6 +50,7 @@ help:
 	@echo "  package-macos   - Package Camoufox for macOS"
 	@echo "  package-windows - Package Camoufox for Windows"
 	@echo "  run             - Run Camoufox"
+	@echo "  lint            - Run Python static analysis"
 	@echo "  edit-cfg        - Edit camoufox.cfg"
 	@echo "  ff-dbg          - Setup vanilla Firefox with minimal patches"
 	@echo "  patch           - Apply a patch"
@@ -217,6 +218,10 @@ workspace:
 	fi
 	make first-checkpoint || true
 	make patch $(_ARGS)
+
+lint:
+	uv run --group dev --locked ruff check pythonlib/camoufox
+	uv run --group dev --locked ty check pythonlib/camoufox
 
 tests:
 	CAMOUFOX_EXECUTABLE_PATH=$(CURDIR)/$(cf_source_dir)/obj-x86_64-pc-linux-gnu/dist/bin/camoufox-bin \

@@ -13,17 +13,24 @@ from .geolocation import (
     save_geoip_config,
 )
 from .ip import Proxy, public_ip, valid_ipv4, valid_ipv6, validate_ip
-from .locales import Geolocation, Locale, SELECTOR, handle_locale, handle_locales, normalize_locale
+from .locales import (
+    SELECTOR,
+    Geolocation,
+    Locale,
+    handle_locale,
+    handle_locales,
+    normalize_locale,
+)
 
 __all__ = [
     "ALLOW_GEOIP",
     "GEOIP_CONFIG",
     "GEOIP_DIR",
+    "MMDB_DIR",
+    "SELECTOR",
     "Geolocation",
     "Locale",
-    "MMDB_DIR",
     "Proxy",
-    "SELECTOR",
     "download_mmdb",
     "geoip_allowed",
     "get_geolocation",

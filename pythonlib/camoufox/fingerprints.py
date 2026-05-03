@@ -6,11 +6,9 @@ from browserforge.fingerprints import Fingerprint
 
 from ._generated_profile import CamoufoxProfile, LocaleProfile, NavigatorProfile
 from .fingerprinting import current_host_target_os
-from .fingerprinting.compiler import (
-    FirefoxFingerprintCompiler,
-    browserforge_target_os as _browserforge_target_os,
-    preset_target_os as _preset_target_os,
-)
+from .fingerprinting.compiler import FirefoxFingerprintCompiler
+from .fingerprinting.compiler import browserforge_target_os as _browserforge_target_os
+from .fingerprinting.compiler import preset_target_os as _preset_target_os
 
 _GENERATED_FINGERPRINT_IDS: set[int] = set()
 

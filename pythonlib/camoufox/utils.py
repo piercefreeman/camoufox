@@ -33,14 +33,14 @@ from ._generated_profile import (
 from ._warnings import LeakWarning
 from .addons import DefaultAddons, add_default_addons, confirm_paths
 from .exceptions import InvalidOS, InvalidPropertyType, NonFirefoxFingerprint
+from .fingerprinting import normalize_target_os
+from .fingerprinting.common import HostTargetOS
 from .fingerprints import (
     from_browserforge,
     from_preset,
     generate_fingerprint,
     is_generated_fingerprint,
 )
-from .fingerprinting.common import HostTargetOS
-from .fingerprinting import normalize_target_os
 from .geo.geolocation import geoip_allowed, get_geolocation
 from .geo.ip import Proxy, public_ip, valid_ipv4, valid_ipv6
 from .geo.locales import handle_locale

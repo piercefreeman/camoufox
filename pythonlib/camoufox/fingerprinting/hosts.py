@@ -19,9 +19,13 @@ from .._generated_profile import (
     SpeechVoice,
     VoicesProfile,
 )
-from .common import HostTargetOS, LINUX, MACOS
+from .common import LINUX, MACOS, HostTargetOS
 from .fonts import Font, blocked_families_for_target_os, marker_families_for_target_os
-from .voices import Voice, blocked_voice_names_for_target_os, marker_voice_names_for_target_os
+from .voices import (
+    Voice,
+    blocked_voice_names_for_target_os,
+    marker_voice_names_for_target_os,
+)
 
 _HOST_ARCH_MAP = {
     "aarch64": "arm64",
@@ -56,7 +60,7 @@ class HostFingerprintAdapter(ABC):
         cached = getattr(cls, "_cached", None)
         if cached is None:
             cached = cls._probe()
-            setattr(cls, "_cached", cached)
+            cls._cached = cached
         return cached
 
     @classmethod

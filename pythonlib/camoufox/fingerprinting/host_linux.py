@@ -10,9 +10,8 @@ from typing import ClassVar
 from typing_extensions import Self
 
 from .._generated_profile import CamoufoxProfile, NavigatorProfile
-from .common import HostTargetOS, LINUX
+from .common import LINUX, HostTargetOS
 from .fonts import Font, font_definitions_for_target_os
-from .voices import Voice, dedupe_voices, voice_definitions_for_target_os
 from .hosts import (
     HostFingerprintAdapter,
     dedupe,
@@ -22,6 +21,7 @@ from .hosts import (
     normalize_target_os,
     run_host_text,
 )
+from .voices import Voice, dedupe_voices, voice_definitions_for_target_os
 
 
 @dataclass(frozen=True)

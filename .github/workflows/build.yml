@@ -88,6 +88,9 @@ jobs:
     if: github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-build') || contains(github.event.pull_request.labels.*.name, 'full-build-fast')
     permissions:
       contents: write
+    env:
+      CCACHE_DIR: ${{ github.workspace }}/.ccache
+      CCACHE_MAXSIZE: 2G
     strategy:
       fail-fast: false
       matrix:
@@ -199,6 +202,22 @@ jobs:
           brew update
           brew install aria2 ccache
 
+      - name: Restore ccache
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.CCACHE_DIR }}
+          key: ccache-${{ runner.os }}-${{ matrix.target }}-${{ matrix.arch }}-${{ hashFiles('upstream.sh', 'assets/base.mozconfig') }}-${{ github.sha }}
+          restore-keys: |
+            ccache-${{ runner.os }}-${{ matrix.target }}-${{ matrix.arch }}-${{ hashFiles('upstream.sh', 'assets/base.mozconfig') }}-
+
+      - name: Configure ccache
+        run: |
+          mkdir -p "$CCACHE_DIR"
+          ccache --set-config=max_size="$CCACHE_MAXSIZE"
+          ccache --set-config=compression=true
+          ccache --show-stats || true
+          ccache --zero-stats || true
+
       - name: Check Linux disk space
         if: matrix.target == 'linux'
         run: df -h
@@ -247,6 +266,10 @@ jobs:
 
       - name: Build
         run: python3 ./multibuild.py --target ${{ matrix.target }} --arch ${{ matrix.arch }}
+
+      - name: Show ccache stats
+        if: always()
+        run: ccache --show-stats || true
 
       - name: Repair macOS zip permissions
         if: matrix.target == 'macos'

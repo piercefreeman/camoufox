@@ -18,7 +18,7 @@ from .._generated_profile import (
     ScreenProfile,
     WindowProfile,
 )
-from .common import HostTargetOS, LINUX, MACOS, TargetOS, WINDOWS
+from .common import LINUX, MACOS, WINDOWS, HostTargetOS, TargetOS
 from .hosts import (
     HostFingerprintAdapter,
     current_host_target_os,
@@ -61,7 +61,7 @@ class FirefoxFingerprintCompiler:
     host: HostFingerprintAdapter
     generator: FingerprintGenerator
 
-    _cached: ClassVar[dict[HostTargetOS, "FirefoxFingerprintCompiler"]] = {}
+    _cached: ClassVar[dict[HostTargetOS, FirefoxFingerprintCompiler]] = {}
 
     @classmethod
     def current(cls, target_os: Any | None = None) -> FirefoxFingerprintCompiler:
