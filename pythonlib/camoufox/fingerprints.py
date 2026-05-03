@@ -151,7 +151,7 @@ def _debug_log(enabled: bool, message: str) -> None:
 
 
 def _apply_locale_override(config: CamoufoxProfile, locale: str) -> None:
-    from .locales import normalize_locale
+    from .geo.locales import normalize_locale
 
     parsed = normalize_locale(locale)
     config.locale = config.locale or LocaleProfile()

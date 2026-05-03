@@ -1,5 +1,5 @@
 """
-Helpers to fetch geolocation, timezone, and locale data given an IP
+Helpers to fetch geolocation, timezone, and locale data given an IP.
 """
 
 import shutil
@@ -14,11 +14,11 @@ from yaml import CDumper, CLoader
 from yaml import dump as yaml_dump
 from yaml import load as yaml_load
 
-from .assets import get_asset_by_name
-from .exceptions import NotInstalledGeoIPExtra, UnknownIPLocation
+from ..assets import get_asset_by_name
+from ..exceptions import NotInstalledGeoIPExtra, UnknownIPLocation
+from ..pkgman import rprint, unzip, webdl
 from .ip import validate_ip
 from .locales import SELECTOR, Geolocation
-from .pkgman import rprint, unzip, webdl
 
 ALLOW_GEOIP = find_spec("maxminddb") is not None
 
@@ -33,7 +33,7 @@ def _find_in(data: dict[str, Any], key: str) -> Any:
     Resolve a dotted path in a nested dict
     """
     current: Any = data
-    for part in key.split('.'):
+    for part in key.split("."):
         if not isinstance(current, dict):
             return None
         current = current.get(part)
@@ -46,10 +46,10 @@ def _load_geoip_repos() -> tuple[list[dict[str, Any]], str]:
     """
     Load GeoIP repos and default name from repos.yml
     """
-    with open(get_asset_by_name('repos.yml')) as f:
+    with open(get_asset_by_name("repos.yml")) as f:
         data = cast(dict[str, Any], yaml_load(f, Loader=CLoader))
-    geoip_repos = data.get('geoip', [])
-    default_name = data.get('default', {}).get('geoip', 'GeoLite2')
+    geoip_repos = data.get("geoip", [])
+    default_name = data.get("default", {}).get("geoip", "GeoLite2")
     return cast(list[dict[str, Any]], geoip_repos), default_name
 
 
@@ -61,18 +61,18 @@ def _get_geoip_config_by_name(name: str | None = None) -> dict[str, Any]:
     target_name = name or default_name
 
     def _validate_repo(repo: dict[str, Any]) -> dict[str, Any]:
-        if 'urls' not in repo:
+        if "urls" not in repo:
             raise ValueError(f"GeoIP repo '{repo.get('name')}' missing required urls")
-        if 'paths' not in repo:
+        if "paths" not in repo:
             raise ValueError(f"GeoIP repo '{repo.get('name')}' missing required paths")
         return repo
 
     for repo in repos:
-        if repo.get('name', '').lower() == target_name.lower():
+        if repo.get("name", "").lower() == target_name.lower():
             return _validate_repo(repo)
 
     if name:
-        available = [r.get('name', 'Unknown') for r in repos]
+        available = [r.get("name", "Unknown") for r in repos]
         raise ValueError(f"GeoIP database '{name}' not found. Available: {available}")
 
     if repos:
@@ -88,7 +88,7 @@ def load_geoip_config() -> dict[str, Any]:
         with open(GEOIP_CONFIG) as f:
             saved = cast(dict[str, Any], yaml_load(f, Loader=CLoader))
         try:
-            return _get_geoip_config_by_name(saved.get('name'))
+            return _get_geoip_config_by_name(saved.get("name"))
         except (ValueError, KeyError):
             return saved
     return _get_geoip_config_by_name(None)
@@ -99,19 +99,19 @@ def save_geoip_config(config: dict[str, Any]) -> None:
     Save active GeoIP source name to disk
     """
     GEOIP_DIR.mkdir(parents=True, exist_ok=True)
-    with open(GEOIP_CONFIG, 'w') as f:
-        yaml_dump({'name': config['name']}, f, Dumper=CDumper, default_flow_style=False)
+    with open(GEOIP_CONFIG, "w") as f:
+        yaml_dump({"name": config["name"]}, f, Dumper=CDumper, default_flow_style=False)
 
 
-def get_mmdb_path(ip_version: str = 'ipv4', config: dict[str, Any] | None = None) -> Path:
+def get_mmdb_path(ip_version: str = "ipv4", config: dict[str, Any] | None = None) -> Path:
     """
     Get path to the mmdb file for the specified IP version
     """
     if config is None:
         config = load_geoip_config()
-    name = config.get('name', 'geolite2').lower()
-    urls = config.get('urls', {})
-    if 'combined' in urls:
+    name = config.get("name", "geolite2").lower()
+    urls = config.get("urls", {})
+    if "combined" in urls:
         return MMDB_DIR / f"{name}-combined.mmdb"
     return MMDB_DIR / f"{name}-{ip_version}.mmdb"
 
@@ -122,7 +122,7 @@ def geoip_allowed() -> None:
     """
     if not ALLOW_GEOIP:
         raise NotInstalledGeoIPExtra(
-            'Please install the geoip extra to use this feature: pip install camoufox[geoip]'
+            "Please install the geoip extra to use this feature: pip install camoufox[geoip]"
         )
 
 
@@ -136,16 +136,16 @@ def download_mmdb(
     geoip_allowed()
 
     config = _get_geoip_config_by_name(source) if source else load_geoip_config()
-    urls = config['urls']
-    name = config['name'].lower()
+    urls = config["urls"]
+    name = config["name"].lower()
 
     MMDB_DIR.mkdir(parents=True, exist_ok=True)
 
-    extract = config.get('extract', False)
-    is_combined = 'combined' in urls
+    extract = config.get("extract", False)
+    is_combined = "combined" in urls
 
     for ip_ver, url_list in urls.items():
-        suffix = '' if is_combined else f' ({ip_ver})'
+        suffix = "" if is_combined else f" ({ip_ver})"
         dl_desc = f'Downloading {config["name"]}{suffix}'
         ex_desc = f'Extracting {config["name"]}{suffix}'
         max_len = max(len(dl_desc), len(ex_desc))
@@ -160,7 +160,7 @@ def download_mmdb(
         last_error = None
         for url in url_list:
             try:
-                with tempfile.NamedTemporaryFile(suffix='.zip' if extract else '.mmdb') as tmp:
+                with tempfile.NamedTemporaryFile(suffix=".zip" if extract else ".mmdb") as tmp:
                     webdl(
                         url,
                         desc=dl_desc,
@@ -171,17 +171,17 @@ def download_mmdb(
                     if extract:
                         with tempfile.TemporaryDirectory() as tmpdir:
                             unzip(tmp, tmpdir, desc=ex_desc, bar=progress_callback is None)
-                            mmdb_files = list(Path(tmpdir).rglob('*.mmdb'))
+                            mmdb_files = list(Path(tmpdir).rglob("*.mmdb"))
                             if not mmdb_files:
                                 raise ValueError("No .mmdb file found in archive")
                             shutil.move(str(mmdb_files[0]), str(mmdb_path))
                     else:
                         tmp.seek(0)
-                        with open(mmdb_path, 'wb') as dst:
+                        with open(mmdb_path, "wb") as dst:
                             shutil.copyfileobj(tmp, dst)
                 break
-            except Exception as e:
-                last_error = e
+            except Exception as error:
+                last_error = error
                 continue
         else:
             raise last_error or Exception(f"Failed to download {ip_ver}")
@@ -211,8 +211,7 @@ def needs_update(config: dict[str, Any] | None = None) -> bool:
         config = load_geoip_config()
 
     update_days = 30
-
-    ipv4_path = get_mmdb_path('ipv4', config)
+    ipv4_path = get_mmdb_path("ipv4", config)
     if not ipv4_path.exists():
         return True
 
@@ -228,7 +227,7 @@ def get_geolocation(ip: str, geoip_db: str | None = None) -> Geolocation:
     import maxminddb
 
     validate_ip(ip)
-    ip_version = 'ipv6' if ':' in ip else 'ipv4'
+    ip_version = "ipv6" if ":" in ip else "ipv4"
     mmdb_path = get_mmdb_path(ip_version)
 
     if not mmdb_path.exists() or needs_update():
@@ -236,7 +235,7 @@ def get_geolocation(ip: str, geoip_db: str | None = None) -> Geolocation:
         mmdb_path = get_mmdb_path(ip_version)
 
     config = _get_geoip_config_by_name(geoip_db) if geoip_db else load_geoip_config()
-    paths = config['paths']
+    paths = config["paths"]
 
     with maxminddb.open_database(str(mmdb_path)) as reader:
         resp = cast(dict[str, Any], reader.get(ip))
@@ -244,10 +243,10 @@ def get_geolocation(ip: str, geoip_db: str | None = None) -> Geolocation:
         if not resp:
             raise UnknownIPLocation(f"IP not found in database: {ip}")
 
-        iso_code = _find_in(resp, paths['iso_code'])
-        longitude = _find_in(resp, paths['longitude'])
-        latitude = _find_in(resp, paths['latitude'])
-        timezone = _find_in(resp, paths['timezone'])
+        iso_code = _find_in(resp, paths["iso_code"])
+        longitude = _find_in(resp, paths["longitude"])
+        latitude = _find_in(resp, paths["latitude"])
+        timezone = _find_in(resp, paths["timezone"])
 
         iso_code = str(iso_code).upper()
         locale = SELECTOR.from_region(iso_code)

@@ -1,3 +1,7 @@
+"""
+Helpers to find the user's public IP address for geolocation.
+"""
+
 import re
 import warnings
 from contextlib import contextmanager
@@ -7,11 +11,7 @@ from functools import cache, lru_cache
 import requests
 from urllib3.exceptions import InsecureRequestWarning
 
-from .exceptions import InvalidIP, InvalidProxy
-
-"""
-Helpers to find the user's public IP address for geolocation.
-"""
+from ..exceptions import InvalidIP, InvalidProxy
 
 
 @dataclass
@@ -30,15 +30,15 @@ class Proxy:
         """
         Parses the proxy server string.
         """
-        proxy_match = re.match(r'^(?:(?P<schema>\w+)://)?(?P<url>.*?)(?:\:(?P<port>\d+))?$', server)
+        proxy_match = re.match(r"^(?:(?P<schema>\w+)://)?(?P<url>.*?)(?:\:(?P<port>\d+))?$", server)
         if not proxy_match:
             raise InvalidProxy(f"Invalid proxy server: {server}")
-        return proxy_match['schema'], proxy_match['url'], proxy_match['port']
+        return proxy_match["schema"], proxy_match["url"], proxy_match["port"]
 
     def as_string(self) -> str:
         schema, url, port = self.parse_server(self.server)
         if not schema:
-            schema = 'http'
+            schema = "http"
         result = f"{schema}://"
         if self.username:
             result += f"{self.username}"
@@ -57,19 +57,19 @@ class Proxy:
         Converts the proxy to a requests proxy dictionary.
         """
         return {
-            'http': proxy_string,
-            'https': proxy_string,
+            "http": proxy_string,
+            "https": proxy_string,
         }
 
 
 @lru_cache(128, typed=True)
 def valid_ipv4(ip: str) -> bool:
-    return bool(re.match(r'^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$', ip))
+    return bool(re.match(r"^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$", ip))
 
 
 @lru_cache(128, typed=True)
 def valid_ipv6(ip: str) -> bool:
-    return bool(re.match(r'^(([0-9a-fA-F]{0,4}:){1,7}[0-9a-fA-F]{0,4})$', ip))
+    return bool(re.match(r"^(([0-9a-fA-F]{0,4}:){1,7}[0-9a-fA-F]{0,4})$", ip))
 
 
 def validate_ip(ip: str) -> None:
@@ -89,7 +89,7 @@ def public_ip(proxy: str | None = None) -> str:
     """
     Sends a request to a public IP api
     """
-    URLS = [
+    urls = [
         # Prefers IPv4
         "https://api.ipify.org",
         "https://checkip.amazonaws.com",
@@ -101,7 +101,7 @@ def public_ip(proxy: str | None = None) -> str:
     ]
 
     end_exception = None
-    for url in URLS:
+    for url in urls:
         try:
             with _suppress_insecure_warning():
                 resp = requests.get(  # nosec

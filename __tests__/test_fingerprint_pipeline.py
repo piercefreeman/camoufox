@@ -51,6 +51,11 @@ class FakeFingerprint:
 
 
 def _install_dependency_shims() -> None:
+    if "camoufox.geo" not in sys.modules:
+        geo_package = types.ModuleType("camoufox.geo")
+        geo_package.__path__ = []
+        sys.modules["camoufox.geo"] = geo_package
+
     if "orjson" not in sys.modules:
         orjson = types.ModuleType("orjson")
         orjson.JSONEncodeError = TypeError
@@ -170,14 +175,15 @@ def _install_dependency_shims() -> None:
         addons.confirm_paths = lambda paths: None
         sys.modules["camoufox.addons"] = addons
 
-    if "camoufox.geolocation" not in sys.modules:
-        geolocation = types.ModuleType("camoufox.geolocation")
+    if "camoufox.geo.geolocation" not in sys.modules:
+        geolocation = types.ModuleType("camoufox.geo.geolocation")
         geolocation.geoip_allowed = lambda: None
         geolocation.get_geolocation = lambda ip, geoip_db=None: types.SimpleNamespace(as_config=lambda: {})
-        sys.modules["camoufox.geolocation"] = geolocation
+        sys.modules["camoufox.geo.geolocation"] = geolocation
+        sys.modules["camoufox.geo"].geolocation = geolocation
 
-    if "camoufox.ip" not in sys.modules:
-        ip = types.ModuleType("camoufox.ip")
+    if "camoufox.geo.ip" not in sys.modules:
+        ip = types.ModuleType("camoufox.geo.ip")
 
         @dataclass(frozen=True)
         class Proxy:
@@ -192,10 +198,12 @@ def _install_dependency_shims() -> None:
         ip.public_ip = lambda proxy=None: "1.2.3.4"
         ip.valid_ipv4 = lambda value: "." in value
         ip.valid_ipv6 = lambda value: ":" in value
-        sys.modules["camoufox.ip"] = ip
+        ip.validate_ip = lambda value: None
+        sys.modules["camoufox.geo.ip"] = ip
+        sys.modules["camoufox.geo"].ip = ip
 
-    if "camoufox.locales" not in sys.modules:
-        locales = types.ModuleType("camoufox.locales")
+    if "camoufox.geo.locales" not in sys.modules:
+        locales = types.ModuleType("camoufox.geo.locales")
 
         @dataclass(frozen=True)
         class Locale:
@@ -214,7 +222,14 @@ def _install_dependency_shims() -> None:
         locales.Locale = Locale
         locales.normalize_locale = normalize_locale
         locales.handle_locale = lambda locale, ignore_region=False: normalize_locale(locale)
-        sys.modules["camoufox.locales"] = locales
+        locales.handle_locales = lambda locales_arg, config: None
+        locales.Geolocation = types.SimpleNamespace
+        locales.SELECTOR = types.SimpleNamespace(
+            from_region=lambda region: normalize_locale(f"en-{region}"),
+            from_language=lambda language: normalize_locale(f"{language}-US"),
+        )
+        sys.modules["camoufox.geo.locales"] = locales
+        sys.modules["camoufox.geo"].locales = locales
 
     if "camoufox.virtdisplay" not in sys.modules:
         virtdisplay = types.ModuleType("camoufox.virtdisplay")
@@ -310,7 +325,7 @@ def stable_environment(
     monkeypatch.setattr(host_macos.MacOSHostAdapter, "_cached", fake_host)
     monkeypatch.setattr(host_linux.LinuxHostAdapter, "_cached", None)
     monkeypatch.setattr(hosts, "_sample_extras", lambda items: list(items[:2]))
-    monkeypatch.setattr(fingerprints._FirefoxFingerprintCompiler, "_cached", {})
+    monkeypatch.setattr(fingerprints.FirefoxFingerprintCompiler, "_cached", {})
 
     monkeypatch.setattr(utils, "OS_NAME", "mac")
     monkeypatch.setattr(utils, "installed_verstr", lambda: "146.0.1-beta.25")
@@ -443,7 +458,7 @@ def test_launch_options_does_not_warn_for_camoufox_generated_fingerprint(
 ) -> None:
     _, fingerprints, utils = modules
     monkeypatch.setattr(
-        fingerprints._FirefoxFingerprintCompiler.current().generator,
+        fingerprints.FirefoxFingerprintCompiler.current().generator,
         "generate",
         lambda **_: fake_fingerprint,
     )
@@ -505,7 +520,7 @@ def test_from_browserforge_compiles_linux_host_compatible_config(
     monkeypatch.setattr(hosts.sys, "platform", "linux")
     monkeypatch.setattr(host_macos.MacOSHostAdapter, "_cached", None)
     monkeypatch.setattr(host_linux.LinuxHostAdapter, "_cached", fake_linux_host)
-    monkeypatch.setattr(fingerprints._FirefoxFingerprintCompiler, "_cached", {})
+    monkeypatch.setattr(fingerprints.FirefoxFingerprintCompiler, "_cached", {})
     monkeypatch.setattr(utils, "OS_NAME", "lin")
 
     config = fingerprints.from_browserforge(fake_linux_fingerprint, ff_version="146")
@@ -535,7 +550,7 @@ def test_launch_options_defaults_to_linux_host_target(
     monkeypatch.setattr(hosts.sys, "platform", "linux")
     monkeypatch.setattr(host_macos.MacOSHostAdapter, "_cached", None)
     monkeypatch.setattr(host_linux.LinuxHostAdapter, "_cached", fake_linux_host)
-    monkeypatch.setattr(fingerprints._FirefoxFingerprintCompiler, "_cached", {})
+    monkeypatch.setattr(fingerprints.FirefoxFingerprintCompiler, "_cached", {})
     monkeypatch.setattr(utils, "OS_NAME", "lin")
     monkeypatch.setattr(utils, "generate_fingerprint", lambda **_: fake_linux_fingerprint)
     fontconfig_root = tmp_path / "fontconfigs" / "linux"

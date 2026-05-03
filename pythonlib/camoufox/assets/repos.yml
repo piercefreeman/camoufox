@@ -5,8 +5,7 @@ default:
 
 # Browser repositories
 browsers:
-  # Fallback to camoufox org
-  - repo: daijro/camoufox, camoufox/camoufox
+  - repo: MonkeySee-AI/camoufox
     name: Official
     pattern: "{name}-{version}-{build}-{os}.{arch}.zip"
     versions:
@@ -16,15 +15,6 @@ browsers:
         browser:
           min: "beta.19"
           max: "1"
-
-  - repo: coryking/camoufox
-    name: CoryKing
-    pattern: "{name}-{version}-{build}-{os}.{arch}.zip"
-    versions:
-      - python_library:
-          min: "0.5.0"
-          max: "1"
-        # assume all browsers
 
 # GeoIP database repositories
 geoip:

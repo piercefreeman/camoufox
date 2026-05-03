@@ -41,9 +41,9 @@ from .fingerprints import (
 )
 from .fingerprinting.common import HostTargetOS
 from .fingerprinting import normalize_target_os
-from .geolocation import geoip_allowed, get_geolocation
-from .ip import Proxy, public_ip, valid_ipv4, valid_ipv6
-from .locales import handle_locale
+from .geo.geolocation import geoip_allowed, get_geolocation
+from .geo.ip import Proxy, public_ip, valid_ipv4, valid_ipv6
+from .geo.locales import handle_locale
 from .pkgman import OS_NAME, get_path, installed_verstr, launch_path
 from .virtdisplay import VirtualDisplay
 

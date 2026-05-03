@@ -11,7 +11,7 @@ from typing import Any
 import rich_click as click
 
 from .addons import DefaultAddons, maybe_download_addons
-from .geolocation import (
+from .geo.geolocation import (
     ALLOW_GEOIP,
     GEOIP_DIR,
     _load_geoip_repos,

@@ -1,3 +1,7 @@
+"""
+Data structures and helpers for locale and geolocation info.
+"""
+
 import xml.etree.ElementTree as ET  # nosec
 from collections.abc import Iterable
 from dataclasses import dataclass
@@ -6,14 +10,9 @@ from typing import Any
 import numpy as np
 from language_tags import tags
 
-from camoufox._warnings import LeakWarning
-
-from .assets import get_asset_by_name
-from .exceptions import InvalidLocale, UnknownLanguage, UnknownTerritory
-
-"""
-Data structures for locale and geolocation info
-"""
+from .._warnings import LeakWarning
+from ..assets import get_asset_by_name
+from ..exceptions import InvalidLocale, UnknownLanguage, UnknownTerritory
 
 
 @dataclass
@@ -37,10 +36,10 @@ class Locale:
         Converts the locale to a nested profile dictionary.
         """
         assert self.region
-        data = {'region': self.region, 'language': self.language}
+        data = {"region": self.region, "language": self.language}
         if self.script:
-            data['script'] = self.script
-        return {'locale': data}
+            data["script"] = self.script
+        return {"locale": data}
 
 
 @dataclass(frozen=True)
@@ -60,21 +59,16 @@ class Geolocation:
         Converts the geolocation to a nested profile dictionary.
         """
         data = {
-            'geolocation': {
-                'longitude': self.longitude,
-                'latitude': self.latitude,
+            "geolocation": {
+                "longitude": self.longitude,
+                "latitude": self.latitude,
             },
-            'timezone': self.timezone,
+            "timezone": self.timezone,
             **self.locale.as_config(),
         }
         if self.accuracy:
-            data['geolocation']['accuracy'] = self.accuracy
+            data["geolocation"]["accuracy"] = self.accuracy
         return data
-
-
-"""
-Helpers to validate and normalize locales
-"""
 
 
 def verify_locale(loc: str) -> None:
@@ -93,18 +87,15 @@ def normalize_locale(locale: str) -> Locale:
     """
     verify_locale(locale)
 
-    # Parse the locale
     parser = tags.tag(locale)
     if not parser.region:
         raise InvalidLocale.invalid_input(locale)
 
-    record = parser.language.data['record']
-
-    # Return a formatted locale object
+    record = parser.language.data["record"]
     return Locale(
-        language=record['Subtag'],
-        region=parser.region.data['record']['Subtag'],
-        script=record.get('Suppress-Script'),
+        language=record["Subtag"],
+        region=parser.region.data["record"]["Subtag"],
+        script=record.get("Suppress-Script"),
     )
 
 
@@ -112,31 +103,26 @@ def handle_locale(locale: str, ignore_region: bool = False) -> Locale:
     """
     Handles a locale input, normalizing it if necessary.
     """
-    # If the user passed in `language-region` or `language-script-region`, normalize it.
     if len(locale) > 3:
         return normalize_locale(locale)
 
-    # Case: user passed in `region` and needs a full locale
     try:
         return SELECTOR.from_region(locale)
     except UnknownTerritory:
         pass
 
-    # Case: user passed in `language`, and doesn't care about the region
     if ignore_region:
         verify_locale(locale)
         return Locale(language=locale)
 
-    # Case: user passed in `language` and wants a region
     try:
         language = SELECTOR.from_language(locale)
     except UnknownLanguage:
         pass
     else:
-        LeakWarning.warn('no_region')
+        LeakWarning.warn("no_region")
         return language
 
-    # Locale is not in a valid format.
     raise InvalidLocale.invalid_input(locale)
 
 
@@ -145,12 +131,11 @@ def handle_locales(locales: str | list[str], config: Any) -> None:
     Handles a list of locales.
     """
     if isinstance(locales, str):
-        locales = [loc.strip() for loc in locales.split(',')]
+        locales = [loc.strip() for loc in locales.split(",")]
 
-    # First, handle the first locale. This will be used for the intl api.
     intl_locale = handle_locale(locales[0])
-    if hasattr(config, 'locale'):
-        from ._generated_profile import LocaleProfile, NavigatorProfile
+    if hasattr(config, "locale"):
+        from .._generated_profile import LocaleProfile, NavigatorProfile
 
         config.locale = config.locale or LocaleProfile()
         config.navigator = config.navigator or NavigatorProfile()
@@ -159,21 +144,19 @@ def handle_locales(locales: str | list[str], config: Any) -> None:
         config.locale.script = intl_locale.script
         config.navigator.language = intl_locale.as_string
     else:
-        config.setdefault('locale', {})
-        config['locale'].update(intl_locale.as_config()['locale'])
-        config.setdefault('navigator', {})
-        config['navigator']['language'] = intl_locale.as_string
+        config.setdefault("locale", {})
+        config["locale"].update(intl_locale.as_config()["locale"])
+        config.setdefault("navigator", {})
+        config["navigator"]["language"] = intl_locale.as_string
 
     if len(locales) < 2:
         return
 
-    # If additional locales were passed, validate them.
-    # Note: in this case, we do not need the region.
     all_locales = _join_unique(handle_locale(locale, ignore_region=True).as_string for locale in locales)
-    if hasattr(config, 'locale'):
+    if hasattr(config, "locale"):
         config.locale.all = all_locales
     else:
-        config['locale']['all'] = all_locales
+        config["locale"]["all"] = all_locales
 
 
 def _join_unique(seq: Iterable[str]) -> str:
@@ -181,12 +164,7 @@ def _join_unique(seq: Iterable[str]) -> str:
     Joins a sequence of strings without duplicates
     """
     seen: set[str] = set()
-    return ', '.join(x for x in seq if not (x in seen or seen.add(x)))
-
-
-"""
-Gets a random language based on the territory code.
-"""
+    return ", ".join(x for x in seq if not (x in seen or seen.add(x)))
 
 
 def get_unicode_info() -> ET.Element:
@@ -194,9 +172,9 @@ def get_unicode_info() -> ET.Element:
     Fetches supplemental data from the territoryInfo.xml file.
     Source: https://raw.githubusercontent.com/unicode-org/cldr/master/common/supplemental/supplementalData.xml
     """
-    with open(get_asset_by_name('territoryInfo.xml'), 'rb') as f:
+    with open(get_asset_by_name("territoryInfo.xml"), "rb") as f:
         data = ET.XML(f.read())
-    assert data is not None, 'Failed to load territoryInfo.xml'
+    assert data is not None, "Failed to load territoryInfo.xml"
     return data
 
 
@@ -225,12 +203,12 @@ class StatisticalLocaleSelector:
         if territory is None:
             raise UnknownTerritory(f"Unknown territory: {iso_code}")
 
-        lang_populations = territory.findall('languagePopulation')
+        lang_populations = territory.findall("languagePopulation")
         if not lang_populations:
             raise ValueError(f"No language data found for region: {iso_code}")
 
-        languages = np.array([lang.get('type') for lang in lang_populations])
-        percentages = np.array([_as_float(lang, 'populationPercent') for lang in lang_populations])
+        languages = np.array([lang.get("type") for lang in lang_populations])
+        percentages = np.array([_as_float(lang, "populationPercent") for lang in lang_populations])
 
         return self.normalize_probabilities(languages, percentages)
 
@@ -247,20 +225,20 @@ class StatisticalLocaleSelector:
         percentages = []
 
         for terr in territories:
-            region = terr.get('type')
+            region = terr.get("type")
             if region is None:
-                continue  # Skip if region is not found
+                continue
 
             lang_pop = terr.find(f'languagePopulation[@type="{language}"]')
             if lang_pop is None:
-                continue  # This shouldn't happen due to our XPath, but just in case
+                continue
 
             regions.append(region)
             percentages.append(
-                _as_float(lang_pop, 'populationPercent')
-                * _as_float(terr, 'literacyPercent')
+                _as_float(lang_pop, "populationPercent")
+                * _as_float(terr, "literacyPercent")
                 / 10_000
-                * _as_float(terr, 'population')
+                * _as_float(terr, "population")
             )
 
         if not regions:
@@ -269,7 +247,9 @@ class StatisticalLocaleSelector:
         return self.normalize_probabilities(np.array(regions), np.array(percentages))
 
     def normalize_probabilities(
-        self, languages: np.ndarray, freq: np.ndarray
+        self,
+        languages: np.ndarray,
+        freq: np.ndarray,
     ) -> tuple[np.ndarray, np.ndarray]:
         """
         Normalize probabilities.
@@ -283,7 +263,7 @@ class StatisticalLocaleSelector:
         Returns as a Locale object.
         """
         languages, probabilities = self._load_territory_data(region)
-        language = np.random.choice(languages, p=probabilities).replace('_', '-')
+        language = np.random.choice(languages, p=probabilities).replace("_", "-")
         return normalize_locale(f"{language}-{region}")
 
     def from_language(self, language: str) -> Locale:

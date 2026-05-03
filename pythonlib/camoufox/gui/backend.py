@@ -148,7 +148,7 @@ class GeoIPWorker(Worker):
 
     def run(self):
         try:
-            from ..geolocation import download_mmdb
+            from ..geo.geolocation import download_mmdb
 
             download_mmdb(source=self.source, progress_callback=self._progress)
             self.done.emit(True, f"Installed: {self.source}")
@@ -738,7 +738,7 @@ class Backend(QObject):
         if not self._geoip_names or source not in self._geoip_names:
             return
         if source == self._geoip_installed:
-            from ..geolocation import needs_update
+            from ..geo.geolocation import needs_update
 
             if not needs_update():
                 return
@@ -751,14 +751,14 @@ class Backend(QObject):
 
     @Slot()
     def deleteGeoipData(self):
-        from ..geolocation import remove_mmdb
+        from ..geo.geolocation import remove_mmdb
 
         remove_mmdb()
         self._load_geoip()
 
     @Slot(str)
     def deleteGeoipSource(self, source):
-        from ..geolocation import MMDB_DIR, _get_geoip_config_by_name
+        from ..geo.geolocation import MMDB_DIR, _get_geoip_config_by_name
 
         try:
             name = _get_geoip_config_by_name(source)['name'].lower()
@@ -770,7 +770,7 @@ class Backend(QObject):
 
     @Slot(str)
     def setActiveGeoip(self, source):
-        from ..geolocation import _get_geoip_config_by_name, save_geoip_config
+        from ..geo.geolocation import _get_geoip_config_by_name, save_geoip_config
 
         if source not in self._geoip_downloaded:
             return
@@ -794,7 +794,7 @@ class Backend(QObject):
 
     @Slot()
     def openGeoipFolder(self):
-        from ..geolocation import MMDB_DIR
+        from ..geo.geolocation import MMDB_DIR
 
         if not MMDB_DIR.exists():
             return
@@ -818,7 +818,7 @@ class Backend(QObject):
             return
 
         try:
-            from ..geolocation import get_geolocation, get_mmdb_path
+            from ..geo.geolocation import get_geolocation, get_mmdb_path
 
             if not get_mmdb_path().exists():
                 self._lookup_result = "Database not downloaded"
@@ -851,7 +851,7 @@ class Backend(QObject):
         self._geoip_mtime = ""
 
         try:
-            from ..geolocation import (
+            from ..geo.geolocation import (
                 ALLOW_GEOIP,
                 MMDB_DIR,
                 _load_geoip_repos,
