@@ -28,21 +28,6 @@ _SYSTEM_FONT_PREFIXES = (
     "/Library/Apple/System/Library/Fonts",
 )
 
-_COMMON_MACOS_SCREEN_SIZES: tuple[tuple[int, int], ...] = (
-    (1280, 800),
-    (1440, 900),
-    (1512, 982),
-    (1680, 1050),
-    (1728, 1117),
-    (1792, 1120),
-    (1920, 1080),
-    (2048, 1280),
-    (2560, 1600),
-    (2560, 1664),
-    (3024, 1964),
-    (3456, 2234),
-)
-
 
 @dataclass(frozen=True)
 class MacOSHostAdapter(HostFingerprintAdapter):
@@ -168,25 +153,21 @@ class MacOSHostAdapter(HostFingerprintAdapter):
 
     def normalize_screen(self, config: CamoufoxProfile) -> None:
         """
-        Snap generated macOS screen geometry onto common Apple panel sizes.
+        Preserve BrowserForge's macOS geometry and only repair impossible values.
 
-        The macOS path is stricter than Linux because real Mac hardware tends to
-        cluster around a relatively small set of built-in panel resolutions and
-        scaled desktop sizes. BrowserForge can emit geometries that are valid in
-        the abstract but unusual for a Mac fingerprint, especially once they are
-        combined with our own window overrides or with dimensions inherited from
-        a non-macOS execution environment.
+        BrowserForge already samples macOS Firefox screens from a mac-specific
+        corpus that includes both built-in Apple panel sizes and scaled desktop
+        geometries such as `1470x956` and `2056x1329`. Earlier Camoufox builds
+        overrode those samples by snapping every macOS screen onto a handpicked
+        resolution table, which threw away valid BrowserForge outputs and made
+        the paired window dimensions less faithful to the sampled fingerprint.
 
-        This normalization keeps the claimed macOS profile inside a realistic
-        resolution envelope by:
-        1. snapping the screen to the nearest known macOS size,
-        2. keeping `availWidth` / `availHeight` aligned with that snapped panel,
-        3. shrinking outer and inner window dimensions if they would exceed the
-           snapped screen while preserving the existing browser-chrome delta.
-
-        We intentionally do not apply the same snapping policy to Linux, where
-        real desktops are much less standardized across distributions, display
-        servers, and monitor setups.
+        The macOS path now trusts BrowserForge's sampled screen and window
+        sizes. The only remaining normalization is defensive:
+        1. default missing `availWidth` / `availHeight` to the full screen,
+        2. clamp `avail*` values so they never exceed the screen,
+        3. shrink outer and inner window dimensions if they exceed the screen
+           while preserving the existing browser-chrome delta.
         """
         if not config.screen:
             return
@@ -196,15 +177,17 @@ class MacOSHostAdapter(HostFingerprintAdapter):
         if width is None or height is None:
             return
 
-        snapped_width, snapped_height = min(
-            _COMMON_MACOS_SCREEN_SIZES,
-            key=lambda size: abs(size[0] - width) + abs(size[1] - height),
-        )
+        avail_width = config.screen.avail_width
+        if not isinstance(avail_width, int):
+            config.screen.avail_width = width
+        else:
+            config.screen.avail_width = min(max(avail_width, 0), width)
 
-        config.screen.width = snapped_width
-        config.screen.height = snapped_height
-        config.screen.avail_width = snapped_width
-        config.screen.avail_height = snapped_height
+        avail_height = config.screen.avail_height
+        if not isinstance(avail_height, int):
+            config.screen.avail_height = height
+        else:
+            config.screen.avail_height = min(max(avail_height, 0), height)
 
         if not config.window:
             return
@@ -213,7 +196,7 @@ class MacOSHostAdapter(HostFingerprintAdapter):
         inner_width = config.window.inner_width if isinstance(config.window.inner_width, int) else None
         if outer_width is not None:
             width_delta = outer_width - inner_width if inner_width is not None else 0
-            config.window.outer_width = min(outer_width, snapped_width)
+            config.window.outer_width = min(outer_width, width)
             if inner_width is not None:
                 config.window.inner_width = max(config.window.outer_width - width_delta, 0)
 
@@ -225,7 +208,7 @@ class MacOSHostAdapter(HostFingerprintAdapter):
         )
         if outer_height is not None:
             height_delta = outer_height - inner_height if inner_height is not None else 0
-            config.window.outer_height = min(outer_height, snapped_height)
+            config.window.outer_height = min(outer_height, height)
             if inner_height is not None:
                 config.window.inner_height = max(config.window.outer_height - height_delta, 0)
 

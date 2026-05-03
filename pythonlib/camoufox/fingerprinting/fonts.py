@@ -78,6 +78,52 @@ _FONT_DEFINITIONS: tuple[Font, ...] = (
     ),
 )
 
+_ESSENTIAL_FONT_FAMILIES: dict[TargetOS, tuple[str, ...]] = {
+    MACOS: (
+        "Arial",
+        "Helvetica",
+        "Times New Roman",
+        "Courier New",
+        "Verdana",
+        "Georgia",
+        "Trebuchet MS",
+        "Tahoma",
+        "Helvetica Neue",
+        "Lucida Grande",
+        "Menlo",
+        "Monaco",
+        "Geneva",
+        "PingFang HK",
+        "PingFang SC",
+        "PingFang TC",
+    ),
+    WINDOWS: (
+        "Arial",
+        "Times New Roman",
+        "Courier New",
+        "Verdana",
+        "Georgia",
+        "Trebuchet MS",
+        "Tahoma",
+        "Segoe UI",
+        "Calibri",
+        "Cambria Math",
+        "Nirmala UI",
+        "Consolas",
+    ),
+    LINUX: (
+        "Arimo",
+        "Cousine",
+        "Tinos",
+        "Twemoji Mozilla",
+        "Noto Sans Devanagari",
+        "Noto Sans JP",
+        "Noto Sans KR",
+        "Noto Sans SC",
+        "Noto Sans TC",
+    ),
+}
+
 
 def font_definitions_for_target_os(target_os: TargetOS) -> tuple[Font, ...]:
     return tuple(font for font in _FONT_DEFINITIONS if target_os in font.target_os)
@@ -93,3 +139,15 @@ def blocked_families_for_target_os(target_os: TargetOS) -> frozenset[str]:
         for font in _FONT_DEFINITIONS
         if target_os not in font.target_os and font.leak_signal
     )
+
+
+def essential_families_for_target_os(target_os: TargetOS) -> frozenset[str]:
+    """
+    Return baseline families that should survive aggressive per-context subsetting.
+
+    These are the fonts Camoufox treats as the minimum plausible core for a
+    claimed OS. Adapters can still expose additional families, but they should
+    keep this baseline present so generic-family fallbacks and OS marker checks
+    continue to behave like a real install.
+    """
+    return frozenset(_ESSENTIAL_FONT_FAMILIES.get(target_os, ()))

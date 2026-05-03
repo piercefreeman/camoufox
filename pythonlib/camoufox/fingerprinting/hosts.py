@@ -7,8 +7,9 @@ from abc import ABC, abstractmethod
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from random import randint, sample
-from typing import Any, TypeVar
+from typing import Any, ClassVar, TypeVar, cast
 
+from browserforge.fingerprints import ScreenFingerprint
 from typing_extensions import Self
 
 from .._generated_profile import (
@@ -47,6 +48,8 @@ T = TypeVar("T")
 
 @dataclass(frozen=True)
 class HostFingerprintAdapter(ABC):
+    _cached: ClassVar[HostFingerprintAdapter | None] = None
+
     architecture: str
     gpu_vendor: str | None
     gpu_family: str | None
@@ -57,11 +60,11 @@ class HostFingerprintAdapter(ABC):
 
     @classmethod
     def current(cls) -> Self:
-        cached = getattr(cls, "_cached", None)
+        cached = cls._cached
         if cached is None:
             cached = cls._probe()
             cls._cached = cached
-        return cached
+        return cast(Self, cached)
 
     @classmethod
     @abstractmethod
@@ -114,6 +117,9 @@ class HostFingerprintAdapter(ABC):
     @abstractmethod
     def ensure_oscpu(self, config: CamoufoxProfile) -> None:
         raise NotImplementedError
+
+    def adjust_generated_screen(self, screen: ScreenFingerprint) -> None:
+        _ = screen
 
     def normalize_screen(self, config: CamoufoxProfile) -> None:
         _ = config

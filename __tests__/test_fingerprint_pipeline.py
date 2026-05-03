@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib
 import importlib.util
 import json
+import shutil
 import sys
 import types
 import warnings
@@ -372,8 +373,10 @@ def test_from_browserforge_compiles_host_compatible_config(
     assert config.navigator.app_version.startswith("5.0 (Macintosh; Intel Mac OS X 10.15")
     assert config.navigator.platform == "MacIntel"
     assert config.navigator.oscpu == "Intel Mac OS X 10.15"
-    assert config.screen.width == 1512
-    assert config.screen.height == 982
+    assert config.screen.width == 1500
+    assert config.screen.height == 970
+    assert config.screen.avail_width == 1490
+    assert config.screen.avail_height == 940
     assert config.fonts.families == ["Helvetica Neue", "PingFang SC", "Fira Code", "IBM Plex Sans"]
     assert config.voices.items == ["Alex", "Samantha", "Moira (Enhanced)", "Karen (Premium)"]
     assert isinstance(config.fonts.spacing_seed, int)
@@ -407,8 +410,10 @@ def test_from_preset_keeps_explicit_preset_path_host_safe(modules: tuple[Any, An
 
     assert config.navigator.user_agent.endswith("Firefox/146.0")
     assert config.navigator.oscpu == "Intel Mac OS X 10.15"
-    assert config.screen.width == 1728
-    assert config.screen.height == 1117
+    assert config.screen.width == 1720
+    assert config.screen.height == 1100
+    assert config.screen.avail_width == 1700
+    assert config.screen.avail_height == 1060
     assert config.window.device_pixel_ratio == 2.0
     assert config.timezone == "America/New_York"
     assert config.fonts.families == ["Helvetica Neue", "PingFang SC", "Fira Code", "IBM Plex Sans"]
@@ -448,7 +453,7 @@ def test_generate_context_fingerprint_reuses_supplied_browserforge_fingerprint(
     result = fingerprints.generate_context_fingerprint(fingerprint=fake_fingerprint, ff_version="146")
 
     assert result["config"].navigator.user_agent.endswith("Firefox/146.0")
-    assert result["context_options"]["viewport"] == {"width": 1512, "height": 954}
+    assert result["context_options"]["viewport"] == {"width": 1500, "height": 942}
 
 
 def test_launch_options_does_not_warn_for_camoufox_generated_fingerprint(
@@ -533,6 +538,71 @@ def test_from_browserforge_compiles_linux_host_compatible_config(
     assert config.screen.height == 864
     assert config.fonts.families == ["Arimo", "Cousine", "Fira Sans", "IBM Plex Sans"]
     assert config.voices.items == ["English", "German"]
+
+
+def test_generate_fingerprint_dedupes_repeated_linux_screens(
+    modules: tuple[Any, Any, Any],
+    fake_linux_host: Any,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _, fingerprints, _ = modules
+    hosts = importlib.import_module("camoufox.fingerprinting.hosts")
+    host_macos = importlib.import_module("camoufox.fingerprinting.host_macos")
+    host_linux = importlib.import_module("camoufox.fingerprinting.host_linux")
+    browserforge = importlib.import_module("browserforge.fingerprints")
+
+    monkeypatch.setattr(hosts.sys, "platform", "linux")
+    monkeypatch.setattr(host_macos.MacOSHostAdapter, "_cached", None)
+    monkeypatch.setattr(host_linux.LinuxHostAdapter, "_cached", fake_linux_host)
+    monkeypatch.setattr(fingerprints.FirefoxFingerprintCompiler, "_cached", {})
+
+    def _fake_linux_fingerprint() -> Any:
+        return browserforge.Fingerprint(
+            navigator=types.SimpleNamespace(
+                userAgent=(
+                    "Mozilla/5.0 (X11; Linux x86_64; rv:145.0) "
+                    "Gecko/20100101 Firefox/145.0"
+                ),
+                platform="Linux x86_64",
+                oscpu="Linux x86_64",
+            ),
+            screen=browserforge.ScreenFingerprint(
+                width=1536,
+                height=864,
+                availWidth=1536,
+                availHeight=864,
+                outerHeight=832,
+                outerWidth=1536,
+                innerHeight=800,
+                innerWidth=1504,
+                devicePixelRatio=1.25,
+            ),
+        )
+
+    compiler = fingerprints.FirefoxFingerprintCompiler.current("linux")
+    monkeypatch.setattr(compiler.generator, "generate", lambda **_: _fake_linux_fingerprint())
+
+    pairs = []
+    for _ in range(5):
+        fingerprint = fingerprints.generate_fingerprint(os="linux")
+        pairs.append((fingerprint.screen.width, fingerprint.screen.height))
+
+    assert pairs[0] == (1536, 864)
+    assert len(set(pairs)) == len(pairs)
+
+
+def test_linux_runtime_bundle_font_scan_exposes_expected_markers(
+    modules: tuple[Any, Any, Any],
+) -> None:
+    _ = modules
+    if shutil.which("fc-scan") is None:
+        pytest.skip("fc-scan is required to inspect bundled Linux fonts.")
+
+    host_linux = importlib.import_module("camoufox.fingerprinting.host_linux")
+    discovered = host_linux._discover_bundled_runtime_fonts()
+    families = {font.family for font in discovered}
+
+    assert {"Arimo", "Cousine", "Tinos", "Twemoji Mozilla"} <= families
 
 
 def test_launch_options_defaults_to_linux_host_target(

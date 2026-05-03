@@ -79,6 +79,7 @@ class FirefoxFingerprintCompiler:
     def generate(self, window: tuple[int, int] | None = None, **config: Any) -> Fingerprint:
         config["os"] = normalize_target_os(config.get("os") or self.target_os)
         fingerprint = self.generator.generate(**config)
+        self.host.adjust_generated_screen(fingerprint.screen)
         if window:
             _apply_window_override(fingerprint, *window)
         return fingerprint
@@ -132,19 +133,37 @@ class FirefoxFingerprintCompiler:
         if isinstance(preset.get("timezone"), str):
             profile.timezone = preset["timezone"]
 
-        for source_key, target_attr in (
-            ("width", "width"),
-            ("height", "height"),
-            ("availWidth", "avail_width"),
-            ("availHeight", "avail_height"),
-            ("availLeft", "avail_left"),
-            ("availTop", "avail_top"),
-            ("colorDepth", "color_depth"),
-            ("pixelDepth", "pixel_depth"),
-        ):
-            value = screen.get(source_key)
-            if isinstance(value, int):
-                setattr(screen_profile, target_attr, max(value, 0))
+        width = _non_negative_value(screen.get("width"))
+        if isinstance(width, int):
+            screen_profile.width = width
+
+        height = _non_negative_value(screen.get("height"))
+        if isinstance(height, int):
+            screen_profile.height = height
+
+        avail_width = _non_negative_value(screen.get("availWidth"))
+        if isinstance(avail_width, int):
+            screen_profile.avail_width = avail_width
+
+        avail_height = _non_negative_value(screen.get("availHeight"))
+        if isinstance(avail_height, int):
+            screen_profile.avail_height = avail_height
+
+        avail_left = _non_negative_value(screen.get("availLeft"))
+        if isinstance(avail_left, int):
+            screen_profile.avail_left = avail_left
+
+        avail_top = _non_negative_value(screen.get("availTop"))
+        if isinstance(avail_top, int):
+            screen_profile.avail_top = avail_top
+
+        color_depth = _non_negative_value(screen.get("colorDepth"))
+        if isinstance(color_depth, int):
+            screen_profile.color_depth = color_depth
+
+        pixel_depth = _non_negative_value(screen.get("pixelDepth"))
+        if isinstance(pixel_depth, int):
+            screen_profile.pixel_depth = pixel_depth
 
         device_pixel_ratio = screen.get("devicePixelRatio")
         if isinstance(device_pixel_ratio, int | float):
@@ -314,11 +333,11 @@ def preset_target_os(preset: dict[str, Any]) -> TargetOS:
 
 
 def browserforge_target_os(fingerprint: Fingerprint) -> TargetOS:
-    navigator = getattr(fingerprint, "navigator", None)
+    navigator = fingerprint.navigator
     return infer_target_os(
-        getattr(navigator, "platform", None),
-        getattr(navigator, "oscpu", None),
-        getattr(navigator, "userAgent", None),
+        navigator.platform,
+        navigator.oscpu,
+        navigator.userAgent,
     )
 
 
@@ -364,19 +383,37 @@ def _navigator_from_browserforge(
         profile.user_agent = _patch_firefox_version(user_agent, ff_version)
         profile.app_version = _derive_app_version(profile.user_agent)
 
-    for source_key, target_attr in (
-        ("doNotTrack", "do_not_track"),
-        ("appCodeName", "app_code_name"),
-        ("appName", "app_name"),
-        ("oscpu", "oscpu"),
-        ("platform", "platform"),
-        ("hardwareConcurrency", "hardware_concurrency"),
-        ("product", "product"),
-        ("maxTouchPoints", "max_touch_points"),
-    ):
-        value = navigator.get(source_key)
-        if value is not None:
-            setattr(profile, target_attr, value)
+    do_not_track = _normalize_do_not_track(navigator.get("doNotTrack"))
+    if do_not_track is not None:
+        profile.do_not_track = do_not_track
+
+    app_code_name = navigator.get("appCodeName")
+    if app_code_name is not None:
+        profile.app_code_name = app_code_name
+
+    app_name = navigator.get("appName")
+    if app_name is not None:
+        profile.app_name = app_name
+
+    oscpu = navigator.get("oscpu")
+    if oscpu is not None:
+        profile.oscpu = oscpu
+
+    platform_value = navigator.get("platform")
+    if platform_value is not None:
+        profile.platform = platform_value
+
+    hardware_concurrency = navigator.get("hardwareConcurrency")
+    if hardware_concurrency is not None:
+        profile.hardware_concurrency = hardware_concurrency
+
+    product = navigator.get("product")
+    if product is not None:
+        profile.product = product
+
+    max_touch_points = navigator.get("maxTouchPoints")
+    if max_touch_points is not None:
+        profile.max_touch_points = max_touch_points
 
     extra = navigator.get("extraProperties", {})
     if isinstance(extra, dict) and isinstance(extra.get("globalPrivacyControl"), bool):
@@ -387,55 +424,73 @@ def _navigator_from_browserforge(
 
 def _screen_from_mapping(screen: dict[str, Any]) -> ScreenProfile:
     profile = ScreenProfile()
-    for source_key, target_attr in (
-        ("availLeft", "avail_left"),
-        ("availTop", "avail_top"),
-        ("availWidth", "avail_width"),
-        ("availHeight", "avail_height"),
-        ("height", "height"),
-        ("width", "width"),
-        ("colorDepth", "color_depth"),
-        ("pixelDepth", "pixel_depth"),
-        ("pageXOffset", "page_x_offset"),
-        ("pageYOffset", "page_y_offset"),
-    ):
-        value = screen.get(source_key)
-        if isinstance(value, int) and target_attr in {
-            "avail_left",
-            "avail_top",
-            "avail_width",
-            "avail_height",
-            "height",
-            "width",
-            "color_depth",
-            "pixel_depth",
-        }:
-            value = max(value, 0)
-        if value is not None:
-            setattr(profile, target_attr, value)
+    avail_left = _non_negative_value(screen.get("availLeft"))
+    if avail_left is not None:
+        profile.avail_left = avail_left
+
+    avail_top = _non_negative_value(screen.get("availTop"))
+    if avail_top is not None:
+        profile.avail_top = avail_top
+
+    avail_width = _non_negative_value(screen.get("availWidth"))
+    if avail_width is not None:
+        profile.avail_width = avail_width
+
+    avail_height = _non_negative_value(screen.get("availHeight"))
+    if avail_height is not None:
+        profile.avail_height = avail_height
+
+    height = _non_negative_value(screen.get("height"))
+    if height is not None:
+        profile.height = height
+
+    width = _non_negative_value(screen.get("width"))
+    if width is not None:
+        profile.width = width
+
+    color_depth = _non_negative_value(screen.get("colorDepth"))
+    if color_depth is not None:
+        profile.color_depth = color_depth
+
+    pixel_depth = _non_negative_value(screen.get("pixelDepth"))
+    if pixel_depth is not None:
+        profile.pixel_depth = pixel_depth
+
+    page_x_offset = screen.get("pageXOffset")
+    if page_x_offset is not None:
+        profile.page_x_offset = page_x_offset
+
+    page_y_offset = screen.get("pageYOffset")
+    if page_y_offset is not None:
+        profile.page_y_offset = page_y_offset
     return profile
 
 
 def _window_from_mapping(screen: dict[str, Any]) -> WindowProfile:
     profile = WindowProfile()
-    for source_key, target_attr in (
-        ("outerHeight", "outer_height"),
-        ("outerWidth", "outer_width"),
-        ("innerHeight", "inner_height"),
-        ("innerWidth", "inner_width"),
-        ("screenX", "screen_x"),
-        ("screenY", "screen_y"),
-    ):
-        value = screen.get(source_key)
-        if isinstance(value, int) and target_attr in {
-            "outer_height",
-            "outer_width",
-            "inner_height",
-            "inner_width",
-        }:
-            value = max(value, 0)
-        if value is not None:
-            setattr(profile, target_attr, value)
+    outer_height = _non_negative_value(screen.get("outerHeight"))
+    if outer_height is not None:
+        profile.outer_height = outer_height
+
+    outer_width = _non_negative_value(screen.get("outerWidth"))
+    if outer_width is not None:
+        profile.outer_width = outer_width
+
+    inner_height = _non_negative_value(screen.get("innerHeight"))
+    if inner_height is not None:
+        profile.inner_height = inner_height
+
+    inner_width = _non_negative_value(screen.get("innerWidth"))
+    if inner_width is not None:
+        profile.inner_width = inner_width
+
+    screen_x = screen.get("screenX")
+    if screen_x is not None:
+        profile.screen_x = screen_x
+
+    screen_y = screen.get("screenY")
+    if screen_y is not None:
+        profile.screen_y = screen_y
 
     profile.device_pixel_ratio = _extract_device_pixel_ratio(screen)
     return profile
@@ -460,16 +515,16 @@ def _compiled_screen_from_profile(
 def _copy_screen_offsets(config: CamoufoxProfile, screen: ScreenFingerprint) -> None:
     config.window = config.window or WindowProfile()
     if config.window.screen_x is None:
-        config.window.screen_x = max(getattr(screen, "screenX", 0), 0)
+        config.window.screen_x = max(screen.screenX, 0)
     if config.window.screen_y is not None:
         return
 
-    screen_x = getattr(screen, "screenX", 0)
+    screen_x = screen.screenX
     if screen_x in range(-50, 51):
         config.window.screen_y = max(screen_x, 0)
         return
 
-    avail_height = getattr(screen, "availHeight", 0) - getattr(screen, "outerHeight", 0)
+    avail_height = screen.availHeight - screen.outerHeight
     if avail_height <= 0:
         config.window.screen_y = 0
     else:
@@ -485,8 +540,7 @@ def _apply_window_override(fingerprint: Fingerprint, outer_width: int, outer_hei
         screen.innerHeight = max(outer_height - screen.outerHeight + screen.innerHeight, 0)
     screen.outerWidth = outer_width
     screen.outerHeight = outer_height
-    if hasattr(screen, "screenY"):
-        cast(Any, screen).screenY = max((screen.height - outer_height) // 2, 0)
+    cast(Any, screen).screenY = max((screen.height - outer_height) // 2, 0)
 
 
 def _patch_firefox_version(value: str, ff_version: str | None) -> str:
@@ -502,3 +556,15 @@ def _derive_app_version(user_agent: str) -> str:
     if not match:
         return "5.0"
     return f"5.0 ({match.group(1)})"
+
+
+def _normalize_do_not_track(value: Any) -> Any:
+    if value in {"0", "1", "unspecified"}:
+        return value
+    return None
+
+
+def _non_negative_value(value: Any) -> Any:
+    if isinstance(value, int):
+        return max(value, 0)
+    return value

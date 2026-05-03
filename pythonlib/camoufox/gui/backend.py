@@ -171,18 +171,6 @@ class Roles(IntEnum):
     IsPinned = Qt.ItemDataRole.UserRole + 9
 
 
-_ROLE_ATTRS = {
-    Roles.Display: 'display',
-    Roles.Build: 'build',
-    Roles.IsHeader: 'is_header',
-    Roles.IsPrerelease: 'is_prerelease',
-    Roles.IsActive: 'is_active',
-    Roles.IsInstalled: 'is_installed',
-    Roles.Section: 'section',
-    Roles.Expanded: 'expanded',
-    Roles.IsPinned: 'is_pinned',
-}
-
 _BOOL_ROLES = {
     Roles.IsHeader,
     Roles.IsPrerelease,
@@ -258,8 +246,7 @@ class VersionModel(QAbstractListModel):
     def data(self, index, role=Qt.ItemDataRole.DisplayRole):
         if not index.isValid() or index.row() >= len(self._items):
             return False if role in _BOOL_ROLES else ""
-        attr = _ROLE_ATTRS.get(role)
-        return getattr(self._items[index.row()], attr, "") if attr else ""
+        return _value_for_role(self._items[index.row()], role)
 
     def roleNames(self):
         return _ROLE_NAMES
@@ -271,6 +258,28 @@ class VersionModel(QAbstractListModel):
 
     def get(self, index):
         return self._items[index] if 0 <= index < len(self._items) else None
+
+
+def _value_for_role(item: VersionItem, role: int):
+    if role == Roles.Display:
+        return item.display
+    if role == Roles.Build:
+        return item.build
+    if role == Roles.IsHeader:
+        return item.is_header
+    if role == Roles.IsPrerelease:
+        return item.is_prerelease
+    if role == Roles.IsActive:
+        return item.is_active
+    if role == Roles.IsInstalled:
+        return item.is_installed
+    if role == Roles.Section:
+        return item.section
+    if role == Roles.Expanded:
+        return item.expanded
+    if role == Roles.IsPinned:
+        return item.is_pinned
+    return ""
 
 
 OS_OPTIONS = ["(auto)", "mac", "win", "lin"]
