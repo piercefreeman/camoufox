@@ -12,6 +12,12 @@ export class JugglerFrameParent extends JSWindowActorParent {
 
   receiveMessage() { }
 
+  bindToTarget(target) {
+    this._target = target;
+    this.actorName = `browser::page[${this._target.id()}]/${this.browsingContext.browserId}/${this.browsingContext.id}/${this._target.nextActorSequenceNumber()}`;
+    this._target.setActor(this);
+  }
+
   async actorCreated() {
     // Actors are registered per the WindowGlobalParent / WindowGlobalChild pair. We are only
     // interested in those WindowGlobalParent actors that are matching current browsingContext
@@ -24,17 +30,21 @@ export class JugglerFrameParent extends JSWindowActorParent {
     if (this.browsingContext.parent)
       return;
 
-    this._target = TargetRegistry.instance()?.targetForBrowserId(this.browsingContext.browserId);
-    if (!this._target)
+    const registry = TargetRegistry.instance();
+    this._target = registry?.targetForBrowserId(this.browsingContext.browserId);
+    if (!this._target) {
+      registry?.registerPendingActor(this);
       return;
+    }
 
-    this.actorName = `browser::page[${this._target.id()}]/${this.browsingContext.browserId}/${this.browsingContext.id}/${this._target.nextActorSequenceNumber()}`;
-    this._target.setActor(this);
+    this.bindToTarget(this._target);
   }
 
   didDestroy() {
-    if (!this._target)
+    if (!this._target) {
+      TargetRegistry.instance()?.unregisterPendingActor(this);
       return;
+    }
     this._target.removeActor(this);
   }
 }

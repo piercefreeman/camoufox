@@ -1,0 +1,95 @@
+diff --git a/layout/style/nsMediaFeatures.cpp b/layout/style/nsMediaFeatures.cpp
+index 5362dd77d4..8d0f150c01 100644
+--- a/layout/style/nsMediaFeatures.cpp
++++ b/layout/style/nsMediaFeatures.cpp
+@@ -4,6 +4,9 @@
+ 
+ /* the features that media queries can test */
+ 
++#include <string>
++
++#include "MaskConfig.hpp"
+ #include "PreferenceSheet.h"
+ #include "mozilla/GeckoBindings.h"
+ #include "mozilla/LookAndFeel.h"
+@@ -35,6 +36,23 @@ using namespace mozilla;
+ using mozilla::dom::DisplayMode;
+ using mozilla::dom::Document;
+ 
++static StyleColorGamut CamoufoxColorGamutFromProfileValue(
++    const std::string& aValue) {
++  if (aValue == "rec2020") {
++    return StyleColorGamut::Rec2020;
++  }
++  if (aValue == "p3") {
++    return StyleColorGamut::P3;
++  }
++  return StyleColorGamut::Srgb;
++}
++
++static StyleDynamicRange CamoufoxDynamicRangeFromProfileValue(
++    const std::string& aValue) {
++  return aValue == "high" ? StyleDynamicRange::High
++                           : StyleDynamicRange::Standard;
++}
++
+ // A helper for four features below
+ static nsSize GetSize(const Document& aDocument) {
+   nsPresContext* pc = aDocument.GetPresContext();
+@@ -164,6 +179,12 @@ int32_t Gecko_MediaFeatures_GetMonochromeBitsPerPixel(
+ }
+ 
+ StyleColorGamut Gecko_MediaFeatures_ColorGamut(const Document* aDocument) {
++  if (auto screen = MaskConfig::Profile().getScreen()) {
++    if (auto value = screen->getColorGamut()) {
++      return CamoufoxColorGamutFromProfileValue(*value);
++    }
++  }
++
+   auto* dx = GetDeviceContextFor(aDocument);
+   if (!dx || aDocument->ShouldResistFingerprinting(RFPTarget::CSSColorInfo)) {
+     return StyleColorGamut::Srgb;
+@@ -185,6 +206,17 @@ int32_t Gecko_MediaFeatures_GetColorDepth(const Document* aDocument) {
+     return 0;
+   }
+ 
++  if (auto screen = MaskConfig::Profile().getScreen()) {
++    if (auto colorDepth = screen->getColorDepth()) {
++      return *colorDepth / 3;
++    }
++    // Keep CSS `color` coherent when only pixelDepth is supplied by a
++    // fingerprint profile.
++    if (auto pixelDepth = screen->getPixelDepth()) {
++      return *pixelDepth / 3;
++    }
++  }
++
+   // Use depth of 24 when resisting fingerprinting, or when we're not being
+   // rendered.
+   int32_t depth = 24;
+@@ -371,6 +403,12 @@ StyleScripting Gecko_MediaFeatures_Scripting(const Document* aDocument) {
+ }
+ 
+ StyleDynamicRange Gecko_MediaFeatures_DynamicRange(const Document* aDocument) {
++  if (auto screen = MaskConfig::Profile().getScreen()) {
++    if (auto value = screen->getDynamicRange()) {
++      return CamoufoxDynamicRangeFromProfileValue(*value);
++    }
++  }
++
+   // Bug 1759772: Once HDR color is available, update each platform
+   // LookAndFeel implementation to return StyleDynamicRange::High when
+   // appropriate.
+@@ -379,6 +417,12 @@ StyleDynamicRange Gecko_MediaFeatures_DynamicRange(const Document* aDocument) {
+ 
+ StyleDynamicRange Gecko_MediaFeatures_VideoDynamicRange(
+     const Document* aDocument) {
++  if (auto screen = MaskConfig::Profile().getScreen()) {
++    if (auto value = screen->getVideoDynamicRange()) {
++      return CamoufoxDynamicRangeFromProfileValue(*value);
++    }
++  }
++
+   if (aDocument->ShouldResistFingerprinting(RFPTarget::CSSVideoDynamicRange) ||
+       !StaticPrefs::layout_css_video_dynamic_range_allows_high()) {
+     return StyleDynamicRange::Standard;

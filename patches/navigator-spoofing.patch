@@ -363,8 +363,8 @@ index cdd544a14d..230ded31c0 100644
  
  #include <inttypes.h>
  #include <stdio.h>
-@@ -7793,6 +7794,92 @@ void nsGlobalWindowInner::SetWebGLRenderer(const nsAString& renderer,
-   }
+@@ -7477,6 +7478,92 @@ void nsGlobalWindowInner::ForgetSharedWorker(SharedWorker* aSharedWorker) {
+   mSharedWorkers.RemoveElement(aSharedWorker);
  }
  
 +
@@ -479,8 +479,9 @@ diff --git a/dom/webidl/Window.webidl b/dom/webidl/Window.webidl
 index 6a0570cdf7..cf69daa15d 100644
 --- a/dom/webidl/Window.webidl
 +++ b/dom/webidl/Window.webidl
-@@ -976,6 +976,30 @@ partial interface Window {
-   undefined setWebGLRenderer(DOMString renderer);
+@@ -900,6 +900,30 @@ partial interface Window {
+   undefined setScrollMarks(sequence<unsigned long> marks,
+                            optional boolean onHorizontalScrollbar = false);
  };
  
 +// Per-context navigator platform spoofing

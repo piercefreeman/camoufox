@@ -276,10 +276,14 @@ async def run_tests(
             print("Launching browser...")
 
             try:
-                browser = await firefox.launch(
-                    executable_path=binary_path,
-                    headless=True,
-                    firefox_user_prefs=FIREFOX_WEBGL_PREFS,
+                browser = await asyncio.wait_for(
+                    firefox.launch(
+                        executable_path=binary_path,
+                        headless=True,
+                        firefox_user_prefs=FIREFOX_WEBGL_PREFS,
+                        timeout=60000,
+                    ),
+                    timeout=60,
                 )
             except Exception as e:
                 print(f"{RED}ERROR: Failed to launch Camoufox: {e}{RESET}", file=sys.stderr)
@@ -312,11 +316,15 @@ async def run_tests(
                         _user_agent_os(profile["userAgent"]),
                     ),
                 }
-                browser = await firefox.launch(
-                    executable_path=binary_path,
-                    headless=True,
-                    env=env,
-                    firefox_user_prefs=FIREFOX_WEBGL_PREFS,
+                browser = await asyncio.wait_for(
+                    firefox.launch(
+                        executable_path=binary_path,
+                        headless=True,
+                        env=env,
+                        firefox_user_prefs=FIREFOX_WEBGL_PREFS,
+                        timeout=60000,
+                    ),
+                    timeout=60,
                 )
 
                 vp = preset["contextOptions"].get("viewport")

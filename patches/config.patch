@@ -36,10 +36,11 @@ diff --git a/moz.build b/moz.build
 index 4d0f3d6ba9..0f07f37e92 100644
 --- a/moz.build
 +++ b/moz.build
-@@ -235,3 +235,5 @@ SPHINX_TREES["content-security"] = "docs/content-security"
+@@ -237,5 +237,7 @@ SPHINX_TREES["content-security"] = "docs/content-security"
  SPHINX_TREES["jsloader"] = "docs/jsloader"
+ 
+ SPHINX_TREES["ai-agent-tools"] = "docs/ai-agent-tools"
  
  include("build/templates.mozbuild")
 +
 +DIRS += ["lw"]
-\ No newline at end of file

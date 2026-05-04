@@ -1,11 +1,13 @@
 "use client";
 
+import type { FingerprintData } from "../types";
+
 type CheckResult = { passed: boolean; detail: string };
 type CategoryResults = Record<string, CheckResult>;
 
-export async function runExtendedChecks(): Promise<
-  Record<string, Record<string, { passed: boolean; detail: string }>>
-> {
+export async function runExtendedChecks(
+  fingerprints?: FingerprintData
+): Promise<Record<string, Record<string, { passed: boolean; detail: string }>>> {
   const result: Record<string, CategoryResults> = {
     crossSignal: {},
     cssFingerprint: {},
@@ -24,6 +26,7 @@ export async function runExtendedChecks(): Promise<
     headlessDetection: {},
     trashDetection: {},
     fontEnvironment: {},
+    firefox150Surfaces: {},
   };
 
   // ============================================================
@@ -175,6 +178,131 @@ export async function runExtendedChecks(): Promise<
     result.cssFingerprint.error = {
       passed: true,
       detail: "CSS checks error: " + e.message,
+    };
+  }
+
+  // ============================================================
+  // firefox150Surfaces
+  // ============================================================
+  try {
+    if (!fingerprints?.firefox150) {
+      result.firefox150Surfaces.collection = {
+        passed: true,
+        detail: "Firefox 150 surface collection unavailable",
+      };
+    } else {
+      const surface = fingerprints.firefox150;
+      const adapterInfo = surface.webgpu.adapterInfo;
+      const adapterIdentity = [
+        adapterInfo.vendor,
+        adapterInfo.architecture,
+        adapterInfo.device,
+        adapterInfo.description,
+      ].filter(Boolean);
+
+      result.firefox150Surfaces.webgpuAdapterIdentity = {
+        passed: adapterIdentity.length === 0,
+        detail: surface.webgpu.present
+          ? adapterIdentity.length === 0
+            ? "Public WebGPU adapter identity strings are empty; features=" +
+              surface.webgpu.features.length +
+              ", limits=" +
+              Object.keys(surface.webgpu.limits).length +
+              ", requestAdapter=" +
+              surface.webgpu.requestAdapter
+            : "Raw WebGPU adapter identity exposed: " + adapterIdentity.join(", ")
+          : "navigator.gpu not exposed by this Firefox/platform policy",
+      };
+
+      result.firefox150Surfaces.webgpuNativeCapabilities = {
+        passed: true,
+        detail: surface.webgpu.present
+          ? "WebGPU capabilities collected for native/synthetic coherence checks"
+          : "WebGPU not exposed; no native capability surface to compare",
+      };
+
+      result.firefox150Surfaces.captureStreamPresence = {
+        passed: surface.mediaCapture.captureStreamPresent,
+        detail:
+          "captureStream=" +
+          surface.mediaCapture.captureStreamPresent +
+          ", mozCaptureStream=" +
+          surface.mediaCapture.mozCaptureStreamPresent +
+          ", tracks=" +
+          surface.mediaCapture.trackCount +
+          (surface.mediaCapture.error
+            ? ", probe error=" + surface.mediaCapture.error
+            : ""),
+      };
+
+      result.firefox150Surfaces.ancestorOriginsPresence = {
+        passed: surface.location.ancestorOriginsPresent,
+        detail:
+          "location.ancestorOrigins present=" +
+          surface.location.ancestorOriginsPresent +
+          ", top-level length=" +
+          surface.location.ancestorOriginsLength,
+      };
+
+      result.firefox150Surfaces.reportingApiPresence = {
+        passed:
+          surface.reporting.reportingObserverPresent && !surface.reporting.reportPresent,
+        detail:
+          "ReportingObserver=" +
+          surface.reporting.reportingObserverPresent +
+          ", Report constructor hidden=" +
+          !surface.reporting.reportPresent +
+          "; endpoint delivery is controlled by pinned prefs",
+      };
+
+      result.firefox150Surfaces.digitalCredentialDisabled = {
+        passed: !surface.credentials.digitalCredentialPresent,
+        detail:
+          "DigitalCredential present=" +
+          surface.credentials.digitalCredentialPresent +
+          ", PublicKeyCredential present=" +
+          surface.credentials.publicKeyCredentialPresent,
+      };
+
+      result.firefox150Surfaces.modelContextDisabled = {
+        passed: !surface.localAi.modelContextPresent,
+        detail:
+          "navigator.modelContext present=" +
+          surface.localAi.modelContextPresent,
+      };
+
+      result.firefox150Surfaces.documentPictureInPictureDisabled = {
+        passed: !surface.documentPictureInPicture.present,
+        detail:
+          "documentPictureInPicture present=" +
+          surface.documentPictureInPicture.present,
+      };
+
+      result.firefox150Surfaces.displayMediaQueries = {
+        passed: true,
+        detail:
+          "color-gamut srgb/p3/rec2020=" +
+          [
+            surface.displayMediaQueries.colorGamutSRGB,
+            surface.displayMediaQueries.colorGamutP3,
+            surface.displayMediaQueries.colorGamutRec2020,
+          ].join("/") +
+          ", dynamic-range standard/high=" +
+          [
+            surface.displayMediaQueries.dynamicRangeStandard,
+            surface.displayMediaQueries.dynamicRangeHigh,
+          ].join("/") +
+          ", video-dynamic-range standard/high=" +
+          [
+            surface.displayMediaQueries.videoDynamicRangeStandard,
+            surface.displayMediaQueries.videoDynamicRangeHigh,
+          ].join("/"),
+      };
+    }
+  } catch (e: any) {
+    result.firefox150Surfaces.error = {
+      passed: false,
+      detail: "Firefox 150 surface checks error: " + e.message,
     };
   }
 

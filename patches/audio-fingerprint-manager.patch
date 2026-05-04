@@ -220,15 +220,13 @@ diff --git a/dom/base/nsGlobalWindowInner.h b/dom/base/nsGlobalWindowInner.h
 index 3183172d29..c4d5e6f7a8 100644
 --- a/dom/base/nsGlobalWindowInner.h
 +++ b/dom/base/nsGlobalWindowInner.h
-@@ -676,6 +676,9 @@ class nsGlobalWindowInner final : public mozilla::dom::EventTarget,
+@@ -676,4 +676,7 @@ class nsGlobalWindowInner final : public mozilla::dom::EventTarget,
  
    mozilla::dom::Worklet* GetPaintWorklet(mozilla::ErrorResult& aRv);
  
 +  // Audio fingerprint seed for per-context audio fingerprinting
 +  void SetAudioFingerprintSeed(uint32_t seed, mozilla::ErrorResult& aRv);
 +
-   void GetRegionalPrefsLocales(nsTArray<nsString>& aLocales);
- 
    void GetWebExposedLocales(nsTArray<nsString>& aLocales);
 
 diff --git a/dom/media/webaudio/AudioBuffer.cpp b/dom/media/webaudio/AudioBuffer.cpp

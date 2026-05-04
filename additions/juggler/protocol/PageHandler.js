@@ -15,9 +15,48 @@ const Ci = Components.interfaces;
 const Cu = Components.utils;
 const XUL_NS = 'http://www.mozilla.org/keymaster/gatekeeper/there.is.only.xul';
 const helper = new Helper();
+const HUMANIZED_MOUSE_INTERVAL_MS = 10;
 
 function hashConsoleMessage(params) {
   return params.location.lineNumber + ':' + params.location.columnNumber + ':' + params.location.url;
+}
+
+function isHumanizeEnabled() {
+  return ChromeUtils.camouGetBool('humanize.enabled', false);
+}
+
+function humanizedMousePoints(fromX, fromY, toX, toY, bounds) {
+  if (!isHumanizeEnabled() || fromX === toX && fromY === toY)
+    return null;
+
+  const flatPoints = ChromeUtils.camouGetMouseTrajectory(
+    Math.round(fromX),
+    Math.round(fromY),
+    Math.round(toX),
+    Math.round(toY)
+  );
+  if (!flatPoints || flatPoints.length < 4)
+    return null;
+
+  const points = [];
+  for (let i = 0; i + 1 < flatPoints.length; i += 2) {
+    let x = flatPoints[i];
+    let y = flatPoints[i + 1];
+    if (bounds) {
+      x = Math.max(0, Math.min(bounds.width, x));
+      y = Math.max(0, Math.min(bounds.height, y));
+    }
+    if (points.length && points[points.length - 1].x === x && points[points.length - 1].y === y)
+      continue;
+    points.push({x, y});
+  }
+
+  if (points.length && points[0].x === fromX && points[0].y === fromY)
+    points.shift();
+  if (!points.length || points[points.length - 1].x !== toX || points[points.length - 1].y !== toY)
+    points.push({x: toX, y: toY});
+
+  return points;
 }
 
 class WorkerHandler {
@@ -495,9 +534,9 @@ export class PageHandler {
 
   async ['Page.dispatchMouseEvent']({type, x, y, button, clickCount, modifiers, buttons}) {
     const win = this._pageTarget._window;
-    const sendEvents = async (types) => {
+    const sendEvents = async (types, eventX = x, eventY = y) => {
       // 1. Scroll element to the desired location first; the coordinates are relative to the element.
-      this._pageTarget._linkedBrowser.scrollRectIntoViewIfNeeded(x, y, 0, 0);
+      this._pageTarget._linkedBrowser.scrollRectIntoViewIfNeeded(eventX, eventY, 0, 0);
       // 2. Get element's bounding box in the browser after the scroll is completed.
       const boundingBox = this._pageTarget._linkedBrowser.getBoundingClientRect();
       // 3. Make sure compositor is flushed after scrolling.
@@ -510,8 +549,8 @@ export class PageHandler {
         // This dispatches to the renderer synchronously.
         const jugglerEventId = win.windowUtils.jugglerSendMouseEvent(
           type,
-          x + boundingBox.left,
-          y + boundingBox.top,
+          eventX + boundingBox.left,
+          eventY + boundingBox.top,
           button,
           clickCount,
           modifiers,
@@ -528,6 +567,46 @@ export class PageHandler {
       }
       await Promise.all(promises);
       await watcher.dispose();
+    };
+    const waitForHumanizedMouseInterval = async (hasMorePoints) => {
+      if (hasMorePoints)
+        await new Promise(resolve => setTimeout(resolve, HUMANIZED_MOUSE_INTERVAL_MS));
+    };
+    const sendDragOver = async (eventX, eventY) => {
+      const watcher = new EventWatcher(this._pageEventSink, ['dragover'], this._pendingEventWatchers);
+      await this._contentPage.send('dispatchDragEvent', {type: 'dragover', x: eventX, y: eventY, modifiers});
+      await watcher.ensureEventsAndDispose(['dragover']);
+    };
+    const sendDragOverPath = async (points, startIndex = 0) => {
+      for (let i = startIndex; i < points.length; ++i) {
+        const point = points[i];
+        await sendDragOver(point.x, point.y);
+        await waitForHumanizedMouseInterval(i + 1 < points.length);
+      }
+    };
+    const sendPotentialDragPath = async (points) => {
+      for (let i = 0; i < points.length; ++i) {
+        const point = points[i];
+        const watcher = new EventWatcher(this._pageEventSink, ['dragstart', 'juggler-drag-finalized'], this._pendingEventWatchers);
+        try {
+          await sendEvents(['mousemove'], point.x, point.y);
+
+          if (watcher.hasEvent('dragstart')) {
+            const eventObject = await watcher.ensureEvent('juggler-drag-finalized');
+            this._isDragging = eventObject.dragSessionStarted;
+          }
+        } finally {
+          watcher.dispose();
+        }
+
+        if (this._isDragging) {
+          await waitForHumanizedMouseInterval(i + 1 < points.length);
+          await sendDragOverPath(points, i + 1);
+          return;
+        }
+
+        await waitForHumanizedMouseInterval(i + 1 < points.length);
+      }
     };
 
     // We must switch to proper tab in the tabbed browser so that
@@ -574,12 +653,35 @@ export class PageHandler {
       }
 
       if (type === 'mousemove') {
+        const previousMousePosition = this._lastMousePosition || {x: 0, y: 0};
         this._lastMousePosition = { x, y };
         if (this._isDragging) {
-          const watcher = new EventWatcher(this._pageEventSink, ['dragover'], this._pendingEventWatchers);
-          await this._contentPage.send('dispatchDragEvent', {type:'dragover', x, y, modifiers});
-          await watcher.ensureEventsAndDispose(['dragover']);
+          const points = humanizedMousePoints(previousMousePosition.x, previousMousePosition.y, x, y, boundingBox);
+          if (points)
+            await sendDragOverPath(points);
+          else
+            await sendDragOver(x, y);
           return;
+        }
+
+        if (buttons === 0) {
+          const points = humanizedMousePoints(previousMousePosition.x, previousMousePosition.y, x, y, boundingBox);
+          if (points) {
+            for (let i = 0; i < points.length; ++i) {
+              const point = points[i];
+              await sendEvents(['mousemove'], point.x, point.y);
+              await waitForHumanizedMouseInterval(i + 1 < points.length);
+            }
+            return;
+          }
+        }
+
+        if (buttons) {
+          const points = humanizedMousePoints(previousMousePosition.x, previousMousePosition.y, x, y, boundingBox);
+          if (points) {
+            await sendPotentialDragPath(points);
+            return;
+          }
         }
 
         const watcher = new EventWatcher(this._pageEventSink, ['dragstart', 'juggler-drag-finalized'], this._pendingEventWatchers);
@@ -599,16 +701,20 @@ export class PageHandler {
       }
 
       if (type === 'mouseup') {
+        const previousMousePosition = this._lastMousePosition || {x, y};
+        this._lastMousePosition = { x, y };
         if (this._isDragging) {
-          const watcher = new EventWatcher(this._pageEventSink, ['dragover'], this._pendingEventWatchers);
-          await this._contentPage.send('dispatchDragEvent', {type: 'dragover', x, y, modifiers});
+          const points = humanizedMousePoints(previousMousePosition.x, previousMousePosition.y, x, y, boundingBox);
+          if (points)
+            await sendDragOverPath(points);
+          else
+            await sendDragOver(x, y);
           await this._contentPage.send('dispatchDragEvent', {type: 'drop', x, y, modifiers});
           await this._contentPage.send('dispatchDragEvent', {type: 'dragend', x, y, modifiers});
           // NOTE:
           // - 'drop' event might not be dispatched at all, depending on dropAction.
           // - 'dragend' event might not be dispatched at all, if the source element was removed
           //   during drag. However, it'll be dispatched synchronously in the renderer.
-          await watcher.ensureEventsAndDispose(['dragover']);
           this._isDragging = false;
         } else {
           await sendEvents(['mouseup']);

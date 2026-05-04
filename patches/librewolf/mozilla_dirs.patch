@@ -47,14 +47,16 @@ index 9c94cb8808..af2dbdbf3f 100644
  #    endif
        ;
    rv = NS_NewNativeLocalFile(dirname, getter_AddRefs(localDir));
-@@ -362,10 +364,20 @@
+@@ -420,15 +422,27 @@
  #if defined(XP_UNIX) || defined(XP_MACOSX)
    else if (!strcmp(aProperty, XRE_SYS_NATIVE_MANIFESTS)) {
      rv = ::GetSystemParentDirectory(getter_AddRefs(file));
 +  } else if (!strcmp(aProperty, XRE_MOZ_SYS_NATIVE_MANIFESTS)) {
 +    rv = ::GetSystemParentDirectory(getter_AddRefs(file), "Mozilla"_ns);
    } else if (!strcmp(aProperty, XRE_USER_NATIVE_MANIFESTS)) {
-     rv = GetUserDataDirectoryHome(getter_AddRefs(file), false);
+     // Keep forcing the legacy path for compatibility
+     rv = GetUserDataDirectoryHome(getter_AddRefs(file), /* aLocal */ false,
+                                   /* aForceLegacy */ true);
      NS_ENSURE_SUCCESS(rv, rv);
  #  if defined(XP_MACOSX)
 +    rv = file->AppendNative("LibreWolf"_ns);
@@ -62,12 +64,17 @@ index 9c94cb8808..af2dbdbf3f 100644
 +    rv = file->AppendNative(".librewolf"_ns);
 +#  endif  // defined(XP_MACOSX)
 +  } else if (!strcmp(aProperty, XRE_MOZ_USER_NATIVE_MANIFESTS)) {
-+    rv = GetUserDataDirectoryHome(getter_AddRefs(file), false);
++    // Keep forcing the legacy path for compatibility
++    rv = GetUserDataDirectoryHome(getter_AddRefs(file), /* aLocal */ false,
++                                  /* aForceLegacy */ true);
 +    NS_ENSURE_SUCCESS(rv, rv);
 +#  if defined(XP_MACOSX)
      rv = file->AppendNative("Mozilla"_ns);
  #  else   // defined(XP_MACOSX)
      rv = file->AppendNative(".mozilla"_ns);
+ #  endif  // defined(XP_MACOSX)
+   }
+ #endif  // defined(XP_UNIX) || defined(XP_MACOSX)
 @@ -398,9 +410,10 @@
    else if (!strcmp(aProperty, XRE_SYS_SHARE_EXTENSION_PARENT_DIR)) {
  #  ifdef ENABLE_SYSTEM_EXTENSION_DIRS

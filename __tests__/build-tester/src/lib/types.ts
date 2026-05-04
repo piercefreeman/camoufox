@@ -57,6 +57,61 @@ export interface FingerprintData {
   emojiCanvas: { hash: string };
   fontAvailability: { detected: string[]; count: number; hash: string };
   speechVoices: { names: string[]; count: number; hash: string };
+  firefox150: {
+    webgpu: {
+      present: boolean;
+      requestAdapter: string;
+      features: string[];
+      limits: Record<string, number>;
+      wgslLanguageFeatures: string[];
+      adapterInfo: {
+        vendor: string;
+        architecture: string;
+        device: string;
+        description: string;
+        subgroupMinSize: number | null;
+        subgroupMaxSize: number | null;
+        isFallbackAdapter: boolean | null;
+      };
+      error: string;
+    };
+    mediaCapture: {
+      captureStreamPresent: boolean;
+      mozCaptureStreamPresent: boolean;
+      streamId: string;
+      trackIds: string[];
+      trackCount: number;
+      error: string;
+    };
+    location: {
+      ancestorOriginsPresent: boolean;
+      ancestorOriginsLength: number | null;
+      ancestorOrigins: string[];
+    };
+    reporting: {
+      reportingObserverPresent: boolean;
+      reportPresent: boolean;
+    };
+    credentials: {
+      digitalCredentialPresent: boolean;
+      publicKeyCredentialPresent: boolean;
+    };
+    localAi: {
+      modelContextPresent: boolean;
+    };
+    documentPictureInPicture: {
+      present: boolean;
+    };
+    displayMediaQueries: {
+      colorGamutSRGB: boolean;
+      colorGamutP3: boolean;
+      colorGamutRec2020: boolean;
+      dynamicRangeStandard: boolean;
+      dynamicRangeHigh: boolean;
+      videoDynamicRangeStandard: boolean;
+      videoDynamicRangeHigh: boolean;
+    };
+  };
 }
 
 export interface WebRTCResult {
@@ -92,10 +147,7 @@ export interface ProfileConfig {
   screenHeight: number;
   colorDepth: number;
   timezone: string;
-  webglVendor: string;
-  webglRenderer: string;
   audioSeed: number;
-  canvasSeed: number;
   fontSpacingSeed: number;
   fontList: string[];
   speechVoices?: string[];

@@ -20,6 +20,41 @@ const obs = Cc["@mozilla.org/observer-service;1"].getService(
 );
 
 const helper = new Helper();
+const HUMANIZED_TEXT_INTERVAL_MS = 10;
+
+function isHumanizeEnabled() {
+  return ChromeUtils.camouGetBool('humanize.enabled', false);
+}
+
+function textInputUnits(text) {
+  if (!text)
+    return [];
+  if (typeof Intl !== 'undefined' && Intl.Segmenter) {
+    const segmenter = new Intl.Segmenter(undefined, {granularity: 'grapheme'});
+    return Array.from(segmenter.segment(text), segment => segment.segment);
+  }
+  return Array.from(text);
+}
+
+async function commitTextInput(tip, text, keyEvent = undefined) {
+  if (!isHumanizeEnabled() || !text) {
+    if (keyEvent)
+      tip.commitCompositionWith(text, keyEvent);
+    else
+      tip.commitCompositionWith(text);
+    return;
+  }
+
+  const units = textInputUnits(text);
+  for (let i = 0; i < units.length; ++i) {
+    if (keyEvent)
+      tip.commitCompositionWith(units[i], keyEvent);
+    else
+      tip.commitCompositionWith(units[i]);
+    if (i + 1 < units.length)
+      await new Promise(resolve => setTimeout(resolve, HUMANIZED_TEXT_INTERVAL_MS));
+  }
+}
 
 class WorkerData {
   constructor(pageAgent, browserChannel, worker) {
@@ -473,7 +508,7 @@ export class PageAgent {
     });
     if (type === 'keydown') {
       if (text && text !== key) {
-        tip.commitCompositionWith(text, keyEvent);
+        await commitTextInput(tip, text, keyEvent);
       } else {
         const flags = 0;
         tip.keydown(keyEvent, flags);
@@ -566,7 +601,7 @@ export class PageAgent {
 
   async _insertText({text}) {
     const frame = this._frameTree.mainFrame();
-    frame.textInputProcessor().commitCompositionWith(text);
+    await commitTextInput(frame.textInputProcessor(), text);
   }
 
   async _crash() {
@@ -708,4 +743,3 @@ export class PageAgent {
     };
   }
 }
-

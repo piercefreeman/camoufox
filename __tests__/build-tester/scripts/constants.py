@@ -46,6 +46,7 @@ CATEGORY_LABELS = {
     "headlessDetection": "Headless Detection",
     "trashDetection": "Trash Detection",
     "fontEnvironment": "Font Environment",
+    "firefox150Surfaces": "Firefox 150 Surfaces",
 }
 
 # ─── ANSI Colors ──────────────────────────────────────────────────────────────

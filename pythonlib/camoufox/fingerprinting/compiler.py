@@ -14,8 +14,11 @@ from browserforge.fingerprints import (
 
 from .._generated_profile import (
     CamoufoxProfile,
+    ColorGamut,
+    DynamicRange,
     NavigatorProfile,
     ScreenProfile,
+    VideoDynamicRange,
     WindowProfile,
 )
 from .common import LINUX, MACOS, WINDOWS, HostTargetOS, TargetOS
@@ -165,6 +168,18 @@ class FirefoxFingerprintCompiler:
         if isinstance(pixel_depth, int):
             screen_profile.pixel_depth = pixel_depth
 
+        color_gamut = _color_gamut_value(screen.get("colorGamut"))
+        if color_gamut is not None:
+            screen_profile.color_gamut = color_gamut
+
+        dynamic_range = _dynamic_range_value(screen.get("dynamicRange"))
+        if dynamic_range is not None:
+            screen_profile.dynamic_range = dynamic_range
+
+        video_dynamic_range = _video_dynamic_range_value(screen.get("videoDynamicRange"))
+        if video_dynamic_range is not None:
+            screen_profile.video_dynamic_range = video_dynamic_range
+
         device_pixel_ratio = screen.get("devicePixelRatio")
         if isinstance(device_pixel_ratio, int | float):
             window_profile.device_pixel_ratio = float(device_pixel_ratio)
@@ -226,7 +241,6 @@ class FirefoxFingerprintCompiler:
     ) -> str:
         values = {
             "audioFingerprintSeed": config.audio.seed if config.audio else None,
-            "canvasSeed": config.canvas.seed if config.canvas else None,
             "fontList": config.fonts.families if config.fonts else None,
             "fontSpacingSeed": config.fonts.spacing_seed if config.fonts else None,
             "hardwareConcurrency": (
@@ -241,21 +255,16 @@ class FirefoxFingerprintCompiler:
             "speechVoices": config.voices.items if config.voices else None,
             "timezone": config.timezone,
             "webrtcIP": webrtc_ip or "",
-            "webglRenderer": config.web_gl.renderer if config.web_gl else None,
-            "webglVendor": config.web_gl.vendor if config.web_gl else None,
         }
 
         lines = ["(function() {", "  var w = window;"]
         for key, setter in (
             ("fontSpacingSeed", "setFontSpacingSeed"),
             ("audioFingerprintSeed", "setAudioFingerprintSeed"),
-            ("canvasSeed", "setCanvasSeed"),
             ("navigatorPlatform", "setNavigatorPlatform"),
             ("navigatorOscpu", "setNavigatorOscpu"),
             ("hardwareConcurrency", "setNavigatorHardwareConcurrency"),
             ("navigatorUserAgent", "setNavigatorUserAgent"),
-            ("webglVendor", "setWebGLVendor"),
-            ("webglRenderer", "setWebGLRenderer"),
         ):
             value = values.get(key)
             if value is not None:
@@ -303,7 +312,6 @@ class FirefoxFingerprintCompiler:
         for setter in (
             "setFontSpacingSeed",
             "setAudioFingerprintSeed",
-            "setCanvasSeed",
             "setTimezone",
             "setScreenDimensions",
             "setScreenColorDepth",
@@ -311,8 +319,6 @@ class FirefoxFingerprintCompiler:
             "setNavigatorOscpu",
             "setNavigatorHardwareConcurrency",
             "setNavigatorUserAgent",
-            "setWebGLVendor",
-            "setWebGLRenderer",
             "setFontList",
             "setSpeechVoices",
             "setWebRTCIPv4",
@@ -456,6 +462,18 @@ def _screen_from_mapping(screen: dict[str, Any]) -> ScreenProfile:
     if pixel_depth is not None:
         profile.pixel_depth = pixel_depth
 
+    color_gamut = _color_gamut_value(screen.get("colorGamut"))
+    if color_gamut is not None:
+        profile.color_gamut = color_gamut
+
+    dynamic_range = _dynamic_range_value(screen.get("dynamicRange"))
+    if dynamic_range is not None:
+        profile.dynamic_range = dynamic_range
+
+    video_dynamic_range = _video_dynamic_range_value(screen.get("videoDynamicRange"))
+    if video_dynamic_range is not None:
+        profile.video_dynamic_range = video_dynamic_range
+
     page_x_offset = screen.get("pageXOffset")
     if page_x_offset is not None:
         profile.page_x_offset = page_x_offset
@@ -561,6 +579,39 @@ def _derive_app_version(user_agent: str) -> str:
 def _normalize_do_not_track(value: Any) -> Any:
     if value in {"0", "1", "unspecified"}:
         return value
+    return None
+
+
+def _color_gamut_value(value: Any) -> ColorGamut | None:
+    if isinstance(value, ColorGamut):
+        return value
+    if isinstance(value, str):
+        try:
+            return ColorGamut(value)
+        except ValueError:
+            return None
+    return None
+
+
+def _dynamic_range_value(value: Any) -> DynamicRange | None:
+    if isinstance(value, DynamicRange):
+        return value
+    if isinstance(value, str):
+        try:
+            return DynamicRange(value)
+        except ValueError:
+            return None
+    return None
+
+
+def _video_dynamic_range_value(value: Any) -> VideoDynamicRange | None:
+    if isinstance(value, VideoDynamicRange):
+        return value
+    if isinstance(value, str):
+        try:
+            return VideoDynamicRange(value)
+        except ValueError:
+            return None
     return None
 
 
