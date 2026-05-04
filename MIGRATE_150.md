@@ -2,14 +2,14 @@
 
 Target: migrate Camoufox from Firefox 146.0.1 to Firefox 150.0.1 while keeping the browser standards-compliant and preventing newly introduced APIs from leaking inconsistent or host-identifying entropy.
 
-Current repo base:
+Previous repo base:
 
-- `upstream.sh`: `version=146.0.1`, `release=beta.25`
 - Source tree: `camoufox-146.0.1-beta.25`
 - Source tarball: `firefox-146.0.1.source.tar.xz`
 
-Target upstream:
+Current target:
 
+- `upstream.sh`: `version=150.0.1`, `release=beta.25`
 - Firefox 150.0.1 source archive: `https://archive.mozilla.org/pub/firefox/releases/150.0.1/source/firefox-150.0.1.source.tar.xz`
 
 ## Migration Policy
@@ -34,8 +34,8 @@ TODO:
 - [ ] Treat `schemas/camoufox-profile.openapi.yaml` as the protobuf-equivalent source of truth for this migration.
 - [ ] For every new spoofed surface, add explicit schema fields or seed fields before writing Firefox patch code.
 - [ ] Run `make generate-openapi` after schema edits.
-- [ ] Update `example/fingerprint.json` and run `make validate-fingerprint-example`.
-- [ ] Add Python pipeline tests proving generated fingerprints include coherent Firefox 150 values.
+- [x] Update `example/fingerprint.json` and run `make validate-fingerprint-example`.
+- [x] Add Python pipeline tests proving generated fingerprints include coherent Firefox 150 values.
 
 ## Phase 0: Rebase Existing Patch Stack First
 
@@ -43,7 +43,7 @@ This is the first gating item. Do not implement new Firefox 150 feature spoofing
 
 TODO:
 
-- [ ] Update migration target metadata locally to Firefox 150.0.1 for verification without committing the version bump until patches pass.
+- [x] Update migration target metadata to Firefox 150.0.1 after patch stack, build-tester, and Playwright validation passed.
 - [x] Fetch or cache `firefox-150.0.1.source.tar.xz`.
 - [x] Run fast patch verification against 150:
 
@@ -56,9 +56,9 @@ TODO:
 - [x] Run the verifier with compile-backed syntax checks once a Firefox 150 build or compile-command context exists.
 - [x] Run `make setup` or `make dir` with `CAMOUFOX_FIREFOX_VERSION=150.0.1` after patch application passes.
 - [x] Build Firefox 150 Camoufox at least once on the primary target.
-- [ ] Run `make lint`.
-- [ ] Run build-tester, service-tester, and Playwright suites against the 150 binary.
-- [ ] Update docs and examples that hard-code `ff_version="146"` or paths containing `camoufox-146.0.1-beta.25`.
+- [x] Run `make lint`.
+- [x] Run build-tester and Playwright suites against the 150 binary; service-tester is blocked locally by missing proxy credentials.
+- [x] Update active examples/tests that hard-code `ff_version="146"` or paths containing `camoufox-146.0.1-beta.25`; historical docs remain unchanged.
 
 Patch groups that must be verified for source drift:
 
@@ -105,6 +105,11 @@ Firefox 150 patch-application baseline:
 - [x] Incremental `CAMOUFOX_FIREFOX_VERSION=150.0.1 make build` passed after the Juggler handshake fix with `0 compiler warnings present`.
 - [x] Build-tester one-profile smoke passed after the Juggler handshake fix and Reporting API assertion correction: `134/134`, grade `A`.
 - [x] Build-tester full 8-profile per-context suite passed after the Juggler handshake fix: `1072/1072`, grade `A`, including the 5-second cross-contamination recheck.
+- [x] Fixed Firefox 150 content-popup Juggler race: popup `JugglerFrameParent` actors can be created before `TargetRegistry` maps the popup `browserId`, so pending actors are now bound when `PageTarget` is created.
+- [x] Incremental `CAMOUFOX_FIREFOX_VERSION=150.0.1 make build` passed after the popup actor binding fix with `0 compiler warnings present`.
+- [x] Full Playwright async suite passed after the popup actor binding fix: `1241 passed, 65 skipped, 18 xfailed`.
+- [x] After updating `upstream.sh` to Firefox 150.0.1, default `make build` passed with `0 compiler warnings present`.
+- [x] Default `make verify-patches` verified Firefox 150.0.1 patch application for all 51 patches; compile-backed syntax remained skipped because no cached compile-command context was available.
 - [ ] Inspect non-blocking `/usr/bin/patch` warnings from `fingerprint-injection.patch` and `patches/librewolf/mozilla_dirs.patch`: both patches applied with no rejects, but emitted `No such line ... ignoring`.
 
 Post-build Firefox 150 compatibility fixes now tracked in patches:
@@ -117,6 +122,7 @@ Post-build Firefox 150 compatibility fixes now tracked in patches:
 - [x] `patches/playwright/0-playwright.patch`: updated `JugglerSendMouseEvent` pressure assignment to construct Firefox 150's optional pressure field.
 - [x] `patches/playwright/0-playwright.patch`: restored and adapted `nsDOMWindowUtils::SendTouchEvent*` implementations for the Playwright IDL declarations, using Firefox 150 widget dispatch return types.
 - [x] `additions/juggler/TargetRegistry.js`: waits for browser chrome `DOMContentLoaded` when Firefox 150 reports an initial complete `about:blank` chrome shell with no `gBrowser`, preventing `Browser.newPage` from waiting forever for an unregistered target.
+- [x] `additions/juggler/TargetRegistry.js` and `additions/juggler/JugglerFrameParent.*`: keep early popup actors pending by `browserId` and bind them once the corresponding `PageTarget` exists, restoring `window.open`/`expect_popup` behavior on Firefox 150.
 - [x] `patches/zz-reporting-policy.patch`: makes `Reporting-Endpoints` processing honor `dom.reporting.header.enabled`, so the Reporting API can remain exposed while report-endpoint delivery is policy-disabled.
 
 `patches/playwright/0-playwright.patch` rejects against Firefox 150.0.1:
@@ -602,8 +608,8 @@ TODO:
 TODO:
 
 - [ ] Confirm BrowserForge supports Firefox 150 fingerprints.
-- [ ] Update tests currently pinned to `ff_version="146"`.
-- [ ] Ensure generated UA, `navigator.appVersion`, `oscpu`, platform, language, Accept-Language, WebGL, screen, and media values remain coherent for Firefox 150.
+- [x] Update tests currently pinned to `ff_version="146"`.
+- [x] Ensure generated UA, `navigator.appVersion`, `oscpu`, platform, language, Accept-Language, WebGL, screen, and media values remain coherent for Firefox 150.
 - [ ] Add generated defaults for any new schema fields.
 - [ ] Ensure random seeds are generated only for fields designed to be seed-derived:
   - canvas noise
@@ -628,16 +634,18 @@ TODO:
 - [x] Full build on primary development platform.
 - [x] Package smoke test via generated-tree `./mach run --version`.
 - [x] Patch verifier passed all 51 patches after Reporting policy patch.
+- [x] Default `make verify-patches` passes after `upstream.sh` was bumped to 150.0.1.
 - [x] Incremental build and generated-tree `./mach run --version` passed after `patches/zz-reporting-policy.patch`.
 - [x] Build tester one-profile smoke no longer blocks at Playwright/Juggler page creation and passes `134/134`.
 - [x] Build tester full 8-profile suite passes `1072/1072`.
-- [ ] `make lint`
-- [ ] Python fingerprint pipeline tests.
-- [ ] Build tester suite.
-- [ ] Playwright suite.
-- [ ] Service tester suite.
-- [ ] Manual smoke test for browser launch, page navigation, context creation, proxy configuration, and per-context fingerprint isolation.
-- [ ] Update `upstream.sh` only once the patch stack and blocking feature policies are green.
+- [x] `make lint`
+- [x] Python fingerprint pipeline tests: `13 passed`.
+- [x] Default `make build` after version metadata bump.
+- [x] Build tester suite: `1072/1072`, grade `A`.
+- [x] Playwright async suite: `1241 passed, 65 skipped, 18 xfailed`.
+- [ ] Service tester suite: local pytest invocation skips because no `__tests__/service-tester/proxies.txt` or `CAMOUFOX_SERVICE_PROXIES` file is configured.
+- [x] Manual smoke test for browser launch, page navigation, context creation, popup creation, and per-context fingerprint isolation.
+- [x] Update `upstream.sh` only once the patch stack and blocking feature policies are green.
 
 ## Open Decisions
 

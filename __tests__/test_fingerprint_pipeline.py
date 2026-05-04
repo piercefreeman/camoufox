@@ -150,7 +150,7 @@ def _install_dependency_shims() -> None:
         pkgman.OS_NAME = "mac"
         pkgman.load_yaml = load_yaml
         pkgman.get_path = lambda file: f"/tmp/{file}"
-        pkgman.installed_verstr = lambda: "146.0.1-beta.25"
+        pkgman.installed_verstr = lambda: "150.0.1-beta.25"
         pkgman.launch_path = lambda browser_path=None: "/tmp/camoufox"
         sys.modules["camoufox.pkgman"] = pkgman
 
@@ -329,7 +329,7 @@ def stable_environment(
     monkeypatch.setattr(fingerprints.FirefoxFingerprintCompiler, "_cached", {})
 
     monkeypatch.setattr(utils, "OS_NAME", "mac")
-    monkeypatch.setattr(utils, "installed_verstr", lambda: "146.0.1-beta.25")
+    monkeypatch.setattr(utils, "installed_verstr", lambda: "150.0.1-beta.25")
     monkeypatch.setattr(utils, "launch_path", lambda browser_path=None: "/tmp/camoufox")
     monkeypatch.setattr(
         utils,
@@ -367,9 +367,9 @@ def test_from_browserforge_compiles_host_compatible_config(
     fake_fingerprint: FakeFingerprint,
 ) -> None:
     _, fingerprints, _ = modules
-    config = fingerprints.from_browserforge(fake_fingerprint, ff_version="146")
+    config = fingerprints.from_browserforge(fake_fingerprint, ff_version="150")
 
-    assert config.navigator.user_agent.endswith("Firefox/146.0")
+    assert config.navigator.user_agent.endswith("Firefox/150.0")
     assert config.navigator.app_version.startswith("5.0 (Macintosh; Intel Mac OS X 10.15")
     assert config.navigator.platform == "MacIntel"
     assert config.navigator.oscpu == "Intel Mac OS X 10.15"
@@ -406,9 +406,9 @@ def test_from_preset_keeps_explicit_preset_path_host_safe(modules: tuple[Any, An
         "timezone": "America/New_York",
     }
 
-    config = fingerprints.from_preset(preset, ff_version="146")
+    config = fingerprints.from_preset(preset, ff_version="150")
 
-    assert config.navigator.user_agent.endswith("Firefox/146.0")
+    assert config.navigator.user_agent.endswith("Firefox/150.0")
     assert config.navigator.oscpu == "Intel Mac OS X 10.15"
     assert config.screen.width == 1720
     assert config.screen.height == 1100
@@ -450,9 +450,9 @@ def test_generate_context_fingerprint_reuses_supplied_browserforge_fingerprint(
 
     monkeypatch.setattr(fingerprints, "generate_fingerprint", _unexpected_generate)
 
-    result = fingerprints.generate_context_fingerprint(fingerprint=fake_fingerprint, ff_version="146")
+    result = fingerprints.generate_context_fingerprint(fingerprint=fake_fingerprint, ff_version="150")
 
-    assert result["config"].navigator.user_agent.endswith("Firefox/146.0")
+    assert result["config"].navigator.user_agent.endswith("Firefox/150.0")
     assert result["context_options"]["viewport"] == {"width": 1500, "height": 942}
 
 
@@ -496,7 +496,7 @@ def test_launch_options_generates_full_config_payload(
     assert options["executable_path"] == "/tmp/camoufox"
     assert options["headless"] is True
     assert options["env"]["TEST_ENV"] == "1"
-    assert payload["navigator"]["userAgent"].endswith("Firefox/146.0")
+    assert payload["navigator"]["userAgent"].endswith("Firefox/150.0")
     assert payload["navigator"]["language"] == "en-US"
     assert payload["locale"]["language"] == "en"
     assert payload["locale"]["region"] == "US"
@@ -528,9 +528,9 @@ def test_from_browserforge_compiles_linux_host_compatible_config(
     monkeypatch.setattr(fingerprints.FirefoxFingerprintCompiler, "_cached", {})
     monkeypatch.setattr(utils, "OS_NAME", "lin")
 
-    config = fingerprints.from_browserforge(fake_linux_fingerprint, ff_version="146")
+    config = fingerprints.from_browserforge(fake_linux_fingerprint, ff_version="150")
 
-    assert config.navigator.user_agent.endswith("Firefox/146.0")
+    assert config.navigator.user_agent.endswith("Firefox/150.0")
     assert config.navigator.app_version.startswith("5.0 (X11; Linux x86_64")
     assert config.navigator.platform == "Linux x86_64"
     assert config.navigator.oscpu == "Linux x86_64"
@@ -665,7 +665,7 @@ def test_launch_options_reads_version_from_macos_bundle(
     resources = executable_path.parent.parent / "Resources"
     resources.mkdir(parents=True, exist_ok=True)
     (resources / "application.ini").write_text(
-        "[App]\nVersion=146.0.1-beta.25\n",
+        "[App]\nVersion=150.0.1-beta.25\n",
         encoding="utf-8",
     )
 
@@ -673,7 +673,7 @@ def test_launch_options_reads_version_from_macos_bundle(
     payload = _decode_camou_config(options["env"])
 
     assert options["executable_path"] == str(executable_path)
-    assert payload["navigator"]["userAgent"].endswith("Firefox/146.0")
+    assert payload["navigator"]["userAgent"].endswith("Firefox/150.0")
 
 
 def test_get_asset_by_name_returns_packaged_path(modules: tuple[Any, Any, Any]) -> None:
