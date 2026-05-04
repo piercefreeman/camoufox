@@ -20,7 +20,7 @@ from .._generated_profile import (
     VoicesProfile,
 )
 from .common import LINUX, MACOS, HostTargetOS
-from .fonts import Font, blocked_families_for_target_os, marker_families_for_target_os
+from .fonts import Font, is_blocked_family_for_target_os, marker_families_for_target_os
 from .voices import (
     Voice,
     blocked_voice_names_for_target_os,
@@ -125,8 +125,11 @@ class HostFingerprintAdapter(ABC):
 
     def sample_fonts(self) -> list[str]:
         fonts = list(self.bundled_fonts)
-        blocked = blocked_families_for_target_os(self.target_os)
-        filtered_extras = [family for family in self.extra_fonts if family not in blocked]
+        filtered_extras = [
+            family
+            for family in self.extra_fonts
+            if not is_blocked_family_for_target_os(family, self.target_os)
+        ]
         fonts.extend(_sample_extras(filtered_extras))
 
         installed = set(self.bundled_fonts) | set(self.extra_fonts)

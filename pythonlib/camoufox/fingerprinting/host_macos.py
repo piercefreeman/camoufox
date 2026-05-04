@@ -54,11 +54,13 @@ class MacOSHostAdapter(HostFingerprintAdapter):
             family.casefold() for family in default_families_for_target_os(MACOS)
         }
         bundled_fonts = [
-            font.family for font in discovered_fonts if font.family.casefold() in default_font_families
+            font.family
+            for font in discovered_fonts
+            if font.is_system or font.family.casefold() in default_font_families
         ]
         extra_fonts: list[str] = []
         for font in discovered_fonts:
-            if font.family.casefold() in default_font_families:
+            if font.is_system or font.family.casefold() in default_font_families:
                 continue
             extra_fonts.append(font.family)
 

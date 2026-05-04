@@ -59,6 +59,7 @@ _FONT_DEFINITIONS: tuple[Font, ...] = (
     Font("DejaVu Sans", target_os=target_os_set(LINUX), leak_signal=True),
     Font("Liberation Sans", target_os=target_os_set(LINUX), leak_signal=True),
     Font("Noto Color Emoji", target_os=target_os_set(LINUX), leak_signal=True),
+    Font("MONO", target_os=target_os_set(LINUX), leak_signal=True),
     Font("Segoe UI", target_os=target_os_set(WINDOWS), marker=True, leak_signal=True),
     Font("Tahoma", target_os=target_os_set(WINDOWS)),
     Font("Cambria Math", target_os=target_os_set(WINDOWS), marker=True, leak_signal=True),
@@ -77,6 +78,96 @@ _FONT_DEFINITIONS: tuple[Font, ...] = (
         leak_signal=True,
     ),
 )
+
+_BLOCKED_FONT_FAMILY_PREFIXES: dict[TargetOS, tuple[str, ...]] = {
+    MACOS: (
+        "aldhabi",
+        "arimo",
+        "bahnschrift",
+        "calibri",
+        "cambria",
+        "candara",
+        "cantarell",
+        "consolas",
+        "constantia",
+        "corbel",
+        "cousine",
+        "dejavu",
+        "droid sans",
+        "ebrima",
+        "gadugi",
+        "hololens",
+        "ink free",
+        "javanese text",
+        "kacstoffice",
+        "leelawadee",
+        "liberation",
+        "malgun gothic",
+        "microsoft",
+        "ms ",
+        "nirmala",
+        "noto color emoji",
+        "opensymbol",
+        "roboto",
+        "segoe",
+        "sitka",
+        "tahoma",
+        "tinos",
+        "twemoji",
+        "ubuntu",
+        "yu gothic",
+        "zwadobe",
+    ),
+    LINUX: (
+        "aldhabi",
+        "apple",
+        "avenir",
+        "bahnschrift",
+        "calibri",
+        "cambria",
+        "candara",
+        "consolas",
+        "constantia",
+        "corbel",
+        "ebrima",
+        "gadugi",
+        "geneva",
+        "helvetica neue",
+        "hololens",
+        "ink free",
+        "javanese text",
+        "leelawadee",
+        "lucida grande",
+        "malgun gothic",
+        "microsoft",
+        "ms ",
+        "nirmala",
+        "pingfang",
+        "segoe",
+        "sf ",
+        "sitka",
+        "tahoma",
+        "yu gothic",
+    ),
+    WINDOWS: (
+        "apple",
+        "arimo",
+        "avenir",
+        "cantarell",
+        "cousine",
+        "dejavu",
+        "droid sans",
+        "geneva",
+        "helvetica neue",
+        "liberation",
+        "lucida grande",
+        "pingfang",
+        "sf ",
+        "tinos",
+        "twemoji",
+        "ubuntu",
+    ),
+}
 
 _DEFAULT_FONT_FAMILIES: dict[TargetOS, tuple[str, ...]] = {
     MACOS: (
@@ -274,6 +365,23 @@ def blocked_families_for_target_os(target_os: TargetOS) -> frozenset[str]:
         for font in _FONT_DEFINITIONS
         if target_os not in font.target_os and font.leak_signal
     )
+
+
+def is_blocked_family_for_target_os(family: str, target_os: TargetOS) -> bool:
+    """
+    Return whether a discovered local family is an implausible leak for a target OS.
+
+    The static catalog catches high-signal exact names. The prefix map catches
+    variant families from app bundles, developer font dumps, and patched names
+    such as "Ubuntu Mono derivative Powerline" or "Segoe Fluent Icons".
+    """
+    normalized = " ".join(family.casefold().split())
+    if normalized in {name.casefold() for name in blocked_families_for_target_os(target_os)}:
+        return True
+    for prefix in _BLOCKED_FONT_FAMILY_PREFIXES.get(target_os, ()):
+        if normalized == prefix or normalized.startswith(prefix):
+            return True
+    return False
 
 
 def default_families_for_target_os(target_os: TargetOS) -> frozenset[str]:

@@ -404,8 +404,21 @@ def test_macos_font_probe_uses_defaults_and_samples_local_extras(
             path="/System/Library/Fonts/PingFang.ttc",
             is_system=True,
         ),
+        fonts.Font(
+            "Noto Sans Gunjala Gondi Regular",
+            path="/System/Library/Fonts/Supplemental/NotoSansGunjalaGondi-Regular.otf",
+            is_system=True,
+        ),
         fonts.Font("Cambria Math", path="/Library/Fonts/cambria.ttc", is_system=False),
         fonts.Font("Arimo", path="/Library/Fonts/Arimo.ttf", is_system=False),
+        fonts.Font("Roboto", path="/Users/test/Library/Fonts/Roboto.ttf", is_system=False),
+        fonts.Font(
+            "Ubuntu Mono derivative Powerline",
+            path="/Users/test/Library/Fonts/UbuntuMono.ttf",
+            is_system=False,
+        ),
+        fonts.Font("MS Outlook", path="/Library/Fonts/MS Outlook.ttf", is_system=False),
+        fonts.Font("OpenSymbol", path="/Library/Fonts/OpenSymbol.ttf", is_system=False),
         fonts.Font("Fira Code", path="/Library/Fonts/FiraCode.ttf", is_system=False),
     )
 
@@ -425,10 +438,33 @@ def test_macos_font_probe_uses_defaults_and_samples_local_extras(
     adapter = host_macos.MacOSHostAdapter._probe()
     sampled = adapter.sample_fonts()
 
-    assert adapter.bundled_fonts == ("Helvetica Neue", "PingFang SC")
+    assert adapter.bundled_fonts == (
+        "Helvetica Neue",
+        "PingFang SC",
+        "Noto Sans Gunjala Gondi Regular",
+    )
     assert "Fira Code" in sampled
     assert "Cambria Math" not in sampled
     assert "Arimo" not in sampled
+    assert "Roboto" not in sampled
+    assert "Ubuntu Mono derivative Powerline" not in sampled
+    assert "MS Outlook" not in sampled
+    assert "OpenSymbol" not in sampled
+
+
+def test_macos_font_blocklist_keeps_legitimate_mac_families(
+    modules: tuple[Any, Any, Any],
+) -> None:
+    _ = modules
+    common = importlib.import_module("camoufox.fingerprinting.common")
+    fonts = importlib.import_module("camoufox.fingerprinting.fonts")
+
+    assert fonts.is_blocked_family_for_target_os("Segoe Fluent Icons", common.MACOS)
+    assert fonts.is_blocked_family_for_target_os("Ubuntu Mono derivative Powerline", common.MACOS)
+    assert fonts.is_blocked_family_for_target_os("Roboto Mono for Powerline", common.MACOS)
+    assert fonts.is_blocked_family_for_target_os("MS Outlook", common.MACOS)
+    assert not fonts.is_blocked_family_for_target_os("Monaco", common.MACOS)
+    assert not fonts.is_blocked_family_for_target_os("Noto Sans Gunjala Gondi Regular", common.MACOS)
 
 
 def test_from_preset_keeps_explicit_preset_path_host_safe(modules: tuple[Any, Any, Any]) -> None:
