@@ -572,7 +572,38 @@ def test_generate_context_fingerprint_reuses_supplied_browserforge_fingerprint(
     result = fingerprints.generate_context_fingerprint(fingerprint=fake_fingerprint, ff_version="150")
 
     assert result["config"].navigator.user_agent.endswith("Firefox/150.0")
-    assert result["context_options"]["viewport"] == {"width": 1500, "height": 942}
+    assert result["context_options"]["viewport"] == {"width": 1360, "height": 880}
+
+
+def test_zero_browserforge_inner_window_dimensions_are_repaired(
+    modules: tuple[Any, Any, Any],
+) -> None:
+    _, fingerprints, _ = modules
+    fingerprint = FakeFingerprint(
+        navigator=FakeNavigator(
+            userAgent=(
+                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:145.0) "
+                "Gecko/20100101 Firefox/145.0"
+            ),
+        ),
+        screen=FakeScreen(
+            width=1440,
+            height=900,
+            availWidth=1440,
+            availHeight=900,
+            outerWidth=1440,
+            outerHeight=900,
+            innerWidth=0,
+            innerHeight=0,
+        ),
+    )
+
+    result = fingerprints.generate_context_fingerprint(fingerprint=fingerprint, ff_version="150")
+    config = result["config"]
+
+    assert config.window.inner_width == 1440
+    assert config.window.inner_height == 872
+    assert result["context_options"]["viewport"] == {"width": 1440, "height": 872}
 
 
 def test_launch_options_does_not_warn_for_camoufox_generated_fingerprint(

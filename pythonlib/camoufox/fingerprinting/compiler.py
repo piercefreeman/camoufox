@@ -29,6 +29,8 @@ from .hosts import (
     normalize_target_os,
 )
 
+_DEFAULT_BROWSER_CHROME_HEIGHT = 28
+
 
 @dataclass(frozen=True)
 class CompiledScreen:
@@ -214,10 +216,26 @@ class FirefoxFingerprintCompiler:
         if isinstance(user_agent, str):
             options["user_agent"] = user_agent
 
-        if screen.width and screen.height:
+        window = config.window
+        viewport_width = (
+            window.inner_width
+            if window and isinstance(window.inner_width, int) and window.inner_width > 0
+            else screen.width
+        )
+        viewport_height = (
+            window.inner_height
+            if window and isinstance(window.inner_height, int) and window.inner_height > 0
+            else (
+                max(screen.height - _DEFAULT_BROWSER_CHROME_HEIGHT, 600)
+                if screen.height
+                else None
+            )
+        )
+
+        if viewport_width and viewport_height:
             options["viewport"] = {
-                "width": screen.width,
-                "height": max(screen.height - 28, 600),
+                "width": viewport_width,
+                "height": viewport_height,
             }
 
         if screen.device_pixel_ratio:
@@ -486,21 +504,38 @@ def _screen_from_mapping(screen: dict[str, Any]) -> ScreenProfile:
 
 def _window_from_mapping(screen: dict[str, Any]) -> WindowProfile:
     profile = WindowProfile()
-    outer_height = _non_negative_value(screen.get("outerHeight"))
+    outer_height = _positive_int_value(screen.get("outerHeight"))
     if outer_height is not None:
         profile.outer_height = outer_height
 
-    outer_width = _non_negative_value(screen.get("outerWidth"))
+    outer_width = _positive_int_value(screen.get("outerWidth"))
     if outer_width is not None:
         profile.outer_width = outer_width
 
-    inner_height = _non_negative_value(screen.get("innerHeight"))
+    inner_height = _positive_int_value(screen.get("innerHeight"))
     if inner_height is not None:
         profile.inner_height = inner_height
+    elif profile.outer_height:
+        profile.inner_height = max(profile.outer_height - _DEFAULT_BROWSER_CHROME_HEIGHT, 1)
+    else:
+        height = _positive_int_value(screen.get("height"))
+        if height is not None:
+            profile.inner_height = max(height - _DEFAULT_BROWSER_CHROME_HEIGHT, 1)
 
-    inner_width = _non_negative_value(screen.get("innerWidth"))
+    inner_width = _positive_int_value(screen.get("innerWidth"))
     if inner_width is not None:
         profile.inner_width = inner_width
+    elif profile.outer_width:
+        profile.inner_width = profile.outer_width
+    else:
+        width = _positive_int_value(screen.get("width"))
+        if width is not None:
+            profile.inner_width = width
+
+    if profile.outer_height is not None and profile.inner_height is not None:
+        profile.inner_height = min(profile.inner_height, profile.outer_height)
+    if profile.outer_width is not None and profile.inner_width is not None:
+        profile.inner_width = min(profile.inner_width, profile.outer_width)
 
     screen_x = screen.get("screenX")
     if screen_x is not None:
@@ -528,6 +563,15 @@ def _compiled_screen_from_profile(
         device_pixel_ratio=(config.window.device_pixel_ratio if config.window else None)
         or _extract_device_pixel_ratio(source_screen),
     )
+
+
+def _positive_int_value(value: Any) -> int | None:
+    if isinstance(value, bool):
+        return None
+    value = _non_negative_value(value)
+    if isinstance(value, int) and value > 0:
+        return value
+    return None
 
 
 def _copy_screen_offsets(config: CamoufoxProfile, screen: ScreenFingerprint) -> None:
