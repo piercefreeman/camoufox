@@ -384,6 +384,53 @@ def test_from_browserforge_compiles_host_compatible_config(
     assert isinstance(config.canvas.seed, int)
 
 
+def test_macos_font_probe_uses_defaults_and_samples_local_extras(
+    modules: tuple[Any, Any, Any],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _ = modules
+    hosts = importlib.import_module("camoufox.fingerprinting.hosts")
+    host_macos = importlib.import_module("camoufox.fingerprinting.host_macos")
+    fonts = importlib.import_module("camoufox.fingerprinting.fonts")
+
+    discovered = (
+        fonts.Font(
+            "Helvetica Neue",
+            path="/System/Library/Fonts/HelveticaNeue.ttc",
+            is_system=True,
+        ),
+        fonts.Font(
+            "PingFang SC",
+            path="/System/Library/Fonts/PingFang.ttc",
+            is_system=True,
+        ),
+        fonts.Font("Cambria Math", path="/Library/Fonts/cambria.ttc", is_system=False),
+        fonts.Font("Arimo", path="/Library/Fonts/Arimo.ttf", is_system=False),
+        fonts.Font("Fira Code", path="/Library/Fonts/FiraCode.ttf", is_system=False),
+    )
+
+    monkeypatch.setattr(
+        host_macos.MacOSHostAdapter,
+        "_discover_installed_fonts",
+        classmethod(lambda cls: discovered),
+    )
+    monkeypatch.setattr(
+        host_macos.MacOSHostAdapter,
+        "_discover_installed_voices",
+        classmethod(lambda cls: ()),
+    )
+    monkeypatch.setattr(host_macos, "_probe_gpu_family", lambda: ("apple", "apple_m_series"))
+    monkeypatch.setattr(hosts, "_sample_extras", lambda items: list(items))
+
+    adapter = host_macos.MacOSHostAdapter._probe()
+    sampled = adapter.sample_fonts()
+
+    assert adapter.bundled_fonts == ("Helvetica Neue", "PingFang SC")
+    assert "Fira Code" in sampled
+    assert "Cambria Math" not in sampled
+    assert "Arimo" not in sampled
+
+
 def test_from_preset_keeps_explicit_preset_path_host_safe(modules: tuple[Any, Any, Any]) -> None:
     _, fingerprints, _ = modules
     preset = {
@@ -590,6 +637,56 @@ def test_from_browserforge_compiles_linux_host_compatible_config(
     assert config.screen.height == 864
     assert config.fonts.families == ["Arimo", "Cousine", "Fira Sans", "IBM Plex Sans"]
     assert config.voices.items == ["English", "German"]
+
+
+def test_linux_font_probe_combines_defaults_local_and_bundled_extras(
+    modules: tuple[Any, Any, Any],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _ = modules
+    hosts = importlib.import_module("camoufox.fingerprinting.hosts")
+    host_linux = importlib.import_module("camoufox.fingerprinting.host_linux")
+    fonts = importlib.import_module("camoufox.fingerprinting.fonts")
+
+    installed = (
+        fonts.Font("Arimo", path="/usr/share/fonts/arimo.ttf", is_system=True),
+        fonts.Font("Cambria Math", path="/usr/share/fonts/cambria.ttc", is_system=True),
+        fonts.Font("Fira Sans", path="/home/user/.local/share/fonts/fira.ttf", is_system=False),
+    )
+    bundled = (
+        fonts.Font("Cousine", path="/opt/camoufox/fonts/linux/Cousine.ttf", is_system=True),
+        fonts.Font(
+            "Noto Color Emoji",
+            path="/opt/camoufox/fonts/linux/NotoColorEmoji.ttf",
+            is_system=True,
+        ),
+        fonts.Font("Roboto", path="/opt/camoufox/fonts/linux/Roboto.ttf", is_system=True),
+        fonts.Font("Segoe UI", path="/opt/camoufox/fonts/linux/segoeui.ttf", is_system=True),
+    )
+
+    monkeypatch.setattr(hosts.sys, "platform", "linux")
+    monkeypatch.setattr(
+        host_linux.LinuxHostAdapter,
+        "_discover_installed_fonts",
+        classmethod(lambda cls: installed),
+    )
+    monkeypatch.setattr(
+        host_linux.LinuxHostAdapter,
+        "_discover_installed_voices",
+        classmethod(lambda cls: ()),
+    )
+    monkeypatch.setattr(host_linux, "_discover_bundled_runtime_fonts", lambda: bundled)
+    monkeypatch.setattr(host_linux, "_probe_gpu_family", lambda: ("intel", "intel_iris"))
+    monkeypatch.setattr(hosts, "_sample_extras", lambda items: list(items))
+
+    adapter = host_linux.LinuxHostAdapter._probe()
+    sampled = adapter.sample_fonts()
+
+    assert adapter.bundled_fonts == ("Arimo", "Cousine", "Noto Color Emoji")
+    assert "Fira Sans" in sampled
+    assert "Roboto" in sampled
+    assert "Cambria Math" not in sampled
+    assert "Segoe UI" not in sampled
 
 
 def test_generate_fingerprint_dedupes_repeated_linux_screens(
