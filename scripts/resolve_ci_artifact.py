@@ -4,12 +4,12 @@ from __future__ import annotations
 
 import argparse
 import os
-import subprocess
 import shutil
 import stat
+import subprocess
 import sys
+import zipfile
 from pathlib import Path
-
 
 EXECUTABLE_PATTERNS = (
     "**/Camoufox.app/Contents/MacOS/camoufox",
@@ -69,6 +69,10 @@ def resolve_executable(extract_dir: Path) -> Path:
 def extract_artifact(artifact: Path, extract_dir: Path) -> None:
     if sys.platform == "darwin":
         command = ["ditto", "-x", "-k", str(artifact), str(extract_dir)]
+    elif sys.platform == "win32":
+        with zipfile.ZipFile(artifact) as archive:
+            archive.extractall(extract_dir)
+        return
     else:
         command = ["unzip", "-q", str(artifact), "-d", str(extract_dir)]
     subprocess.run(command, check=True, env=os.environ.copy())

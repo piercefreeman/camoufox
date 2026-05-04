@@ -7,10 +7,10 @@ LINUX: Final[Literal["linux"]] = "linux"
 WINDOWS: Final[Literal["windows"]] = "windows"
 
 TargetOS: TypeAlias = Literal["macos", "linux", "windows"]
-HostTargetOS: TypeAlias = Literal["macos", "linux"]
+HostTargetOS: TypeAlias = Literal["macos", "linux", "windows"]
 
 TARGET_OSES: Final[tuple[TargetOS, ...]] = (MACOS, LINUX, WINDOWS)
-HOST_TARGET_OSES: Final[tuple[HostTargetOS, ...]] = (MACOS, LINUX)
+HOST_TARGET_OSES: Final[tuple[HostTargetOS, ...]] = (MACOS, LINUX, WINDOWS)
 
 
 def empty_target_os_set() -> frozenset[TargetOS]:

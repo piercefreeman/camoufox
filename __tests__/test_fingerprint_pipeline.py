@@ -299,6 +299,33 @@ def fake_linux_host(modules: tuple[Any, Any, Any]) -> Any:
 
 
 @pytest.fixture
+def fake_windows_host(modules: tuple[Any, Any, Any]) -> Any:
+    _ = modules
+    host_windows = importlib.import_module("camoufox.fingerprinting.host_windows")
+    voices = importlib.import_module("camoufox.fingerprinting.voices")
+    return host_windows.WindowsHostAdapter(
+        architecture="x86_64",
+        gpu_vendor="nvidia",
+        gpu_family="nvidia_gtx_980",
+        bundled_fonts=(
+            "Arial",
+            "Times New Roman",
+            "Courier New",
+            "Segoe UI",
+            "Calibri",
+            "Cambria Math",
+            "Nirmala UI",
+        ),
+        extra_fonts=("Aptos", "Cascadia Mono", "Fira Code"),
+        bundled_voices=(
+            voices.Voice("Microsoft David - English (United States)", bundled=True),
+            voices.Voice("Microsoft Zira - English (United States)", bundled=True),
+        ),
+        extra_voices=(voices.Voice("Microsoft Jenny Online (Natural) - English (United States)"),),
+    )
+
+
+@pytest.fixture
 def fake_fingerprint() -> FakeFingerprint:
     return FakeFingerprint(
         navigator=FakeNavigator(
@@ -321,10 +348,12 @@ def stable_environment(
     hosts = importlib.import_module("camoufox.fingerprinting.hosts")
     host_macos = importlib.import_module("camoufox.fingerprinting.host_macos")
     host_linux = importlib.import_module("camoufox.fingerprinting.host_linux")
+    host_windows = importlib.import_module("camoufox.fingerprinting.host_windows")
 
     monkeypatch.setattr(hosts.sys, "platform", "darwin")
     monkeypatch.setattr(host_macos.MacOSHostAdapter, "_cached", fake_host)
     monkeypatch.setattr(host_linux.LinuxHostAdapter, "_cached", None)
+    monkeypatch.setattr(host_windows.WindowsHostAdapter, "_cached", None)
     monkeypatch.setattr(hosts, "_sample_extras", lambda items: list(items[:2]))
     monkeypatch.setattr(fingerprints.FirefoxFingerprintCompiler, "_cached", {})
 
@@ -358,6 +387,31 @@ def fake_linux_fingerprint() -> FakeFingerprint:
             innerHeight=800,
             innerWidth=1504,
             devicePixelRatio=1.25,
+        ),
+    )
+
+
+@pytest.fixture
+def fake_windows_fingerprint() -> FakeFingerprint:
+    return FakeFingerprint(
+        navigator=FakeNavigator(
+            userAgent=(
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:145.0) "
+                "Gecko/20100101 Firefox/145.0"
+            ),
+            platform="Win32",
+            oscpu="Windows NT 10.0; Win64; x64",
+        ),
+        screen=FakeScreen(
+            width=1920,
+            height=1080,
+            availWidth=1920,
+            availHeight=1040,
+            outerHeight=1008,
+            outerWidth=1600,
+            innerHeight=960,
+            innerWidth=1584,
+            devicePixelRatio=1.0,
         ),
     )
 
@@ -540,6 +594,52 @@ def test_from_browserforge_compiles_linux_host_compatible_config(
     assert config.voices.items == ["English", "German"]
 
 
+def test_from_browserforge_compiles_windows_host_compatible_config(
+    modules: tuple[Any, Any, Any],
+    fake_windows_host: Any,
+    fake_windows_fingerprint: FakeFingerprint,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _, fingerprints, utils = modules
+    hosts = importlib.import_module("camoufox.fingerprinting.hosts")
+    host_macos = importlib.import_module("camoufox.fingerprinting.host_macos")
+    host_linux = importlib.import_module("camoufox.fingerprinting.host_linux")
+    host_windows = importlib.import_module("camoufox.fingerprinting.host_windows")
+
+    monkeypatch.setattr(hosts.sys, "platform", "win32")
+    monkeypatch.setattr(host_macos.MacOSHostAdapter, "_cached", None)
+    monkeypatch.setattr(host_linux.LinuxHostAdapter, "_cached", None)
+    monkeypatch.setattr(host_windows.WindowsHostAdapter, "_cached", fake_windows_host)
+    monkeypatch.setattr(fingerprints.FirefoxFingerprintCompiler, "_cached", {})
+    monkeypatch.setattr(utils, "OS_NAME", "win")
+
+    config = fingerprints.from_browserforge(fake_windows_fingerprint, ff_version="146")
+
+    assert config.navigator.user_agent.endswith("Firefox/146.0")
+    assert config.navigator.app_version.startswith("5.0 (Windows NT 10.0; Win64; x64")
+    assert config.navigator.platform == "Win32"
+    assert config.navigator.oscpu == "Windows NT 10.0; Win64; x64"
+    assert config.screen.width == 1920
+    assert config.screen.height == 1080
+    assert config.screen.avail_height == 1040
+    assert config.fonts.families == [
+        "Arial",
+        "Times New Roman",
+        "Courier New",
+        "Segoe UI",
+        "Calibri",
+        "Cambria Math",
+        "Nirmala UI",
+        "Aptos",
+        "Cascadia Mono",
+    ]
+    assert config.voices.items == [
+        "Microsoft David - English (United States)",
+        "Microsoft Zira - English (United States)",
+        "Microsoft Jenny Online (Natural) - English (United States)",
+    ]
+
+
 def test_generate_fingerprint_dedupes_repeated_linux_screens(
     modules: tuple[Any, Any, Any],
     fake_linux_host: Any,
@@ -605,6 +705,17 @@ def test_linux_runtime_bundle_font_scan_exposes_expected_markers(
     assert {"Arimo", "Cousine", "Tinos", "Twemoji Mozilla"} <= families
 
 
+def test_windows_runtime_bundle_font_scan_exposes_expected_markers(
+    modules: tuple[Any, Any, Any],
+) -> None:
+    _ = modules
+    host_windows = importlib.import_module("camoufox.fingerprinting.host_windows")
+    discovered = host_windows._discover_bundled_runtime_fonts()
+    families = {font.family for font in discovered}
+
+    assert {"Segoe UI", "Cambria Math", "Nirmala UI", "HoloLens MDL2 Assets"} <= families
+
+
 def test_launch_options_defaults_to_linux_host_target(
     modules: tuple[Any, Any, Any],
     fake_linux_host: Any,
@@ -635,6 +746,45 @@ def test_launch_options_defaults_to_linux_host_target(
     assert payload["navigator"]["platform"] == "Linux x86_64"
     assert payload["navigator"]["oscpu"] == "Linux x86_64"
     assert payload["fonts"]["families"] == ["Arimo", "Cousine", "Fira Sans", "IBM Plex Sans"]
+
+
+def test_launch_options_defaults_to_windows_host_target(
+    modules: tuple[Any, Any, Any],
+    fake_windows_host: Any,
+    fake_windows_fingerprint: FakeFingerprint,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _, fingerprints, utils = modules
+    hosts = importlib.import_module("camoufox.fingerprinting.hosts")
+    host_macos = importlib.import_module("camoufox.fingerprinting.host_macos")
+    host_linux = importlib.import_module("camoufox.fingerprinting.host_linux")
+    host_windows = importlib.import_module("camoufox.fingerprinting.host_windows")
+
+    monkeypatch.setattr(hosts.sys, "platform", "win32")
+    monkeypatch.setattr(host_macos.MacOSHostAdapter, "_cached", None)
+    monkeypatch.setattr(host_linux.LinuxHostAdapter, "_cached", None)
+    monkeypatch.setattr(host_windows.WindowsHostAdapter, "_cached", fake_windows_host)
+    monkeypatch.setattr(fingerprints.FirefoxFingerprintCompiler, "_cached", {})
+    monkeypatch.setattr(utils, "OS_NAME", "win")
+    monkeypatch.setattr(utils, "generate_fingerprint", lambda **_: fake_windows_fingerprint)
+
+    options = utils.launch_options(env={"TEST_ENV": "1"}, headless=True)
+    payload = _decode_camou_config(options["env"])
+
+    assert utils._normalize_requested_os(None) == "windows"
+    assert payload["navigator"]["platform"] == "Win32"
+    assert payload["navigator"]["oscpu"] == "Windows NT 10.0; Win64; x64"
+    assert payload["fonts"]["families"] == [
+        "Arial",
+        "Times New Roman",
+        "Courier New",
+        "Segoe UI",
+        "Calibri",
+        "Cambria Math",
+        "Nirmala UI",
+        "Aptos",
+        "Cascadia Mono",
+    ]
 
 
 def test_launch_options_rejects_literal_readme_placeholder_path(

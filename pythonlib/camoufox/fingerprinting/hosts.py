@@ -20,7 +20,7 @@ from .._generated_profile import (
     SpeechVoice,
     VoicesProfile,
 )
-from .common import LINUX, MACOS, HostTargetOS
+from .common import LINUX, MACOS, WINDOWS, HostTargetOS
 from .fonts import Font, blocked_families_for_target_os, marker_families_for_target_os
 from .voices import (
     Voice,
@@ -41,6 +41,7 @@ _HOST_ARCH_MAP = {
 _HOST_TARGET_OS: dict[str, HostTargetOS] = {
     "darwin": MACOS,
     "linux": LINUX,
+    "win32": WINDOWS,
 }
 
 T = TypeVar("T")
@@ -164,7 +165,7 @@ def current_host_target_os() -> HostTargetOS:
         return _HOST_TARGET_OS[sys.platform]
     except KeyError as error:
         raise NotImplementedError(
-            "Camoufox fingerprinting currently ships host adapters only for macOS and Linux."
+            "Camoufox fingerprinting currently ships host adapters only for macOS, Linux, and Windows."
         ) from error
 
 
@@ -198,6 +199,10 @@ def get_host_adapter(target_os: Any | None = None) -> HostFingerprintAdapter:
         from .host_linux import LinuxHostAdapter
 
         return LinuxHostAdapter.current()
+    if normalized == WINDOWS:
+        from .host_windows import WindowsHostAdapter
+
+        return WindowsHostAdapter.current()
     raise NotImplementedError(f"Unsupported target OS {normalized!r}.")
 
 

@@ -105,6 +105,10 @@ jobs:
             arch: arm64
             runner: macos-26
             runner_fast: macos-26-xlarge
+          - target: windows
+            arch: x86_64
+            runner: windows-2025
+            runner_fast: windows-latest-8-cores
           # Intel macOS builds are intentionally disabled:
           # Apple has effectively deprecated Intel Macs, and the CI lane is slow
           # and unstable enough that it no longer justifies the build time/cost.
@@ -200,7 +204,32 @@ jobs:
           brew update
           brew install aria2 ccache
 
+      - name: Install MozillaBuild
+        if: matrix.target == 'windows'
+        shell: pwsh
+        run: |
+          choco install mozillabuild -y --no-progress
+          Add-Content $env:GITHUB_PATH "C:\mozilla-build\bin"
+
+      - name: Set up MSYS2
+        if: matrix.target == 'windows'
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: true
+          install: >-
+            aria2
+            base-devel
+            git
+            make
+            patch
+            p7zip
+            python
+            unzip
+            zip
+
       - name: Restore ccache
+        if: matrix.target != 'windows'
         uses: actions/cache@v4
         with:
           path: ${{ env.CCACHE_DIR }}
@@ -209,6 +238,7 @@ jobs:
             ccache-${{ runner.os }}-${{ matrix.target }}-${{ matrix.arch }}-${{ hashFiles('upstream.sh', 'assets/base.mozconfig') }}-
 
       - name: Configure ccache
+        if: matrix.target != 'windows'
         run: |
           mkdir -p "$CCACHE_DIR"
           ccache --set-config=max_size="$CCACHE_MAXSIZE"
@@ -230,9 +260,31 @@ jobs:
           echo "MACOS_SDK_DIR=$macos_sdk" >> "$GITHUB_ENV"
           df -h
 
+      - name: Check Windows native toolchain
+        if: matrix.target == 'windows'
+        shell: msys2 {0}
+        env:
+          MOZILLABUILD: C:\mozilla-build
+        run: |
+          uname -a
+          python3 --version
+          test "$MOZILLABUILD" = "C:\\mozilla-build"
+          test -d /c/mozilla-build
+          df -h
+
       - name: Fetch source
+        if: matrix.target != 'windows'
         env:
           CAMOUFOX_PASSWD: ${{ secrets.CAMOUFOX_PASSWD }}
+        run: |
+          make fetch
+
+      - name: Fetch source for Windows
+        if: matrix.target == 'windows'
+        shell: msys2 {0}
+        env:
+          CAMOUFOX_PASSWD: ${{ secrets.CAMOUFOX_PASSWD }}
+          MOZILLABUILD: C:\mozilla-build
         run: |
           make fetch
 
@@ -253,6 +305,18 @@ jobs:
           make mozbootstrap
           mkdir -p dist
 
+      - name: Setup and bootstrap for Windows
+        if: matrix.target == 'windows'
+        shell: msys2 {0}
+        env:
+          BUILD_TARGET: ${{ matrix.target }},${{ matrix.arch }}
+          MOZILLABUILD: C:\mozilla-build
+        run: |
+          make setup-minimal
+          make set-target
+          make mozbootstrap
+          mkdir -p dist
+
       - name: Create swap space
         if: matrix.target == 'linux'
         run: |
@@ -263,10 +327,18 @@ jobs:
           free -h
 
       - name: Build
+        if: matrix.target != 'windows'
+        run: python3 ./multibuild.py --target ${{ matrix.target }} --arch ${{ matrix.arch }}
+
+      - name: Build Windows
+        if: matrix.target == 'windows'
+        shell: msys2 {0}
+        env:
+          MOZILLABUILD: C:\mozilla-build
         run: python3 ./multibuild.py --target ${{ matrix.target }} --arch ${{ matrix.arch }}
 
       - name: Show ccache stats
-        if: always()
+        if: always() && matrix.target != 'windows'
         run: ccache --show-stats || true
 
       - name: Repair macOS zip permissions
@@ -275,6 +347,7 @@ jobs:
           bash scripts/repair_macos_release_zip.sh dist/*.zip
 
       - name: Inspect built archives
+        shell: bash
         run: |
           echo "PWD=$(pwd)"
           echo "dist tree:"
@@ -302,6 +375,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
           RELEASE_TAG: ${{ github.ref_name }}
+        shell: bash
         run: |
           set -euo pipefail
           shopt -s nullglob
@@ -343,6 +417,10 @@ jobs:
             arch: arm64
             runner: macos-26
             runner_fast: macos-26-xlarge
+          - target: windows
+            arch: x86_64
+            runner: windows-2025
+            runner_fast: windows-latest-8-cores
           # Intel macOS integration is intentionally disabled alongside the
           # build lane for the same deprecation and CI cost/stability reasons.
           # - target: macos
@@ -384,6 +462,7 @@ jobs:
           path: dist-artifact
 
       - name: Inspect downloaded build artifact
+        shell: bash
         run: |
           echo "PWD=$(pwd)"
           echo "Artifact tree:"
@@ -405,6 +484,7 @@ jobs:
         run: uv run --group dev --group playwright-tests --locked python -m playwright install --force ffmpeg
 
       - name: Verify Playwright ffmpeg
+        shell: bash
         run: |
           uv run --group dev --group playwright-tests --locked python - <<'PY'
           import re
@@ -444,13 +524,15 @@ jobs:
 
       - name: Resolve Camoufox executable
         id: artifact
+        shell: bash
         run: |
-          python3 scripts/resolve_ci_artifact.py \
+          python scripts/resolve_ci_artifact.py \
             --artifact dist-artifact \
             --extract-dir .tmp/ci-artifacts/${{ matrix.target }}-${{ matrix.arch }} \
             --github-output "$GITHUB_OUTPUT"
 
       - name: Run integration tests
+        shell: bash
         env:
           CAMOUFOX_EXECUTABLE_PATH: ${{ steps.artifact.outputs.executable_path }}
         run: |
