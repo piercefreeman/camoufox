@@ -1388,8 +1388,20 @@ index 51a754b76e..ea41fde83b 100644
 @@ -59,6 +60,7 @@ class FontVisibilityProvider {
    nsICookieJarSettings* GetCookieJarSettings() const override;                \
    mozilla::Maybe<FontVisibility> MaybeInheritFontVisibility() const override; \
-   void UserFontSetUpdated(gfxUserFontEntry* aUpdatedFont = nullptr) override; \
+  void UserFontSetUpdated(gfxUserFontEntry* aUpdatedFont = nullptr) override; \
 +  mozilla::dom::Document* GetDocument() const override;                       \
-   using FontVisibilityProvider::ReportBlockedFontFamily;
+  using FontVisibilityProvider::ReportBlockedFontFamily;
  };
  
+diff --git a/gfx/thebes/gfxPlatformFontList.cpp b/gfx/thebes/gfxPlatformFontList.cpp
+--- a/gfx/thebes/gfxPlatformFontList.cpp
++++ b/gfx/thebes/gfxPlatformFontList.cpp
+@@ -448,6 +448,7 @@ class ListFontsVisibilityProvider final : public FontVisibilityProvider {
+     return mozilla::Nothing();
+   }
+   void UserFontSetUpdated(gfxUserFontEntry*) override {}
++  mozilla::dom::Document* GetDocument() const override { return nullptr; }
+   using FontVisibilityProvider::ReportBlockedFontFamily;
+-
++
+  private:

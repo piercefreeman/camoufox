@@ -147,6 +147,15 @@ components:
         pixelDepth:
           type: integer
           minimum: 0
+        colorGamut:
+          type: string
+          enum: [srgb, p3, rec2020]
+        dynamicRange:
+          type: string
+          enum: [standard, high]
+        videoDynamicRange:
+          type: string
+          enum: [standard, high]
         pageXOffset:
           type: number
         pageYOffset:

@@ -37,6 +37,22 @@ class NavigatorProfile(BaseModel):
     on_line: bool | None = Field(None, alias='onLine')
 
 
+class ColorGamut(Enum):
+    srgb = 'srgb'
+    p3 = 'p3'
+    rec2020 = 'rec2020'
+
+
+class DynamicRange(Enum):
+    standard = 'standard'
+    high = 'high'
+
+
+class VideoDynamicRange(Enum):
+    standard = 'standard'
+    high = 'high'
+
+
 class ScreenProfile(BaseModel):
     model_config = ConfigDict(
         extra='forbid',
@@ -49,6 +65,11 @@ class ScreenProfile(BaseModel):
     width: int | None = Field(None, ge=0)
     color_depth: int | None = Field(None, alias='colorDepth', ge=0)
     pixel_depth: int | None = Field(None, alias='pixelDepth', ge=0)
+    color_gamut: ColorGamut | None = Field(None, alias='colorGamut')
+    dynamic_range: DynamicRange | None = Field(None, alias='dynamicRange')
+    video_dynamic_range: VideoDynamicRange | None = Field(
+        None, alias='videoDynamicRange'
+    )
     page_x_offset: float | None = Field(None, alias='pageXOffset')
     page_y_offset: float | None = Field(None, alias='pageYOffset')
 

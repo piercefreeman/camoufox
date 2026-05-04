@@ -1013,6 +1013,28 @@ index 2b4726c..ca04252 100644
    mouseOrPointerEvent.mCallbackId = notifier.SaveCallback();
  
    nsPresContext* presContext = aPresShell->GetPresContext();
+diff --git a/dom/base/nsDOMWindowUtils.h b/dom/base/nsDOMWindowUtils.h
+--- a/dom/base/nsDOMWindowUtils.h
++++ b/dom/base/nsDOMWindowUtils.h
+@@ -58,6 +58,17 @@ class nsDOMWindowUtils final : public nsIDOMWindowUtils {
+   mozilla::layers::WebRenderBridgeChild* GetWebRenderBridge();
+   mozilla::layers::CompositorBridgeChild* GetCompositorBridge();
+-
++
++  MOZ_CAN_RUN_SCRIPT
++  nsresult SendTouchEventCommon(
++      const nsAString& aType, const nsTArray<uint32_t>& aIdentifiers,
++      const nsTArray<int32_t>& aXs, const nsTArray<int32_t>& aYs,
++      const nsTArray<uint32_t>& aRxs, const nsTArray<uint32_t>& aRys,
++      const nsTArray<float>& aRotationAngles, const nsTArray<float>& aForces,
++      const nsTArray<int32_t>& aTiltXs, const nsTArray<int32_t>& aTiltYs,
++      const nsTArray<int32_t>& aTwists, int32_t aModifiers, bool aIsPen,
++      bool aToWindow, AsyncEnabledOption aAsyncEnabled,
++      bool* aPreventDefault);
++
+   void ReportErrorMessageForWindow(const nsAString& aErrorMessage,
+                                    const char* aClassification,
+                                    bool aFromChrome);
 diff --git a/dom/base/nsDOMWindowUtils.cpp b/dom/base/nsDOMWindowUtils.cpp
 index f5ae11b..f10b600 100644
 --- a/dom/base/nsDOMWindowUtils.cpp
@@ -1052,7 +1074,7 @@ index f5ae11b..f10b600 100644
 +  mouseEventData.mButton = aButton;
 +  mouseEventData.mButtons.Construct(aButtons);
 +  mouseEventData.mClickCount.Construct(aClickCount);
-+  mouseEventData.mPressure = aPressure;
++  mouseEventData.mPressure.Construct(aPressure);
 +  mouseEventData.mInputSource = aInputSourceArg;
 +  mouseEventData.mModifiers = aModifiers;
 +  mouseEventData.mJugglerEventId = *aJugglerEventId;
@@ -1073,6 +1095,142 @@ index f5ae11b..f10b600 100644
  NS_IMETHODIMP
  nsDOMWindowUtils::IsCORSSafelistedRequestHeader(const nsACString& aName,
                                                  const nsACString& aValue,
+@@ -823,9 +872,133 @@ nsDOMWindowUtils::SendWheelEvent(float aX, float aY, double aDeltaX,
+-
++
+   return (!failedX && !failedY) ? NS_OK : NS_ERROR_FAILURE;
+ }
++
++NS_IMETHODIMP
++nsDOMWindowUtils::SendTouchEvent(
++    const nsAString& aType, const nsTArray<uint32_t>& aIdentifiers,
++    const nsTArray<int32_t>& aXs, const nsTArray<int32_t>& aYs,
++    const nsTArray<uint32_t>& aRxs, const nsTArray<uint32_t>& aRys,
++    const nsTArray<float>& aRotationAngles, const nsTArray<float>& aForces,
++    const nsTArray<int32_t>& aTiltXs, const nsTArray<int32_t>& aTiltYs,
++    const nsTArray<int32_t>& aTwists, int32_t aModifiers,
++    AsyncEnabledOption aAsyncEnabled, bool* aPreventDefault) {
++  return SendTouchEventCommon(
++      aType, aIdentifiers, aXs, aYs, aRxs, aRys, aRotationAngles, aForces,
++      aTiltXs, aTiltYs, aTwists, aModifiers, /* aIsPen */ false,
++      /* aToWindow */ false, aAsyncEnabled, aPreventDefault);
++}
++
++NS_IMETHODIMP
++nsDOMWindowUtils::SendTouchEventAsPen(
++    const nsAString& aType, uint32_t aIdentifier, int32_t aX, int32_t aY,
++    uint32_t aRx, uint32_t aRy, float aRotationAngle, float aForce,
++    int32_t aTiltX, int32_t aTiltY, int32_t aTwist, int32_t aModifier,
++    AsyncEnabledOption aAsyncEnabled, bool* aPreventDefault) {
++  return SendTouchEventCommon(
++      aType, nsTArray{aIdentifier}, nsTArray{aX}, nsTArray{aY}, nsTArray{aRx},
++      nsTArray{aRy}, nsTArray{aRotationAngle}, nsTArray{aForce},
++      nsTArray{aTiltX}, nsTArray{aTiltY}, nsTArray{aTwist}, aModifier,
++      /* aIsPen */ true, /* aToWindow */ false, aAsyncEnabled,
++      aPreventDefault);
++}
++
++NS_IMETHODIMP
++nsDOMWindowUtils::SendTouchEventToWindow(
++    const nsAString& aType, const nsTArray<uint32_t>& aIdentifiers,
++    const nsTArray<int32_t>& aXs, const nsTArray<int32_t>& aYs,
++    const nsTArray<uint32_t>& aRxs, const nsTArray<uint32_t>& aRys,
++    const nsTArray<float>& aRotationAngles, const nsTArray<float>& aForces,
++    const nsTArray<int32_t>& aTiltXs, const nsTArray<int32_t>& aTiltYs,
++    const nsTArray<int32_t>& aTwists, int32_t aModifiers,
++    bool* aPreventDefault) {
++  return SendTouchEventCommon(
++      aType, aIdentifiers, aXs, aYs, aRxs, aRys, aRotationAngles, aForces,
++      aTiltXs, aTiltYs, aTwists, aModifiers, /* aIsPen */ false,
++      /* aToWindow */ true, AsyncEnabledOption::ASYNC_DISABLED,
++      aPreventDefault);
++}
++
++nsresult nsDOMWindowUtils::SendTouchEventCommon(
++    const nsAString& aType, const nsTArray<uint32_t>& aIdentifiers,
++    const nsTArray<int32_t>& aXs, const nsTArray<int32_t>& aYs,
++    const nsTArray<uint32_t>& aRxs, const nsTArray<uint32_t>& aRys,
++    const nsTArray<float>& aRotationAngles, const nsTArray<float>& aForces,
++    const nsTArray<int32_t>& aTiltXs, const nsTArray<int32_t>& aTiltYs,
++    const nsTArray<int32_t>& aTwists, int32_t aModifiers, bool aIsPen,
++    bool aToWindow, AsyncEnabledOption aAsyncEnabled, bool* aPreventDefault) {
++  nsPoint offset;
++  nsCOMPtr<nsIWidget> widget = GetWidget(&offset);
++  if (!widget) {
++    return NS_ERROR_NULL_POINTER;
++  }
++
++  EventMessage msg;
++  if (aType.EqualsLiteral("touchstart")) {
++    msg = eTouchStart;
++  } else if (aType.EqualsLiteral("touchmove")) {
++    msg = eTouchMove;
++  } else if (aType.EqualsLiteral("touchend")) {
++    msg = eTouchEnd;
++  } else if (aType.EqualsLiteral("touchcancel")) {
++    msg = eTouchCancel;
++  } else {
++    return NS_ERROR_UNEXPECTED;
++  }
++
++  WidgetTouchEvent event(true, msg, widget);
++  event.mFlags.mIsSynthesizedForTests = true;
++  event.mModifiers = nsContentUtils::GetWidgetModifiers(aModifiers);
++  if (aIsPen) {
++    event.mInputSource = MouseEvent_Binding::MOZ_SOURCE_PEN;
++  }
++
++  nsPresContext* presContext = GetPresContext();
++  if (!presContext) {
++    return NS_ERROR_FAILURE;
++  }
++
++  uint32_t count = aIdentifiers.Length();
++  if (aXs.Length() != count || aYs.Length() != count ||
++      aRxs.Length() != count || aRys.Length() != count ||
++      aRotationAngles.Length() != count || aForces.Length() != count ||
++      aTiltXs.Length() != count || aTiltYs.Length() != count ||
++      aTwists.Length() != count) {
++    return NS_ERROR_INVALID_ARG;
++  }
++
++  event.mTouches.SetCapacity(count);
++  for (uint32_t i = 0; i < count; ++i) {
++    LayoutDeviceIntPoint pt = nsContentUtils::ToWidgetPoint(
++        CSSPoint(aXs[i], aYs[i]), offset, presContext);
++    LayoutDeviceIntPoint radius = LayoutDeviceIntPoint::FromAppUnitsRounded(
++        CSSPoint::ToAppUnits(CSSPoint(aRxs[i], aRys[i])),
++        presContext->AppUnitsPerDevPixel());
++
++    RefPtr<Touch> touch =
++        new Touch(aIdentifiers[i], pt, radius, aRotationAngles[i], aForces[i],
++                  aTiltXs[i], aTiltYs[i], aTwists[i]);
++    event.mTouches.AppendElement(touch);
++  }
++
++  nsEventStatus status = nsEventStatus_eIgnore;
++  if (aToWindow) {
++    RefPtr<PresShell> presShell = presContext->PresShell();
++    MOZ_TRY(presShell->HandleEvent(presShell->GetRootFrame(), &event, false,
++                                   &status));
++  } else if (aAsyncEnabled == AsyncEnabledOption::ASYNC_ENABLED ||
++             StaticPrefs::test_events_async_enabled()) {
++    status = widget->DispatchInputEvent(&event).mContentStatus;
++  } else {
++    status = widget->DispatchEvent(&event);
++  }
++  if (aPreventDefault) {
++    *aPreventDefault = (status == nsEventStatus_eConsumeNoDefault);
++  }
++  return NS_OK;
++}
+-
++
+ static_assert(
+     static_cast<uint32_t>(nsIWidget::Modifiers::CAPS_LOCK) ==
+         static_cast<uint32_t>(nsIDOMWindowUtils::NATIVE_MODIFIER_CAPS_LOCK),
+     "Need to sync CapsLock value between nsIWidget::Modifiers and "
+     "nsIDOMWindowUtils");
 diff --git a/dom/base/nsFocusManager.cpp b/dom/base/nsFocusManager.cpp
 index e3d8521..44c4dbc 100644
 --- a/dom/base/nsFocusManager.cpp
@@ -2542,9 +2700,18 @@ index cb1bcbb..510ad08 100644
    void RegisterCaptureDataCallback(
        rtc::VideoSinkInterface<webrtc::VideoFrame>* dataCallback) override;
 +  void DeRegisterCaptureDataCallback() override;
-   void DeRegisterCaptureDataCallback(
-       rtc::VideoSinkInterface<webrtc::VideoFrame>* dataCallback) override;
-   int32_t StopCaptureIfAllClientsClose() override;
+  void DeRegisterCaptureDataCallback(
+      rtc::VideoSinkInterface<webrtc::VideoFrame>* dataCallback) override;
+  int32_t StopCaptureIfAllClientsClose() override;
+diff --git a/juggler/screencast/moz.build b/juggler/screencast/moz.build
+--- a/juggler/screencast/moz.build
++++ b/juggler/screencast/moz.build
+@@ -23,4 +23,5 @@ XPCOM_MANIFESTS += [
+ LOCAL_INCLUDES += [
++    '!/dist/include/libwebrtc_overrides',
+     '/dom/media/systemservices',
+     '/media/libyuv/libyuv/include',
+     '/third_party/abseil-cpp',
 diff --git a/juggler/screencast/ScreencastEncoder.cpp b/juggler/screencast/ScreencastEncoder.cpp
 index 701361a..08e4fb9 100644
 --- a/juggler/screencast/ScreencastEncoder.cpp
@@ -2564,15 +2731,33 @@ diff --git a/juggler/screencast/nsScreencastService.cpp b/juggler/screencast/nsS
 index fa9d1a9..539752e 100644
 --- a/juggler/screencast/nsScreencastService.cpp
 +++ b/juggler/screencast/nsScreencastService.cpp
-@@ -26,6 +26,8 @@
- #include "mozilla/widget/PlatformWidgetTypes.h"
- #include "video_engine/desktop_capture_impl.h"
- #include "VideoEngine.h"
-+#include "gfxPlatform.h"
+@@ -17,8 +17,7 @@
+ #include "nsIRandomGenerator.h"
+ #include "nsISupportsPrimitives.h"
+ #include "nsThreadManager.h"
+-#include "nsView.h"
+-#include "nsViewManager.h"
++#include "nsIWidget.h"
+ #include "modules/desktop_capture/desktop_capturer.h"
+ #include "modules/desktop_capture/desktop_capture_options.h"
+ #include "modules/desktop_capture/desktop_frame.h"
+@@ -325,13 +324,9 @@ nsresult nsScreencastService::StartVideoRecording(nsIScreencastServiceClient* aC
+   PresShell* presShell = aDocShell->GetPresShell();
+   if (!presShell)
+     return NS_ERROR_UNEXPECTED;
+-  nsViewManager* viewManager = presShell->GetViewManager();
+-  if (!viewManager)
+-    return NS_ERROR_UNEXPECTED;
+-  nsView* view = viewManager->GetRootView();
+-  if (!view)
++  nsIWidget* widget = presShell->GetRootWidget();
++  if (!widget)
+     return NS_ERROR_UNEXPECTED;
+-  nsIWidget* widget = view->GetWidget();
+-
 +
- 
- extern "C" {
- #include "jpeglib.h"
+   rtc::scoped_refptr<webrtc::VideoCaptureModuleEx> capturer = nullptr;
+   for (auto& it : mIdToSession) {
 diff --git a/layout/base/GeometryUtils.cpp b/layout/base/GeometryUtils.cpp
 index 1f5759a..c7d2924 100644
 --- a/layout/base/GeometryUtils.cpp
@@ -2984,7 +3169,7 @@ index 0f66c41..ad4f670 100644
 +    return true;
 +
 +  RefPtr<mozilla::dom::BrowsingContext> wbc;
-+  mLoadInfo->GetWorkerAssociatedBrowsingContext(getter_AddRefs(wbc));
++  mLoadInfo->GetAssociatedBrowsingContext(getter_AddRefs(wbc));
 +  if (wbc && wbc->Top()->GetForceOffline())
 +    return true;
 +

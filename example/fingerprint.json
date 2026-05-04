@@ -30,6 +30,9 @@
     "width": 1512,
     "colorDepth": 24,
     "pixelDepth": 24,
+    "colorGamut": "p3",
+    "dynamicRange": "standard",
+    "videoDynamicRange": "standard",
     "pageXOffset": 0,
     "pageYOffset": 0
   },

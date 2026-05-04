@@ -44,18 +44,18 @@ This is the first gating item. Do not implement new Firefox 150 feature spoofing
 TODO:
 
 - [ ] Update migration target metadata locally to Firefox 150.0.1 for verification without committing the version bump until patches pass.
-- [ ] Fetch or cache `firefox-150.0.1.source.tar.xz`.
-- [ ] Run fast patch verification against 150:
+- [x] Fetch or cache `firefox-150.0.1.source.tar.xz`.
+- [x] Run fast patch verification against 150:
 
   ```sh
   CAMOUFOX_FIREFOX_VERSION=150.0.1 uv run scripts/verify_firefox_patches.py --skip-syntax --keep-workdir
   ```
 
-- [ ] Record every patch application failure in this file with file paths and reject paths.
-- [ ] Rebase current patches in application order until `verify_firefox_patches.py --skip-syntax` passes.
-- [ ] Run the verifier with syntax checks once a Firefox 150 build or compile-command context exists.
-- [ ] Run `make setup` or `make dir` with `CAMOUFOX_FIREFOX_VERSION=150.0.1` after patch application passes.
-- [ ] Build Firefox 150 Camoufox at least once on the primary target.
+- [x] Record every patch application failure in this file with file paths and reject paths.
+- [x] Rebase current patches in application order until `verify_firefox_patches.py --skip-syntax` passes.
+- [x] Run the verifier with compile-backed syntax checks once a Firefox 150 build or compile-command context exists.
+- [x] Run `make setup` or `make dir` with `CAMOUFOX_FIREFOX_VERSION=150.0.1` after patch application passes.
+- [x] Build Firefox 150 Camoufox at least once on the primary target.
 - [ ] Run `make lint`.
 - [ ] Run build-tester, service-tester, and Playwright suites against the 150 binary.
 - [ ] Update docs and examples that hard-code `ff_version="146"` or paths containing `camoufox-146.0.1-beta.25`.
@@ -83,6 +83,29 @@ Firefox 150 patch-application baseline:
 - [x] Firefox 150 verifier after rebasing `0-playwright.patch`: 12 patch blockers remained.
 - [x] Firefox 150 verifier after rebasing through `geolocation-spoofing.patch`: 7 patch blockers remained.
 - [x] Firefox 150 final patch-application verifier passed against `/private/tmp/camoufox-firefox-source/firefox-150.0.1.source.tar.xz`.
+- [x] `CAMOUFOX_FIREFOX_VERSION=150.0.1 make dir` completed and created `camoufox-150.0.1-beta.25/_READY`.
+- [x] Generated Firefox 150 source tree contains no `.rej` files after normal patch application.
+- [x] Full verifier without `--skip-syntax` re-applied all 49 patches and reported `Syntax checks passed`.
+- [x] After adding `patches/zz-display-media-features.patch`, full verifier re-applied all 50 patches and reported `Syntax checks passed`; compile-backed checks were still skipped because no compile-command context exists.
+- [x] Re-ran `CAMOUFOX_FIREFOX_VERSION=150.0.1 make dir` after adding `patches/zz-display-media-features.patch`; normal source-tree patch application completed and recreated `_READY`.
+- [x] Generated Firefox 150 source tree still contains no `.rej` files after the 50-patch `make dir` run.
+- [x] SSD build objdir is mounted at `/Volumes/CamoufoxBuild/camoufox-150.0.1-beta.25-obj`; local generated-tree `mozconfig` sets `MOZ_OBJDIR` there. This is intentionally not a tracked patch and must be recreated if `make dir` regenerates the source tree.
+- [x] `CAMOUFOX_FIREFOX_VERSION=150.0.1 make build` completed successfully against the SSD objdir with `0 compiler warnings present`.
+- [x] Built app smoke passed via `CAMOUFOX_FIREFOX_VERSION=150.0.1 ./mach run --version`, reporting `Camoufox Camoufox 150.0.1-beta.25`.
+- [x] Direct `dist/bin/camoufox --version` is not a valid smoke invocation for this local objdir layout; it exits with `Couldn't load XPCOM`, while `mach run --version` launches the packaged app path under `dist/Camoufox.app`.
+- [x] Post-build patch verifier passed all 50 patches with `--skip-syntax` using `/Volumes/CamoufoxBuild/camoufox-patch-verify-150-post-buildfix4`.
+- [x] Compile-backed verifier was attempted using `/Volumes/CamoufoxBuild/camoufox-150.0.1-beta.25-obj/clangd/compile_commands.json`; patch application passed, but all 82 selected syntax targets were skipped because no cached compile command matched those files. Treat the successful full build as the authoritative compile validation for this phase.
+- [ ] Inspect non-blocking `/usr/bin/patch` warnings from `fingerprint-injection.patch` and `patches/librewolf/mozilla_dirs.patch`: both patches applied with no rejects, but emitted `No such line ... ignoring`.
+
+Post-build Firefox 150 compatibility fixes now tracked in patches:
+
+- [x] `patches/locale-spoofing.patch`: moved `/camoucfg` before `/intl/icu_capi/bindings/cpp` in `intl/components/moz.build` `LOCAL_INCLUDES` to satisfy Firefox 150 backend ordering.
+- [x] `patches/anti-font-fingerprinting.patch`: added `ListFontsVisibilityProvider::GetDocument()` because the patch makes `FontVisibilityProvider::GetDocument()` pure virtual.
+- [x] `patches/playwright/0-playwright.patch`: added WebRTC override includes for `juggler/screencast`.
+- [x] `patches/playwright/0-playwright.patch`: migrated screencast widget lookup from removed `nsView`/`nsViewManager` APIs to `PresShell::GetRootWidget()`.
+- [x] `patches/playwright/0-playwright.patch`: migrated forced-offline lookup from `GetWorkerAssociatedBrowsingContext()` to Firefox 150 `GetAssociatedBrowsingContext()`.
+- [x] `patches/playwright/0-playwright.patch`: updated `JugglerSendMouseEvent` pressure assignment to construct Firefox 150's optional pressure field.
+- [x] `patches/playwright/0-playwright.patch`: restored and adapted `nsDOMWindowUtils::SendTouchEvent*` implementations for the Playwright IDL declarations, using Firefox 150 widget dispatch return types.
 
 `patches/playwright/0-playwright.patch` rejects against Firefox 150.0.1:
 
@@ -117,6 +140,7 @@ Resolved Firefox 150 patch blockers:
 Remaining Firefox 150 patch blockers:
 
 - [x] None for patch application with `--skip-syntax`.
+- [x] None for normal `make dir` patch application.
 
 ## Phase 1: Firefox 150 Pref and Config Hardening
 
@@ -145,11 +169,12 @@ TODO:
   - review `network.lna.block_insecure_contexts`
   - review `network.lna.local-network-to-localhost.skip-checks`
   - review `network.socket.allowed_nonlocal_domains`
-- [ ] Add explicit HDR/color management hardening:
-  - `gfx.color_management.hdr_video=false`
-  - `gfx.color_management.hdr_video_assume_rec2020_uses_pq=false`
-  - `dom.forms.colorspace.enabled=false` until a display color profile is modeled
-  - `dom.forms.html_color_picker.enabled=false` unless needed and tested
+- [x] Add explicit HDR/color media-query profile fields without disabling native behavior by default:
+  - `screen.colorGamut`
+  - `screen.dynamicRange`
+  - `screen.videoDynamicRange`
+  - `patches/zz-display-media-features.patch` uses profile values when present and falls back to Firefox/native behavior when absent
+- [ ] Decide whether HTML color input, HDR video rendering, and canvas/video color output need additional profile fields beyond media-query exposure.
 - [ ] Decide explicit policy defaults for high-entropy future APIs without disabling standards APIs solely for entropy:
   - `dom.security.credentialmanagement.digital.enabled`
   - `dom.modelcontext.enabled`
@@ -348,30 +373,38 @@ Test TODO:
 
 Risk: medium. HDR and color-space features can expose display hardware or alter canvas/video output.
 
-Temporary policy:
+Policy:
 
-- [ ] Disable new HDR/color-space prefs until screen/display profile fields exist.
+- [x] Do not disable HDR/color-space behavior solely for entropy; prefer explicit profile values and native passthrough fallback.
+- [x] Use profile values for display media-query surfaces when supplied.
+- [ ] Decide separately whether HDR video rendering and color-input UI need profile controls.
 
 Standards-compliant target:
 
-- [ ] Expose display capabilities that are coherent with the selected screen, OS, GPU, and browser profile.
+- [x] Expose display media-query capabilities that are coherent with the selected screen, OS, GPU, and browser profile when explicit profile fields are supplied.
+- [x] Preserve native/passthrough behavior when display profile fields are absent.
 
 Profile schema TODO:
 
-- [ ] Extend `screen` or add `display`.
-- [ ] Add explicit `colorGamut` value.
-- [ ] Add explicit `dynamicRange` value.
+- [x] Extend `screen` with display media-query fields.
+- [x] Add explicit `colorGamut` value.
+- [x] Add explicit `dynamicRange` value.
+- [x] Add explicit `videoDynamicRange` value.
 - [ ] Add explicit `forcedColors`, `prefersContrast`, and related media-query values if currently host-derived.
 - [ ] Avoid seed-only display capabilities; these should be explicit coherent values.
 
 Patch/config TODO:
 
-- [ ] Audit CSS media query code paths for color and dynamic range.
+- [x] Audit CSS media query code paths for color and dynamic range.
+- [x] Patch `color-gamut`, CSS `color` depth, `dynamic-range`, and `video-dynamic-range` to honor profile values when present.
+- [x] Regenerate OpenAPI Python/C++ models and update the Python fingerprint compiler to carry display fields from presets/mappings.
 - [ ] Audit HTML color input behavior when `dom.forms.colorspace.enabled` is true.
 - [ ] Audit canvas/video color management paths for host display influence.
 
 Test TODO:
 
+- [x] Validate `example/fingerprint.json` with display fields.
+- [x] Run a compiler serialization smoke test for preset display fields.
 - [ ] Add `matchMedia("(dynamic-range: high)")` test.
 - [ ] Add `matchMedia("(color-gamut: p3)")` and `rec2020` tests.
 - [ ] Add canvas color-output stability test.
@@ -553,9 +586,9 @@ TODO:
 
 - [ ] `CAMOUFOX_FIREFOX_VERSION=150.0.1 make fetch`
 - [ ] `CAMOUFOX_FIREFOX_VERSION=150.0.1 make setup`
-- [ ] `CAMOUFOX_FIREFOX_VERSION=150.0.1 make dir`
-- [ ] Full build on primary development platform.
-- [ ] Package smoke test.
+- [x] `CAMOUFOX_FIREFOX_VERSION=150.0.1 make dir`
+- [x] Full build on primary development platform.
+- [x] Package smoke test via `CAMOUFOX_FIREFOX_VERSION=150.0.1 ./mach run --version`.
 - [ ] `make lint`
 - [ ] Python fingerprint pipeline tests.
 - [ ] Build tester suite.
