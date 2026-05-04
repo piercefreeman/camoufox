@@ -115,10 +115,6 @@ camoufox = [
     "assets/*",
     "qml/*",
 ]
-"camoufox.webgl" = [
-    "*.db",
-]
-
 [tool.ruff]
 target-version = "py310"
 

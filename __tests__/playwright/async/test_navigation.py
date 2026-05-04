@@ -818,7 +818,7 @@ async def test_wait_for_load_state_should_work_with_pages_that_have_loaded_befor
 
 
 async def test_wait_for_load_state_should_wait_for_load_state_of_empty_url_popup(
-    page: Page, is_firefox: bool
+    page: Page, is_firefox: bool, browser_version: str
 ) -> None:
     ready_state = []
     async with page.expect_popup() as popup_info:
@@ -833,7 +833,11 @@ async def test_wait_for_load_state_should_wait_for_load_state_of_empty_url_popup
 
     popup = await popup_info.value
     await popup.wait_for_load_state()
-    assert ready_state == ["uninitialized"] if is_firefox else ["complete"]
+    firefox_major = int(browser_version.split(".", 1)[0]) if is_firefox else 0
+    expected_ready_state = (
+        "uninitialized" if is_firefox and firefox_major < 150 else "complete"
+    )
+    assert ready_state == [expected_ready_state]
     assert await popup.evaluate("() => document.readyState") == ready_state[0]
 
 

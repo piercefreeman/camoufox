@@ -22,13 +22,10 @@
 #include "BatteryProfile.h"
 #include "FontsProfile.h"
 #include "AudioProfile.h"
-#include "CanvasProfile.h"
 #include "GeolocationProfile.h"
 #include "LocaleProfile.h"
 #include "HumanizeProfile.h"
 #include "AudioContextProfile.h"
-#include "WebGlProfile.h"
-#include "WebGlProfile.h"
 #include "VoicesProfile.h"
 #include "MediaDevicesProfile.h"
 
@@ -114,13 +111,6 @@ class CamoufoxProfile {
       }
       m_audio = value;
     }
-    if (json.contains("canvas") && !json.at("canvas").is_null()) {
-      CanvasProfile value;
-      if (!value.fromJson(json.at("canvas"))) {
-        return false;
-      }
-      m_canvas = value;
-    }
     if (json.contains("geolocation") && !json.at("geolocation").is_null()) {
       GeolocationProfile value;
       if (!value.fromJson(json.at("geolocation"))) {
@@ -162,20 +152,6 @@ class CamoufoxProfile {
         return false;
       }
       m_audioContext = value;
-    }
-    if (json.contains("webGl") && !json.at("webGl").is_null()) {
-      WebGlProfile value;
-      if (!value.fromJson(json.at("webGl"))) {
-        return false;
-      }
-      m_webGl = value;
-    }
-    if (json.contains("webGl2") && !json.at("webGl2").is_null()) {
-      WebGlProfile value;
-      if (!value.fromJson(json.at("webGl2"))) {
-        return false;
-      }
-      m_webGl2 = value;
     }
     if (json.contains("voices") && !json.at("voices").is_null()) {
       VoicesProfile value;
@@ -270,9 +246,6 @@ class CamoufoxProfile {
     if (m_audio.has_value()) {
       json["audio"] = m_audio->toJson();
     }
-    if (m_canvas.has_value()) {
-      json["canvas"] = m_canvas->toJson();
-    }
     if (m_geolocation.has_value()) {
       json["geolocation"] = m_geolocation->toJson();
     }
@@ -290,12 +263,6 @@ class CamoufoxProfile {
     }
     if (m_audioContext.has_value()) {
       json["audioContext"] = m_audioContext->toJson();
-    }
-    if (m_webGl.has_value()) {
-      json["webGl"] = m_webGl->toJson();
-    }
-    if (m_webGl2.has_value()) {
-      json["webGl2"] = m_webGl2->toJson();
     }
     if (m_voices.has_value()) {
       json["voices"] = m_voices->toJson();
@@ -412,14 +379,6 @@ class CamoufoxProfile {
     m_audio = value;
   }
 
-  bool canvasIsSet() const { return m_canvas.has_value(); }
-  std::optional<CanvasProfile> getCanvas() const {
-    return m_canvas;
-  }
-  void setCanvas(const CanvasProfile& value) {
-    m_canvas = value;
-  }
-
   bool geolocationIsSet() const { return m_geolocation.has_value(); }
   std::optional<GeolocationProfile> getGeolocation() const {
     return m_geolocation;
@@ -466,22 +425,6 @@ class CamoufoxProfile {
   }
   void setAudioContext(const AudioContextProfile& value) {
     m_audioContext = value;
-  }
-
-  bool webGlIsSet() const { return m_webGl.has_value(); }
-  std::optional<WebGlProfile> getWebGl() const {
-    return m_webGl;
-  }
-  void setWebGl(const WebGlProfile& value) {
-    m_webGl = value;
-  }
-
-  bool webGl2IsSet() const { return m_webGl2.has_value(); }
-  std::optional<WebGlProfile> getWebGl2() const {
-    return m_webGl2;
-  }
-  void setWebGl2(const WebGlProfile& value) {
-    m_webGl2 = value;
   }
 
   bool voicesIsSet() const { return m_voices.has_value(); }
@@ -576,15 +519,12 @@ class CamoufoxProfile {
   std::optional<BatteryProfile> m_battery;
   std::optional<FontsProfile> m_fonts;
   std::optional<AudioProfile> m_audio;
-  std::optional<CanvasProfile> m_canvas;
   std::optional<GeolocationProfile> m_geolocation;
   std::optional<std::string> m_timezone;
   std::optional<LocaleProfile> m_locale;
   std::optional<HumanizeProfile> m_humanize;
   std::optional<bool> m_showcursor;
   std::optional<AudioContextProfile> m_audioContext;
-  std::optional<WebGlProfile> m_webGl;
-  std::optional<WebGlProfile> m_webGl2;
   std::optional<VoicesProfile> m_voices;
   std::optional<MediaDevicesProfile> m_mediaDevices;
   std::optional<bool> m_allowMainWorld;
@@ -600,4 +540,3 @@ class CamoufoxProfile {
 }  // namespace camoucfg
 
 #endif  // CAMOUFOX_PROFILE_CamoufoxProfile_H_
-

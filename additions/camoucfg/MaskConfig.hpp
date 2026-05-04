@@ -10,7 +10,6 @@ Written by daijro.
 #include "mozilla/glue/Debug.h"
 
 #include <algorithm>
-#include <array>
 #include <cctype>
 #include <codecvt>
 #include <cstddef>
@@ -22,7 +21,6 @@ Written by daijro.
 #include <optional>
 #include <sstream>
 #include <string>
-#include <variant>
 #include <vector>
 
 #ifdef _WIN32
@@ -207,83 +205,6 @@ inline std::optional<bool> GetBool(const std::string& key) {
   if (value->is_boolean()) return value->get<bool>();
   printf_stderr("ERROR: Value for key '%s' is not a boolean\n", key.c_str());
   return std::nullopt;
-}
-
-template <typename T>
-inline std::optional<T> GetAttribute(const std::string& attrib, bool isWebGL2) {
-  auto webGl = isWebGL2 ? Profile().getWebGl2() : Profile().getWebGl();
-  if (!webGl) return std::nullopt;
-  auto contextAttributes = webGl->getContextAttributes();
-  if (!contextAttributes) return std::nullopt;
-  auto json = contextAttributes->toJson();
-  if (!json.contains(attrib)) return std::nullopt;
-  return json[attrib].get<T>();
-}
-
-inline std::optional<
-    std::variant<int64_t, bool, double, std::string, std::nullptr_t>>
-GLParam(uint32_t pname, bool isWebGL2) {
-  auto webGl = isWebGL2 ? Profile().getWebGl2() : Profile().getWebGl();
-  if (!webGl) return std::nullopt;
-  auto parameters = webGl->getParameters();
-  if (!parameters || !parameters->is_object()) return std::nullopt;
-  auto key = std::to_string(pname);
-  if (!parameters->contains(key)) return std::nullopt;
-  auto data = (*parameters)[key];
-  if (data.is_null()) return std::nullptr_t();
-  if (data.is_number_integer()) return data.get<int64_t>();
-  if (data.is_boolean()) return data.get<bool>();
-  if (data.is_number_float()) return data.get<double>();
-  if (data.is_string()) return data.get<std::string>();
-  return std::nullopt;
-}
-
-template <typename T>
-inline T MParamGL(uint32_t pname, T defaultValue, bool isWebGL2) {
-  auto webGl = isWebGL2 ? Profile().getWebGl2() : Profile().getWebGl();
-  if (!webGl) return defaultValue;
-  auto parameters = webGl->getParameters();
-  if (!parameters || !parameters->is_object()) return defaultValue;
-  auto key = std::to_string(pname);
-  if (!parameters->contains(key)) return defaultValue;
-  return (*parameters)[key].get<T>();
-}
-
-template <typename T>
-inline std::vector<T> MParamGLVector(uint32_t pname,
-                                     std::vector<T> defaultValue,
-                                     bool isWebGL2) {
-  auto webGl = isWebGL2 ? Profile().getWebGl2() : Profile().getWebGl();
-  if (!webGl) return defaultValue;
-  auto parameters = webGl->getParameters();
-  if (!parameters || !parameters->is_object()) return defaultValue;
-  auto key = std::to_string(pname);
-  if (!parameters->contains(key)) return defaultValue;
-  auto value = (*parameters)[key];
-  if (!value.is_array()) return defaultValue;
-  std::array<T, 4UL> result = value.get<std::array<T, 4UL>>();
-  return std::vector<T>(result.begin(), result.end());
-}
-
-inline std::optional<std::array<int32_t, 3UL>> MShaderData(
-    uint32_t shaderType, uint32_t precisionType, bool isWebGL2) {
-  auto webGl = isWebGL2 ? Profile().getWebGl2() : Profile().getWebGl();
-  if (!webGl) return std::nullopt;
-  auto shaderPrecisionFormats = webGl->getShaderPrecisionFormats();
-  if (!shaderPrecisionFormats || !shaderPrecisionFormats->is_object())
-    return std::nullopt;
-
-  std::string valueName =
-      std::to_string(shaderType) + "," + std::to_string(precisionType);
-  if (!shaderPrecisionFormats->contains(valueName)) return std::nullopt;
-  auto data = (*shaderPrecisionFormats)[valueName];
-  if (!data.contains("rangeMin") || !data.contains("rangeMax") ||
-      !data.contains("precision")) {
-    return std::nullopt;
-  }
-  return std::array<int32_t, 3U>{data["rangeMin"].get<int32_t>(),
-                                 data["rangeMax"].get<int32_t>(),
-                                 data["precision"].get<int32_t>()};
 }
 
 }  // namespace MaskConfig

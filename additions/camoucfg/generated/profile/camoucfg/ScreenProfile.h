@@ -82,6 +82,27 @@ class ScreenProfile {
       }
       m_pixelDepth = value.get<int32_t>();
     }
+    if (json.contains("colorGamut") && !json.at("colorGamut").is_null()) {
+      const auto& value = json.at("colorGamut");
+      if (!value.is_string()) {
+        return false;
+      }
+      m_colorGamut = value.get<std::string>();
+    }
+    if (json.contains("dynamicRange") && !json.at("dynamicRange").is_null()) {
+      const auto& value = json.at("dynamicRange");
+      if (!value.is_string()) {
+        return false;
+      }
+      m_dynamicRange = value.get<std::string>();
+    }
+    if (json.contains("videoDynamicRange") && !json.at("videoDynamicRange").is_null()) {
+      const auto& value = json.at("videoDynamicRange");
+      if (!value.is_string()) {
+        return false;
+      }
+      m_videoDynamicRange = value.get<std::string>();
+    }
     if (json.contains("pageXOffset") && !json.at("pageXOffset").is_null()) {
       const auto& value = json.at("pageXOffset");
       if (!value.is_number()) {
@@ -124,6 +145,15 @@ class ScreenProfile {
     }
     if (m_pixelDepth.has_value()) {
       json["pixelDepth"] = *m_pixelDepth;
+    }
+    if (m_colorGamut.has_value()) {
+      json["colorGamut"] = *m_colorGamut;
+    }
+    if (m_dynamicRange.has_value()) {
+      json["dynamicRange"] = *m_dynamicRange;
+    }
+    if (m_videoDynamicRange.has_value()) {
+      json["videoDynamicRange"] = *m_videoDynamicRange;
     }
     if (m_pageXOffset.has_value()) {
       json["pageXOffset"] = *m_pageXOffset;
@@ -200,6 +230,30 @@ class ScreenProfile {
     m_pixelDepth = value;
   }
 
+  bool colorGamutIsSet() const { return m_colorGamut.has_value(); }
+  std::optional<std::string> getColorGamut() const {
+    return m_colorGamut;
+  }
+  void setColorGamut(const std::string& value) {
+    m_colorGamut = value;
+  }
+
+  bool dynamicRangeIsSet() const { return m_dynamicRange.has_value(); }
+  std::optional<std::string> getDynamicRange() const {
+    return m_dynamicRange;
+  }
+  void setDynamicRange(const std::string& value) {
+    m_dynamicRange = value;
+  }
+
+  bool videoDynamicRangeIsSet() const { return m_videoDynamicRange.has_value(); }
+  std::optional<std::string> getVideoDynamicRange() const {
+    return m_videoDynamicRange;
+  }
+  void setVideoDynamicRange(const std::string& value) {
+    m_videoDynamicRange = value;
+  }
+
   bool pageXOffsetIsSet() const { return m_pageXOffset.has_value(); }
   std::optional<double> getPageXOffset() const {
     return m_pageXOffset;
@@ -226,6 +280,9 @@ class ScreenProfile {
   std::optional<int32_t> m_width;
   std::optional<int32_t> m_colorDepth;
   std::optional<int32_t> m_pixelDepth;
+  std::optional<std::string> m_colorGamut;
+  std::optional<std::string> m_dynamicRange;
+  std::optional<std::string> m_videoDynamicRange;
   std::optional<double> m_pageXOffset;
   std::optional<double> m_pageYOffset;
 };

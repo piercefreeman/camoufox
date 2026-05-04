@@ -242,7 +242,9 @@ index xxxxxxxxxx..yyyyyyyyyy 100644
 +  // Per-context font list filtering
 +  {
 +    uint32_t ctx = mozilla::dom::FontListManager::GetCurrentContext();
-+    if (ctx != 0 && mozilla::dom::FontListManager::HasFontList(ctx)) {
++    // Context 0 is the normal Playwright/default context; it still needs the
++    // allowlist once setFontList has registered one for it.
++    if (mozilla::dom::FontListManager::HasFontList(ctx)) {
 +      if (!mozilla::dom::FontListManager::IsFontAllowed(ctx, key)) {
 +        return false;
 +      }

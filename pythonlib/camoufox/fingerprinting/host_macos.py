@@ -10,7 +10,7 @@ from typing_extensions import Self
 
 from .._generated_profile import CamoufoxProfile, NavigatorProfile
 from .common import MACOS, HostTargetOS
-from .fonts import Font, font_definitions_for_target_os
+from .fonts import Font, default_families_for_target_os
 from .hosts import (
     HostFingerprintAdapter,
     dedupe,
@@ -42,11 +42,6 @@ class MacOSHostAdapter(HostFingerprintAdapter):
         normalize_target_os(MACOS)
 
         discovered_fonts = cls._discover_installed_fonts()
-        matched_catalog_fonts = cls._filter_locally_installed(
-            list(font_definitions_for_target_os(MACOS)),
-            discovered_fonts,
-        )
-        matched_catalog_families = {font.family for font in matched_catalog_fonts}
         discovered_voices = cls._discover_installed_voices()
         matched_catalog_voices = cls._filter_locally_available_voices(
             list(voice_definitions_for_target_os(MACOS)),
@@ -55,15 +50,19 @@ class MacOSHostAdapter(HostFingerprintAdapter):
         matched_catalog_voice_names = {voice.name for voice in matched_catalog_voices}
         gpu_vendor, gpu_family = _probe_gpu_family()
 
-        bundled_fonts = [font.family for font in matched_catalog_fonts if font.is_system]
-        extra_fonts = [font.family for font in matched_catalog_fonts if not font.is_system]
+        default_font_families = {
+            family.casefold() for family in default_families_for_target_os(MACOS)
+        }
+        bundled_fonts = [
+            font.family
+            for font in discovered_fonts
+            if font.is_system or font.family.casefold() in default_font_families
+        ]
+        extra_fonts: list[str] = []
         for font in discovered_fonts:
-            if font.family in matched_catalog_families:
+            if font.is_system or font.family.casefold() in default_font_families:
                 continue
-            if font.is_system:
-                bundled_fonts.append(font.family)
-            else:
-                extra_fonts.append(font.family)
+            extra_fonts.append(font.family)
 
         bundled_voices = [voice for voice in matched_catalog_voices if voice.bundled]
         extra_voices = [voice for voice in matched_catalog_voices if not voice.bundled]

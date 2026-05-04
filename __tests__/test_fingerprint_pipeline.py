@@ -150,7 +150,7 @@ def _install_dependency_shims() -> None:
         pkgman.OS_NAME = "mac"
         pkgman.load_yaml = load_yaml
         pkgman.get_path = lambda file: f"/tmp/{file}"
-        pkgman.installed_verstr = lambda: "146.0.1-beta.25"
+        pkgman.installed_verstr = lambda: "150.0.1-beta.25"
         pkgman.launch_path = lambda browser_path=None: "/tmp/camoufox"
         sys.modules["camoufox.pkgman"] = pkgman
 
@@ -329,7 +329,7 @@ def stable_environment(
     monkeypatch.setattr(fingerprints.FirefoxFingerprintCompiler, "_cached", {})
 
     monkeypatch.setattr(utils, "OS_NAME", "mac")
-    monkeypatch.setattr(utils, "installed_verstr", lambda: "146.0.1-beta.25")
+    monkeypatch.setattr(utils, "installed_verstr", lambda: "150.0.1-beta.25")
     monkeypatch.setattr(utils, "launch_path", lambda browser_path=None: "/tmp/camoufox")
     monkeypatch.setattr(
         utils,
@@ -367,9 +367,9 @@ def test_from_browserforge_compiles_host_compatible_config(
     fake_fingerprint: FakeFingerprint,
 ) -> None:
     _, fingerprints, _ = modules
-    config = fingerprints.from_browserforge(fake_fingerprint, ff_version="146")
+    config = fingerprints.from_browserforge(fake_fingerprint, ff_version="150")
 
-    assert config.navigator.user_agent.endswith("Firefox/146.0")
+    assert config.navigator.user_agent.endswith("Firefox/150.0")
     assert config.navigator.app_version.startswith("5.0 (Macintosh; Intel Mac OS X 10.15")
     assert config.navigator.platform == "MacIntel"
     assert config.navigator.oscpu == "Intel Mac OS X 10.15"
@@ -381,7 +381,90 @@ def test_from_browserforge_compiles_host_compatible_config(
     assert config.voices.items == ["Alex", "Samantha", "Moira (Enhanced)", "Karen (Premium)"]
     assert isinstance(config.fonts.spacing_seed, int)
     assert isinstance(config.audio.seed, int)
-    assert isinstance(config.canvas.seed, int)
+    assert not hasattr(config, "canvas")
+
+
+def test_macos_font_probe_uses_defaults_and_samples_local_extras(
+    modules: tuple[Any, Any, Any],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _ = modules
+    hosts = importlib.import_module("camoufox.fingerprinting.hosts")
+    host_macos = importlib.import_module("camoufox.fingerprinting.host_macos")
+    fonts = importlib.import_module("camoufox.fingerprinting.fonts")
+
+    discovered = (
+        fonts.Font(
+            "Helvetica Neue",
+            path="/System/Library/Fonts/HelveticaNeue.ttc",
+            is_system=True,
+        ),
+        fonts.Font(
+            "PingFang SC",
+            path="/System/Library/Fonts/PingFang.ttc",
+            is_system=True,
+        ),
+        fonts.Font(
+            "Noto Sans Gunjala Gondi Regular",
+            path="/System/Library/Fonts/Supplemental/NotoSansGunjalaGondi-Regular.otf",
+            is_system=True,
+        ),
+        fonts.Font("Cambria Math", path="/Library/Fonts/cambria.ttc", is_system=False),
+        fonts.Font("Arimo", path="/Library/Fonts/Arimo.ttf", is_system=False),
+        fonts.Font("Roboto", path="/Users/test/Library/Fonts/Roboto.ttf", is_system=False),
+        fonts.Font(
+            "Ubuntu Mono derivative Powerline",
+            path="/Users/test/Library/Fonts/UbuntuMono.ttf",
+            is_system=False,
+        ),
+        fonts.Font("MS Outlook", path="/Library/Fonts/MS Outlook.ttf", is_system=False),
+        fonts.Font("OpenSymbol", path="/Library/Fonts/OpenSymbol.ttf", is_system=False),
+        fonts.Font("Fira Code", path="/Library/Fonts/FiraCode.ttf", is_system=False),
+    )
+
+    monkeypatch.setattr(
+        host_macos.MacOSHostAdapter,
+        "_discover_installed_fonts",
+        classmethod(lambda cls: discovered),
+    )
+    monkeypatch.setattr(
+        host_macos.MacOSHostAdapter,
+        "_discover_installed_voices",
+        classmethod(lambda cls: ()),
+    )
+    monkeypatch.setattr(host_macos, "_probe_gpu_family", lambda: ("apple", "apple_m_series"))
+    monkeypatch.setattr(hosts, "_sample_extras", lambda items: list(items))
+
+    adapter = host_macos.MacOSHostAdapter._probe()
+    sampled = adapter.sample_fonts()
+
+    assert adapter.bundled_fonts == (
+        "Helvetica Neue",
+        "PingFang SC",
+        "Noto Sans Gunjala Gondi Regular",
+    )
+    assert "Fira Code" in sampled
+    assert "Cambria Math" not in sampled
+    assert "Arimo" not in sampled
+    assert "Roboto" not in sampled
+    assert "Ubuntu Mono derivative Powerline" not in sampled
+    assert "MS Outlook" not in sampled
+    assert "OpenSymbol" not in sampled
+
+
+def test_macos_font_blocklist_keeps_legitimate_mac_families(
+    modules: tuple[Any, Any, Any],
+) -> None:
+    _ = modules
+    common = importlib.import_module("camoufox.fingerprinting.common")
+    fonts = importlib.import_module("camoufox.fingerprinting.fonts")
+
+    assert fonts.is_blocked_family_for_target_os("Segoe Fluent Icons", common.MACOS)
+    assert fonts.is_blocked_family_for_target_os("Ubuntu Mono derivative Powerline", common.MACOS)
+    assert fonts.is_blocked_family_for_target_os("Roboto Mono for Powerline", common.MACOS)
+    assert fonts.is_blocked_family_for_target_os("MS Outlook", common.MACOS)
+    assert not fonts.is_blocked_family_for_target_os("Monaco", common.MACOS)
+    assert not fonts.is_blocked_family_for_target_os("Noto Sans Gunjala Gondi Regular", common.MACOS)
 
 
 def test_from_preset_keeps_explicit_preset_path_host_safe(modules: tuple[Any, Any, Any]) -> None:
@@ -406,9 +489,9 @@ def test_from_preset_keeps_explicit_preset_path_host_safe(modules: tuple[Any, An
         "timezone": "America/New_York",
     }
 
-    config = fingerprints.from_preset(preset, ff_version="146")
+    config = fingerprints.from_preset(preset, ff_version="150")
 
-    assert config.navigator.user_agent.endswith("Firefox/146.0")
+    assert config.navigator.user_agent.endswith("Firefox/150.0")
     assert config.navigator.oscpu == "Intel Mac OS X 10.15"
     assert config.screen.width == 1720
     assert config.screen.height == 1100
@@ -418,6 +501,42 @@ def test_from_preset_keeps_explicit_preset_path_host_safe(modules: tuple[Any, An
     assert config.timezone == "America/New_York"
     assert config.fonts.families == ["Helvetica Neue", "PingFang SC", "Fira Code", "IBM Plex Sans"]
     assert config.voices.items == ["Alex", "Samantha", "Moira (Enhanced)", "Karen (Premium)"]
+
+
+def test_generate_context_fingerprint_strips_webgl_but_keeps_native_canvas(
+    modules: tuple[Any, Any, Any],
+) -> None:
+    _, fingerprints, _ = modules
+    preset = {
+        "navigator": {
+            "platform": "MacIntel",
+            "userAgent": (
+                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:145.0) "
+                "Gecko/20100101 Firefox/145.0"
+            ),
+        },
+        "screen": {"width": 1720, "height": 1100},
+        "webGl": {"vendor": "Synthetic Vendor", "renderer": "Synthetic Renderer"},
+        "webGl2": {"vendor": "Synthetic Vendor", "renderer": "Synthetic Renderer"},
+    }
+
+    result = fingerprints.generate_context_fingerprint(preset=preset, ff_version="150")
+    config = result["config"]
+    init_script = result["init_script"]
+    payload = config.model_dump(by_alias=True, exclude_none=True, mode="json")
+
+    assert not hasattr(config, "web_gl")
+    assert not hasattr(config, "web_gl2")
+    assert "webGl" not in payload
+    assert "webGl2" not in payload
+    assert isinstance(config.fonts.spacing_seed, int)
+    assert isinstance(config.audio.seed, int)
+    assert not hasattr(config, "canvas")
+    assert 'if (typeof w.setWebGLVendor === "function") w.setWebGLVendor' not in init_script
+    assert 'if (typeof w.setWebGLRenderer === "function") w.setWebGLRenderer' not in init_script
+    assert 'if (typeof w.setAudioFingerprintSeed === "function")' in init_script
+    assert "setCanvasSeed" not in init_script
+    assert 'if (typeof w.setFontSpacingSeed === "function")' in init_script
 
 
 def test_generate_context_fingerprint_emits_debug_logs(
@@ -450,9 +569,9 @@ def test_generate_context_fingerprint_reuses_supplied_browserforge_fingerprint(
 
     monkeypatch.setattr(fingerprints, "generate_fingerprint", _unexpected_generate)
 
-    result = fingerprints.generate_context_fingerprint(fingerprint=fake_fingerprint, ff_version="146")
+    result = fingerprints.generate_context_fingerprint(fingerprint=fake_fingerprint, ff_version="150")
 
-    assert result["config"].navigator.user_agent.endswith("Firefox/146.0")
+    assert result["config"].navigator.user_agent.endswith("Firefox/150.0")
     assert result["context_options"]["viewport"] == {"width": 1500, "height": 942}
 
 
@@ -486,7 +605,7 @@ def test_launch_options_generates_full_config_payload(
     monkeypatch.setattr(utils, "generate_fingerprint", lambda **_: fake_fingerprint)
 
     options = utils.launch_options(
-        config={"webGl": {"vendor": "spoofed"}},
+        config=None,
         env={"TEST_ENV": "1"},
         headless=True,
         locale="en-US",
@@ -496,7 +615,7 @@ def test_launch_options_generates_full_config_payload(
     assert options["executable_path"] == "/tmp/camoufox"
     assert options["headless"] is True
     assert options["env"]["TEST_ENV"] == "1"
-    assert payload["navigator"]["userAgent"].endswith("Firefox/146.0")
+    assert payload["navigator"]["userAgent"].endswith("Firefox/150.0")
     assert payload["navigator"]["language"] == "en-US"
     assert payload["locale"]["language"] == "en"
     assert payload["locale"]["region"] == "US"
@@ -509,6 +628,22 @@ def test_launch_options_generates_full_config_payload(
     assert payload["voices"]["items"] == ["Alex", "Samantha", "Moira (Enhanced)", "Karen (Premium)"]
     assert "webGl" not in payload
     assert 1 <= payload["window"]["history"]["length"] <= 5
+
+
+def test_launch_options_rejects_webgl_profile_override(
+    modules: tuple[Any, Any, Any],
+    fake_fingerprint: FakeFingerprint,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _, _, utils = modules
+    monkeypatch.setattr(utils, "generate_fingerprint", lambda **_: fake_fingerprint)
+
+    with pytest.raises(utils.InvalidPropertyType):
+        utils.launch_options(
+            config={"webGl": {"vendor": "spoofed"}},
+            env={"TEST_ENV": "1"},
+            headless=True,
+        )
 
 
 def test_from_browserforge_compiles_linux_host_compatible_config(
@@ -528,9 +663,9 @@ def test_from_browserforge_compiles_linux_host_compatible_config(
     monkeypatch.setattr(fingerprints.FirefoxFingerprintCompiler, "_cached", {})
     monkeypatch.setattr(utils, "OS_NAME", "lin")
 
-    config = fingerprints.from_browserforge(fake_linux_fingerprint, ff_version="146")
+    config = fingerprints.from_browserforge(fake_linux_fingerprint, ff_version="150")
 
-    assert config.navigator.user_agent.endswith("Firefox/146.0")
+    assert config.navigator.user_agent.endswith("Firefox/150.0")
     assert config.navigator.app_version.startswith("5.0 (X11; Linux x86_64")
     assert config.navigator.platform == "Linux x86_64"
     assert config.navigator.oscpu == "Linux x86_64"
@@ -538,6 +673,56 @@ def test_from_browserforge_compiles_linux_host_compatible_config(
     assert config.screen.height == 864
     assert config.fonts.families == ["Arimo", "Cousine", "Fira Sans", "IBM Plex Sans"]
     assert config.voices.items == ["English", "German"]
+
+
+def test_linux_font_probe_combines_defaults_local_and_bundled_extras(
+    modules: tuple[Any, Any, Any],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _ = modules
+    hosts = importlib.import_module("camoufox.fingerprinting.hosts")
+    host_linux = importlib.import_module("camoufox.fingerprinting.host_linux")
+    fonts = importlib.import_module("camoufox.fingerprinting.fonts")
+
+    installed = (
+        fonts.Font("Arimo", path="/usr/share/fonts/arimo.ttf", is_system=True),
+        fonts.Font("Cambria Math", path="/usr/share/fonts/cambria.ttc", is_system=True),
+        fonts.Font("Fira Sans", path="/home/user/.local/share/fonts/fira.ttf", is_system=False),
+    )
+    bundled = (
+        fonts.Font("Cousine", path="/opt/camoufox/fonts/linux/Cousine.ttf", is_system=True),
+        fonts.Font(
+            "Noto Color Emoji",
+            path="/opt/camoufox/fonts/linux/NotoColorEmoji.ttf",
+            is_system=True,
+        ),
+        fonts.Font("Roboto", path="/opt/camoufox/fonts/linux/Roboto.ttf", is_system=True),
+        fonts.Font("Segoe UI", path="/opt/camoufox/fonts/linux/segoeui.ttf", is_system=True),
+    )
+
+    monkeypatch.setattr(hosts.sys, "platform", "linux")
+    monkeypatch.setattr(
+        host_linux.LinuxHostAdapter,
+        "_discover_installed_fonts",
+        classmethod(lambda cls: installed),
+    )
+    monkeypatch.setattr(
+        host_linux.LinuxHostAdapter,
+        "_discover_installed_voices",
+        classmethod(lambda cls: ()),
+    )
+    monkeypatch.setattr(host_linux, "_discover_bundled_runtime_fonts", lambda: bundled)
+    monkeypatch.setattr(host_linux, "_probe_gpu_family", lambda: ("intel", "intel_iris"))
+    monkeypatch.setattr(hosts, "_sample_extras", lambda items: list(items))
+
+    adapter = host_linux.LinuxHostAdapter._probe()
+    sampled = adapter.sample_fonts()
+
+    assert adapter.bundled_fonts == ("Arimo", "Cousine", "Noto Color Emoji")
+    assert "Fira Sans" in sampled
+    assert "Roboto" in sampled
+    assert "Cambria Math" not in sampled
+    assert "Segoe UI" not in sampled
 
 
 def test_generate_fingerprint_dedupes_repeated_linux_screens(
@@ -665,7 +850,7 @@ def test_launch_options_reads_version_from_macos_bundle(
     resources = executable_path.parent.parent / "Resources"
     resources.mkdir(parents=True, exist_ok=True)
     (resources / "application.ini").write_text(
-        "[App]\nVersion=146.0.1-beta.25\n",
+        "[App]\nVersion=150.0.1-beta.25\n",
         encoding="utf-8",
     )
 
@@ -673,7 +858,7 @@ def test_launch_options_reads_version_from_macos_bundle(
     payload = _decode_camou_config(options["env"])
 
     assert options["executable_path"] == str(executable_path)
-    assert payload["navigator"]["userAgent"].endswith("Firefox/146.0")
+    assert payload["navigator"]["userAgent"].endswith("Firefox/150.0")
 
 
 def test_get_asset_by_name_returns_packaged_path(modules: tuple[Any, Any, Any]) -> None:
