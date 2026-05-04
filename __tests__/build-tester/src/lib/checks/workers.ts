@@ -64,6 +64,7 @@ export async function runWorkerChecks(): Promise<
   const mainHWC = navigator.hardwareConcurrency;
   const mainLang = navigator.language;
   const mainTZ = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const mainWebGPUPresent = typeof (navigator as any).gpu !== "undefined";
 
   // Get WebGL renderer from main thread for comparison
   let mainWebGLRenderer = "";
@@ -235,6 +236,54 @@ export async function runWorkerChecks(): Promise<
     workerConsistency.offscreenCanvasWebGL = {
       passed: true,
       detail: "OffscreenCanvas test unavailable: " + (e?.message || String(e)),
+    };
+  }
+
+  // dedicatedWorkerWebGPU
+  try {
+    const code = `self.onmessage = async () => {
+  const result = { present: false, requestAdapter: 'not-present', error: '' };
+  const withTimeout = (promise, ms) => Promise.race([
+    promise,
+    new Promise((_, reject) => setTimeout(() => reject(new Error('requestAdapter timeout')), ms)),
+  ]);
+  try {
+    const gpu = navigator.gpu;
+    if (gpu) {
+      result.present = true;
+      try {
+        const adapter = await withTimeout(gpu.requestAdapter(), 3000);
+        result.requestAdapter = adapter ? 'resolved' : 'null';
+      } catch (e) {
+        result.requestAdapter = 'rejected';
+        result.error = e && e.message ? e.message : String(e);
+      }
+    }
+  } catch (e) {
+    result.error = e && e.message ? e.message : String(e);
+  }
+  self.postMessage(result);
+}`;
+    const data = await createWorkerAndGetValue<{
+      present: boolean;
+      requestAdapter: string;
+      error: string;
+    }>(code);
+    const match = mainWebGPUPresent === data.present;
+    workerConsistency.dedicatedWorkerWebGPU = {
+      passed: match,
+      detail: match
+        ? "WebGPU exposure matches window and dedicated worker: " +
+          data.present +
+          " (" +
+          data.requestAdapter +
+          ")"
+        : `MISMATCH: window WebGPU=${mainWebGPUPresent} worker WebGPU=${data.present}`,
+    };
+  } catch (e: any) {
+    workerConsistency.dedicatedWorkerWebGPU = {
+      passed: true,
+      detail: "Dedicated worker WebGPU unavailable: " + (e?.message || String(e)),
     };
   }
 

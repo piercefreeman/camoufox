@@ -94,6 +94,12 @@ Firefox 150 patch-application baseline:
 - [x] Built app smoke passed via `CAMOUFOX_FIREFOX_VERSION=150.0.1 ./mach run --version`, reporting `Camoufox Camoufox 150.0.1-beta.25`.
 - [x] Direct `dist/bin/camoufox --version` is not a valid smoke invocation for this local objdir layout; it exits with `Couldn't load XPCOM`, while `mach run --version` launches the packaged app path under `dist/Camoufox.app`.
 - [x] Post-build patch verifier passed all 50 patches with `--skip-syntax` using `/Volumes/CamoufoxBuild/camoufox-patch-verify-150-post-buildfix4`.
+- [x] After adding `patches/zz-reporting-policy.patch`, patch verifier passed all 51 patches with `--skip-syntax` using `/Volumes/CamoufoxBuild/camoufox-patch-verify-150-reporting-policy`.
+- [x] Applied `patches/zz-reporting-policy.patch` and refreshed `lw/camoufox.cfg` in the generated Firefox 150 tree without clobbering the SSD objdir.
+- [x] Incremental `CAMOUFOX_FIREFOX_VERSION=150.0.1 make build` passed after the Reporting policy patch with 2 compiler warnings present.
+- [x] Post-Reporting smoke passed via generated-tree `./mach run --version`, reporting `Camoufox Camoufox 150.0.1-beta.25`.
+- [x] Restored generated-tree files from `/Volumes/CamoufoxBuild/camoufox-patch-verify-150-reporting-policy` after local test preparation clobbered patched Juggler files; rebuilt successfully against the SSD objdir with 155 compiler warnings present.
+- [x] Post-restore smoke passed via generated-tree `./mach run --version`, reporting `Camoufox Camoufox 150.0.1-beta.25`.
 - [x] Compile-backed verifier was attempted using `/Volumes/CamoufoxBuild/camoufox-150.0.1-beta.25-obj/clangd/compile_commands.json`; patch application passed, but all 82 selected syntax targets were skipped because no cached compile command matched those files. Treat the successful full build as the authoritative compile validation for this phase.
 - [ ] Inspect non-blocking `/usr/bin/patch` warnings from `fingerprint-injection.patch` and `patches/librewolf/mozilla_dirs.patch`: both patches applied with no rejects, but emitted `No such line ... ignoring`.
 
@@ -106,6 +112,7 @@ Post-build Firefox 150 compatibility fixes now tracked in patches:
 - [x] `patches/playwright/0-playwright.patch`: migrated forced-offline lookup from `GetWorkerAssociatedBrowsingContext()` to Firefox 150 `GetAssociatedBrowsingContext()`.
 - [x] `patches/playwright/0-playwright.patch`: updated `JugglerSendMouseEvent` pressure assignment to construct Firefox 150's optional pressure field.
 - [x] `patches/playwright/0-playwright.patch`: restored and adapted `nsDOMWindowUtils::SendTouchEvent*` implementations for the Playwright IDL declarations, using Firefox 150 widget dispatch return types.
+- [x] `patches/zz-reporting-policy.patch`: makes `Reporting-Endpoints` processing honor `dom.reporting.header.enabled`, so the Reporting API can remain exposed while report-endpoint delivery is policy-disabled.
 
 `patches/playwright/0-playwright.patch` rejects against Firefox 150.0.1:
 
@@ -159,10 +166,10 @@ TODO:
   - `browser.safebrowsing.realTime.simulation.negativeCacheEnabled`
   - `browser.safebrowsing.realTime.simulation.negativeCacheTTLSec`
   - `browser.safebrowsing.realTime.simulation.noiseEntryCount`
-- [ ] Add explicit geolocation provider hardening:
+- [x] Add explicit geolocation provider hardening:
   - `geo.provider.use_winrt=false`
   - pref added in `settings/camoufox.cfg`
-  - verify Windows builds never invoke WinRT location when profile geolocation is configured
+- [ ] Verify Windows builds never invoke WinRT location when profile geolocation is configured.
 - [x] Add explicit Local Network Access policy in `settings/camoufox.cfg` without disabling LNA:
   - review `network.lna.enabled`
   - review `network.lna.etp.enabled`
@@ -175,11 +182,23 @@ TODO:
   - `screen.videoDynamicRange`
   - `patches/zz-display-media-features.patch` uses profile values when present and falls back to Firefox/native behavior when absent
 - [ ] Decide whether HTML color input, HDR video rendering, and canvas/video color output need additional profile fields beyond media-query exposure.
-- [ ] Decide explicit policy defaults for high-entropy future APIs without disabling standards APIs solely for entropy:
+- [x] Decide explicit policy defaults for high-entropy future APIs without disabling standards APIs solely for entropy:
   - `dom.security.credentialmanagement.digital.enabled`
   - `dom.modelcontext.enabled`
   - `dom.reporting.enabled`
   - `dom.reporting.header.enabled`
+- [x] Pin standards-aligned Firefox 150 surfaces explicitly in `settings/camoufox.cfg`:
+  - `media.captureStream.enabled=true`
+  - `dom.location.ancestorOrigins.enabled=true`
+  - `dom.reporting.enabled=true`
+  - `dom.reporting.header.enabled=false`
+  - `security.csp.reporting.enabled=false`
+- [x] Pin disabled until modeled:
+  - `dom.security.credentialmanagement.digital.enabled=false`
+  - `dom.modelcontext.enabled=false`
+  - `dom.documentpip.enabled=false`
+  - `dom.forms.html_color_picker.enabled=false`
+  - `permissions.expireUnused.enabled=false`
 - [ ] Review removed prefs from 146 and delete dead config entries only after confirming Firefox 150 ignores them safely.
 
 ## Phase 2: WebGPU
@@ -188,8 +207,8 @@ Risk: high for cross-signal consistency, not automatically high because it expos
 
 Policy:
 
-- [ ] Do not disable `dom.webgpu.enabled` by default solely because WebGPU exposes GPU entropy.
-- [ ] Keep Firefox 150's WebGPU behavior available when the selected fingerprint policy is native/passthrough and the host platform is the truth source.
+- [x] Do not disable `dom.webgpu.enabled` by default solely because WebGPU exposes GPU entropy.
+- [x] Keep Firefox 150's WebGPU behavior available when the selected fingerprint policy is native/passthrough and the host platform is the truth source.
 - [ ] Disable WebGPU only when a profile explicitly selects `disabled`/`unavailable`, or when an enabled synthetic profile would otherwise create an impossible contradiction that is not yet patched.
 - [ ] Treat entropy as a bug only when it is unmodeled persistent identity, contradicts other exposed signals, or bypasses per-context policy.
 
@@ -219,8 +238,10 @@ Profile schema TODO:
 
 Patch TODO:
 
-- [ ] Audit Firefox 150 WebGPU source paths and WebIDL.
-- [ ] Confirm what Firefox 150 exposes from the host adapter versus normalized browser capabilities.
+- [x] Audit Firefox 150 WebGPU source paths and WebIDL.
+- [x] Confirm what Firefox 150 exposes from the host adapter versus normalized browser capabilities:
+  - public `GPUAdapterInfo.vendor`, `architecture`, `device`, and `description` currently return empty strings
+  - `features`, `limits`, `wgslLanguageFeatures`, subgroup sizes, and fallback state remain capability/coherence surfaces
 - [ ] Patch `navigator.gpu` exposure consistently in windows and workers only if profile policy requires a non-default result.
 - [ ] Patch `GPU.requestAdapter()` to resolve or reject according to profile policy.
 - [ ] Patch adapter info, features, limits, fallback state, and language features only for synthetic/coherence modes that need it.
@@ -230,10 +251,10 @@ Patch TODO:
 
 Test TODO:
 
-- [ ] Add build-tester collection for `navigator.gpu`.
-- [ ] Add tests for `requestAdapter()` success/failure.
-- [ ] Add tests for adapter features and limits.
-- [ ] Add worker tests for WebGPU availability.
+- [x] Add build-tester collection for `navigator.gpu`.
+- [x] Add tests for `requestAdapter()` success/failure.
+- [x] Add tests for adapter features and limits.
+- [x] Add worker tests for WebGPU availability.
 - [ ] Add cross-signal tests against WebGL renderer/vendor, navigator platform, and OS.
 
 ## Phase 3: HTMLMediaElement.captureStream()
@@ -242,7 +263,8 @@ Risk: high. Firefox 150 exposes the standard `HTMLMediaElement.captureStream()` 
 
 Temporary policy:
 
-- [ ] Disable `media.captureStream.enabled` until behavior is audited.
+- [x] Do not disable `media.captureStream.enabled` by default; pin it to Firefox 150's standards behavior and collect the surface in build-tester.
+- [ ] Add profile/seed controls only if capture-derived IDs or output become persistent, cross-context, or synthetic-profile inconsistent.
 
 Standards-compliant target:
 
@@ -259,7 +281,8 @@ Profile schema TODO:
 
 Patch TODO:
 
-- [ ] Audit `HTMLMediaElement::CaptureStream` and related track creation code in Firefox 150.
+- [x] Audit `HTMLMediaElement::CaptureStream` and related track creation code in Firefox 150.
+- [x] Confirm `MediaStream` and `MediaStreamTrack` IDs are generated through Firefox UUID generation; treat them as contextual randomness unless tests show cross-context persistence or synthetic-profile contradiction.
 - [ ] Patch track IDs, track labels if any, timing-sensitive output, and graph integration points.
 - [ ] Ensure captured audio remains consistent with audio context spoofing.
 - [ ] Ensure captured video remains consistent with canvas/rendering noise policy.
@@ -267,7 +290,7 @@ Patch TODO:
 
 Test TODO:
 
-- [ ] Add `HTMLMediaElement.prototype.captureStream` presence test.
+- [x] Add `HTMLMediaElement.prototype.captureStream` presence test.
 - [ ] Add track ID determinism test.
 - [ ] Add audio capture hash stability test.
 - [ ] Add video/canvas capture stability test.
@@ -279,7 +302,7 @@ Risk: medium-high. `Location.ancestorOrigins` exposes frame ancestry. It is not 
 
 Temporary policy:
 
-- [ ] Disable `dom.location.ancestorOrigins.enabled` until behavior is tested.
+- [x] Do not disable `dom.location.ancestorOrigins.enabled` by default; pin it to Firefox 150's standards behavior because it reflects embedding state, not host hardware identity.
 
 Standards-compliant target:
 
@@ -303,7 +326,8 @@ Test TODO:
 - [ ] Add same-origin iframe test.
 - [ ] Add cross-origin iframe test.
 - [ ] Add sandboxed iframe test.
-- [ ] Compare behavior against Firefox 150 release.
+- [x] Add top-level presence collection in build-tester.
+- [ ] Compare iframe behavior against Firefox 150 release.
 
 ## Phase 5: Windows WinRT Geolocation Provider
 
@@ -336,8 +360,8 @@ Profile schema TODO:
 
 Patch/config TODO:
 
-- [ ] Disable new real-time Safe Browsing prefs explicitly.
-- [ ] Disable new global cache prefs explicitly.
+- [x] Disable new real-time Safe Browsing prefs explicitly.
+- [x] Disable new global cache prefs explicitly.
 - [ ] Verify compile-time LibreWolf data-reporting patches still cover Firefox 150 code paths.
 - [ ] Audit URL classifier, remote settings, and application reputation changes from 146 to 150.
 
@@ -359,6 +383,8 @@ Patch/config TODO:
 
 - [x] Pin target behavior for `network.lna.enabled` to Firefox 150 default `true`.
 - [x] Pin target behavior for `network.lna.etp.enabled` to Firefox 150 default `true`.
+- [x] Pin target behavior for `network.lna.blocking=false`, `network.lna.block_trackers=false`, `network.lna.allow_top_level_navigation=true`, and `network.lna.websocket.enabled=false`.
+- [x] Pin LNA address-space override lists to empty strings.
 - [x] Pin target behavior for `network.lna.block_insecure_contexts` to Firefox 150 default `true`.
 - [x] Pin target behavior for localhost exemptions with `network.lna.local-network-to-localhost.skip-checks=true`.
 - [ ] Ensure behavior is deterministic across OSes and proxy modes.
@@ -405,8 +431,8 @@ Test TODO:
 
 - [x] Validate `example/fingerprint.json` with display fields.
 - [x] Run a compiler serialization smoke test for preset display fields.
-- [ ] Add `matchMedia("(dynamic-range: high)")` test.
-- [ ] Add `matchMedia("(color-gamut: p3)")` and `rec2020` tests.
+- [x] Add `matchMedia("(dynamic-range: high)")` test.
+- [x] Add `matchMedia("(color-gamut: p3)")` and `rec2020` tests.
 - [ ] Add canvas color-output stability test.
 - [ ] Add video color-output stability test where practical.
 
@@ -416,8 +442,8 @@ Risk: medium. Credential APIs can expose platform authenticator availability, tr
 
 Temporary policy:
 
-- [ ] Keep `dom.security.credentialmanagement.digital.enabled=false`.
-- [ ] Review `security.webauthn.allow_with_certificate_override`.
+- [x] Keep `dom.security.credentialmanagement.digital.enabled=false`.
+- [x] Review `security.webauthn.allow_with_certificate_override`; Firefox 150 default is `false`.
 
 Profile schema TODO:
 
@@ -436,19 +462,20 @@ Patch TODO:
 Test TODO:
 
 - [ ] Add public-key credential availability test.
-- [ ] Add digital credential API absence test while disabled.
+- [x] Add digital credential API absence test while disabled.
 
 ## Phase 10: Reporting API and CSP Reporting
 
-Risk: low-medium by default. `dom.reporting.enabled` appears disabled by default, but if enabled it can store reports, deliver network requests, and expose browser behavior.
+Risk: low-medium by default. Firefox 150 defaults `dom.reporting.enabled=true` and `dom.reporting.header.enabled=true`; the browser can store reports, deliver network requests, and expose browser behavior if endpoint processing is left on.
 
 Temporary policy:
 
-- [ ] Keep Reporting API disabled.
+- [x] Keep the Reporting API exposed for standards behavior.
+- [x] Disable report endpoint ingestion and CSP report delivery by policy.
 
 Standards-compliant target:
 
-- [ ] If enabled, use per-context ephemeral report storage and deterministic delivery behavior.
+- [ ] If endpoint delivery is enabled later, use per-context ephemeral report storage and deterministic delivery behavior.
 
 Profile schema TODO:
 
@@ -457,14 +484,15 @@ Profile schema TODO:
 
 Patch/config TODO:
 
-- [ ] Set `dom.reporting.enabled=false`.
-- [ ] Set `dom.reporting.header.enabled=false`.
-- [ ] Review `security.csp.reporting.enabled` if present in Firefox 150.
-- [ ] Audit report persistence and network delivery paths.
+- [x] Set `dom.reporting.enabled=true` to preserve the standards-visible API.
+- [x] Set `dom.reporting.header.enabled=false`.
+- [x] Set `security.csp.reporting.enabled=false`.
+- [x] Patch `ReportingHeader::ProcessReportingEndpointsListFromResponse()` to honor `dom.reporting.header.enabled`.
+- [ ] Audit report persistence and network delivery paths before enabling endpoint delivery.
 
 Test TODO:
 
-- [ ] Add `ReportingObserver` absence/presence test.
+- [x] Add `ReportingObserver` absence/presence test.
 - [ ] Add CSP report endpoint network-block test.
 
 ## Phase 11: Navigator ModelContext and Local AI Surfaces
@@ -473,7 +501,7 @@ Risk: low today if disabled, high if enabled later. Local model availability is 
 
 Temporary policy:
 
-- [ ] Set `dom.modelcontext.enabled=false`.
+- [x] Set `dom.modelcontext.enabled=false`.
 
 Profile schema TODO:
 
@@ -484,7 +512,7 @@ Profile schema TODO:
 
 Patch/test TODO:
 
-- [ ] Add navigator `modelContext` absence test while disabled.
+- [x] Add navigator `modelContext` absence test while disabled.
 - [ ] Audit future Firefox releases for additional local AI APIs.
 
 ## Phase 12: WebGL Revalidation for Firefox 150
@@ -520,9 +548,9 @@ Profile schema TODO:
 
 Patch/config TODO:
 
-- [ ] Review `permissions.expireUnused.enabled`.
-- [ ] Review `permissions.expireUnusedThresholdSec`.
-- [ ] Review `permissions.expireUnusedTypes`.
+- [x] Review and pin `permissions.expireUnused.enabled=false`.
+- [x] Review and pin `permissions.expireUnusedThresholdSec`.
+- [x] Review and pin `permissions.expireUnusedTypes`.
 - [ ] Confirm permission state remains per-context and automation-friendly.
 
 Test TODO:
@@ -547,17 +575,21 @@ TODO:
 
 TODO:
 
-- [ ] Extend `__tests__/build-tester/src/lib/checks/collectors.ts` for new browser surfaces.
-- [ ] Add WebGPU collector and consistency checks.
-- [ ] Add `captureStream()` collector and stability checks.
+- [x] Extend `__tests__/build-tester/src/lib/checks/collectors.ts` for new browser surfaces.
+- [x] Add WebGPU collector and consistency checks.
+- [x] Add `captureStream()` collector and standards-presence check.
+- [ ] Add `captureStream()` output stability checks for captured audio/video.
 - [ ] Add `location.ancestorOrigins` iframe collector.
-- [ ] Add HDR/color media-query collector.
-- [ ] Add Reporting API absence/presence collector.
-- [ ] Add Digital Credentials/WebAuthn absence/presence collector.
-- [ ] Add ModelContext absence collector.
+- [x] Add HDR/color media-query collector.
+- [x] Add Reporting API absence/presence collector.
+- [x] Add Digital Credentials/WebAuthn absence/presence collector.
+- [x] Add ModelContext absence collector.
 - [ ] Add pref assertions for new hard-disable prefs where tests can read packaged config.
 - [ ] Add per-context tests for all new profile fields.
-- [ ] Add worker/service-worker tests for every API that can appear outside Window.
+- [x] Add dedicated-worker WebGPU availability test.
+- [ ] Add service-worker tests for every API that can appear outside Window.
+- [x] Add bounded WebGPU `requestAdapter()` probes so new collectors cannot hang the browser-side test page.
+- [x] Add bounded Playwright launch calls in the build-tester runner.
 
 ## Phase 16: BrowserForge and Python Fingerprint Pipeline
 
@@ -588,7 +620,10 @@ TODO:
 - [ ] `CAMOUFOX_FIREFOX_VERSION=150.0.1 make setup`
 - [x] `CAMOUFOX_FIREFOX_VERSION=150.0.1 make dir`
 - [x] Full build on primary development platform.
-- [x] Package smoke test via `CAMOUFOX_FIREFOX_VERSION=150.0.1 ./mach run --version`.
+- [x] Package smoke test via generated-tree `./mach run --version`.
+- [x] Patch verifier passed all 51 patches after Reporting policy patch.
+- [x] Incremental build and generated-tree `./mach run --version` passed after `patches/zz-reporting-policy.patch`.
+- [ ] Build tester suite: one-profile smoke currently blocks at Playwright/Juggler launch before page navigation; this is separate from the new Firefox 150 JS collectors and needs Juggler launch debugging.
 - [ ] `make lint`
 - [ ] Python fingerprint pipeline tests.
 - [ ] Build tester suite.
@@ -599,8 +634,8 @@ TODO:
 
 ## Open Decisions
 
-- [ ] Should Firefox 150 WebGPU use native/passthrough as the default policy, with synthetic/coherence mode added only when BrowserForge chooses non-native GPU facts?
-- [ ] Should `captureStream()` ship disabled first, or do we need standards-compliant support in the first Firefox 150 binary?
-- [ ] Should `location.ancestorOrigins` be disabled for privacy uniformity or enabled to match Firefox 150 standards behavior?
+- [x] Should Firefox 150 WebGPU use native/passthrough as the default policy, with synthetic/coherence mode added only when BrowserForge chooses non-native GPU facts? Decision: yes.
+- [x] Should `captureStream()` ship disabled first, or do we need standards-compliant support in the first Firefox 150 binary? Decision: keep enabled and test; do not disable solely for entropy.
+- [x] Should `location.ancestorOrigins` be disabled for privacy uniformity or enabled to match Firefox 150 standards behavior? Decision: keep enabled and test embedding behavior.
 - [ ] Should LNA follow Firefox defaults for standards compliance or be pinned to stricter deterministic network policy?
 - [ ] Should display color/HDR be modeled under `screen` or a new `display` profile section?

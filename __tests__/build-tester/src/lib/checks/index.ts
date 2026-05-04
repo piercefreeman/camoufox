@@ -37,6 +37,33 @@ function runSelfDestructChecks(): Record<string, CheckResult> {
   return results;
 }
 
+function stableFirefox150Subset(
+  fingerprints: TestResults["fingerprints"]
+): string {
+  const surface = fingerprints.firefox150;
+  return JSON.stringify({
+    webgpu: {
+      present: surface.webgpu.present,
+      requestAdapter: surface.webgpu.requestAdapter,
+      features: surface.webgpu.features,
+      limits: surface.webgpu.limits,
+      wgslLanguageFeatures: surface.webgpu.wgslLanguageFeatures,
+      adapterInfo: surface.webgpu.adapterInfo,
+    },
+    mediaCapture: {
+      captureStreamPresent: surface.mediaCapture.captureStreamPresent,
+      mozCaptureStreamPresent: surface.mediaCapture.mozCaptureStreamPresent,
+      trackCount: surface.mediaCapture.trackCount,
+    },
+    location: surface.location,
+    reporting: surface.reporting,
+    credentials: surface.credentials,
+    localAi: surface.localAi,
+    documentPictureInPicture: surface.documentPictureInPicture,
+    displayMediaQueries: surface.displayMediaQueries,
+  });
+}
+
 export async function runAllChecks(
   onPhaseComplete?: (phase: PhaseResult) => void
 ): Promise<TestResults> {
@@ -52,7 +79,7 @@ export async function runAllChecks(
 
   // Phase 3: Extended checks
   const { runExtendedChecks } = await import("./extended");
-  const extended = await runExtendedChecks();
+  const extended = await runExtendedChecks(fingerprints);
   onPhaseComplete?.({ phase: "extended" });
 
   // Phase 4: Worker consistency checks
@@ -71,6 +98,9 @@ export async function runAllChecks(
   if (fingerprints.audio.hash !== fingerprints2.audio.hash) diffs.push("audio");
   if (fingerprints.fonts.hash !== fingerprints2.fonts.hash) diffs.push("fonts");
   if (fingerprints.clientRects.hash !== fingerprints2.clientRects.hash) diffs.push("clientRects");
+  if (stableFirefox150Subset(fingerprints) !== stableFirefox150Subset(fingerprints2)) {
+    diffs.push("firefox150Surfaces");
+  }
   // Only compare speechVoices if both collections returned voices.
   if (fingerprints.speechVoices.count > 0 && fingerprints2.speechVoices.count > 0 &&
       fingerprints.speechVoices.hash !== fingerprints2.speechVoices.hash) diffs.push("speechVoices");
