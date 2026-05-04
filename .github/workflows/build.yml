@@ -218,9 +218,9 @@ jobs:
           msystem: UCRT64
           update: true
           install: >-
-            aria2
             base-devel
             git
+            mingw-w64-ucrt-x86_64-aria2
             make
             patch
             p7zip
