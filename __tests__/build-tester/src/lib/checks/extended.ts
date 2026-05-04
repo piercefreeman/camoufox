@@ -246,12 +246,12 @@ export async function runExtendedChecks(
 
       result.firefox150Surfaces.reportingApiPresence = {
         passed:
-          surface.reporting.reportingObserverPresent && surface.reporting.reportPresent,
+          surface.reporting.reportingObserverPresent && !surface.reporting.reportPresent,
         detail:
           "ReportingObserver=" +
           surface.reporting.reportingObserverPresent +
-          ", Report=" +
-          surface.reporting.reportPresent +
+          ", Report constructor hidden=" +
+          !surface.reporting.reportPresent +
           "; endpoint delivery is controlled by pinned prefs",
       };
 

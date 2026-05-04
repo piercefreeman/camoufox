@@ -117,6 +117,7 @@ export class TargetRegistry {
     this._userContextIdToBrowserContext = new Map();
     this._browserToTarget = new Map();
     this._browserIdToTarget = new Map();
+    this._pendingActorsByBrowserId = new Map();
 
     this._proxiesWithClashingAuthCacheKeys = new Set();
     this._browserProxy = null;
@@ -195,7 +196,13 @@ export class TargetRegistry {
       //
       // In this case, we want to keep this callback synchronous so that we will call
       // `onTabOpenListener` synchronously and before the sync IPc message `juggler:content-ready`.
-      if (domWindow.document.readyState === 'uninitialized' || domWindow.document.readyState === 'loading') {
+      if (
+        domWindow.document.readyState === 'uninitialized' ||
+        domWindow.document.readyState === 'loading' ||
+        (!domWindow.gBrowser && domWindow.location?.href === 'about:blank')
+      ) {
+        // Firefox 150 can notify onOpenWindow while the initial about:blank
+        // chrome shell is complete but before browser.xhtml initializes gBrowser.
         // For non-initialized windows, DOMContentLoaded initializes gBrowser
         // and starts tab loading (see //browser/base/content/browser.js), so we
         // are guaranteed to call `onTabOpenListener` before the sync IPC message
@@ -383,6 +390,35 @@ export class TargetRegistry {
   targetForBrowserId(browserId) {
     return this._browserIdToTarget.get(browserId);
   }
+
+  registerPendingActor(actor) {
+    const browserId = actor.browsingContext?.browserId;
+    if (!browserId)
+      return;
+    const target = this._browserIdToTarget.get(browserId);
+    if (target) {
+      actor.bindToTarget(target);
+      return;
+    }
+    this._pendingActorsByBrowserId.set(browserId, actor);
+  }
+
+  unregisterPendingActor(actor) {
+    const browserId = actor.browsingContext?.browserId;
+    if (!browserId)
+      return;
+    if (this._pendingActorsByBrowserId.get(browserId) === actor)
+      this._pendingActorsByBrowserId.delete(browserId);
+  }
+
+  _bindPendingActor(target) {
+    const browserId = target.linkedBrowser().browsingContext.browserId;
+    const actor = this._pendingActorsByBrowserId.get(browserId);
+    if (!actor)
+      return;
+    this._pendingActorsByBrowserId.delete(browserId);
+    actor.bindToTarget(target);
+  }
 }
 
 export class PageTarget {
@@ -431,6 +467,7 @@ export class PageTarget {
     browserContext.pages.add(this);
     this._registry._browserToTarget.set(this._linkedBrowser, this);
     this._registry._browserIdToTarget.set(this._linkedBrowser.browsingContext.browserId, this);
+    this._registry._bindPendingActor(this);
 
     this._registry.emit(TargetRegistry.Events.TargetCreated, this);
   }

@@ -71,7 +71,7 @@ Patch groups that must be verified for source drift:
 - [ ] Locale/timezone/geolocation: `locale-spoofing.patch`, `timezone-spoofing.patch`, `geolocation-spoofing.patch`
 - [ ] Media devices/speech/WebRTC: `media-device-spoofing.patch`, `speech-voices-spoofing.patch`, `voice-spoofing.patch`, `webrtc-ip-spoofing.patch`
 - [ ] Network and data exfil controls: `network-patches.patch`, LibreWolf network/privacy patches
-- [ ] Playwright/Juggler integration: `patches/playwright/*.patch`, `additions/juggler/**`
+- [x] Playwright/Juggler integration: `patches/playwright/*.patch`, `additions/juggler/**`
 - [ ] macOS and Windows platform patches
 
 Firefox 150 patch-application baseline:
@@ -101,6 +101,10 @@ Firefox 150 patch-application baseline:
 - [x] Restored generated-tree files from `/Volumes/CamoufoxBuild/camoufox-patch-verify-150-reporting-policy` after local test preparation clobbered patched Juggler files; rebuilt successfully against the SSD objdir with 155 compiler warnings present.
 - [x] Post-restore smoke passed via generated-tree `./mach run --version`, reporting `Camoufox Camoufox 150.0.1-beta.25`.
 - [x] Compile-backed verifier was attempted using `/Volumes/CamoufoxBuild/camoufox-150.0.1-beta.25-obj/clangd/compile_commands.json`; patch application passed, but all 82 selected syntax targets were skipped because no cached compile command matched those files. Treat the successful full build as the authoritative compile validation for this phase.
+- [x] Fixed Firefox 150 Playwright/Juggler `Browser.newPage` handshake: `onOpenWindow` can now arrive while the chrome shell is still initial `about:blank` with `readyState=complete` and no `gBrowser`; `TargetRegistry` waits for the real browser chrome `DOMContentLoaded` before registering tabs.
+- [x] Incremental `CAMOUFOX_FIREFOX_VERSION=150.0.1 make build` passed after the Juggler handshake fix with `0 compiler warnings present`.
+- [x] Build-tester one-profile smoke passed after the Juggler handshake fix and Reporting API assertion correction: `134/134`, grade `A`.
+- [x] Build-tester full 8-profile per-context suite passed after the Juggler handshake fix: `1072/1072`, grade `A`, including the 5-second cross-contamination recheck.
 - [ ] Inspect non-blocking `/usr/bin/patch` warnings from `fingerprint-injection.patch` and `patches/librewolf/mozilla_dirs.patch`: both patches applied with no rejects, but emitted `No such line ... ignoring`.
 
 Post-build Firefox 150 compatibility fixes now tracked in patches:
@@ -112,6 +116,7 @@ Post-build Firefox 150 compatibility fixes now tracked in patches:
 - [x] `patches/playwright/0-playwright.patch`: migrated forced-offline lookup from `GetWorkerAssociatedBrowsingContext()` to Firefox 150 `GetAssociatedBrowsingContext()`.
 - [x] `patches/playwright/0-playwright.patch`: updated `JugglerSendMouseEvent` pressure assignment to construct Firefox 150's optional pressure field.
 - [x] `patches/playwright/0-playwright.patch`: restored and adapted `nsDOMWindowUtils::SendTouchEvent*` implementations for the Playwright IDL declarations, using Firefox 150 widget dispatch return types.
+- [x] `additions/juggler/TargetRegistry.js`: waits for browser chrome `DOMContentLoaded` when Firefox 150 reports an initial complete `about:blank` chrome shell with no `gBrowser`, preventing `Browser.newPage` from waiting forever for an unregistered target.
 - [x] `patches/zz-reporting-policy.patch`: makes `Reporting-Endpoints` processing honor `dom.reporting.header.enabled`, so the Reporting API can remain exposed while report-endpoint delivery is policy-disabled.
 
 `patches/playwright/0-playwright.patch` rejects against Firefox 150.0.1:
@@ -492,7 +497,7 @@ Patch/config TODO:
 
 Test TODO:
 
-- [x] Add `ReportingObserver` absence/presence test.
+- [x] Add `ReportingObserver` presence test and verify Firefox's `Report` interface remains hidden as `LegacyNoInterfaceObject`.
 - [ ] Add CSP report endpoint network-block test.
 
 ## Phase 11: Navigator ModelContext and Local AI Surfaces
@@ -582,6 +587,7 @@ TODO:
 - [ ] Add `location.ancestorOrigins` iframe collector.
 - [x] Add HDR/color media-query collector.
 - [x] Add Reporting API absence/presence collector.
+- [x] Align Reporting API assertion with Firefox 150 WebIDL: require `ReportingObserver` and expect no global `Report` constructor.
 - [x] Add Digital Credentials/WebAuthn absence/presence collector.
 - [x] Add ModelContext absence collector.
 - [ ] Add pref assertions for new hard-disable prefs where tests can read packaged config.
@@ -623,7 +629,8 @@ TODO:
 - [x] Package smoke test via generated-tree `./mach run --version`.
 - [x] Patch verifier passed all 51 patches after Reporting policy patch.
 - [x] Incremental build and generated-tree `./mach run --version` passed after `patches/zz-reporting-policy.patch`.
-- [ ] Build tester suite: one-profile smoke currently blocks at Playwright/Juggler launch before page navigation; this is separate from the new Firefox 150 JS collectors and needs Juggler launch debugging.
+- [x] Build tester one-profile smoke no longer blocks at Playwright/Juggler page creation and passes `134/134`.
+- [x] Build tester full 8-profile suite passes `1072/1072`.
 - [ ] `make lint`
 - [ ] Python fingerprint pipeline tests.
 - [ ] Build tester suite.
