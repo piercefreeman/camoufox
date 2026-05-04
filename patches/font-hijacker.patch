@@ -121,8 +121,8 @@ diff --git a/layout/style/FontFaceImpl.h b/layout/style/FontFaceImpl.h
 index 70c06609e9..66b2666621 100644
 --- a/layout/style/FontFaceImpl.h
 +++ b/layout/style/FontFaceImpl.h
-@@ -13,6 +13,7 @@
- #include "mozilla/ServoStyleConsts.h"
+@@ -10,6 +10,7 @@
+ #include "mozilla/RWLock.h"
  #include "mozilla/dom/FontFaceBinding.h"
 +#include "MaskConfig.hpp"
  #include "nsTHashSet.h"
