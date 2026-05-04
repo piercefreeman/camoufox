@@ -241,7 +241,6 @@ class FirefoxFingerprintCompiler:
     ) -> str:
         values = {
             "audioFingerprintSeed": config.audio.seed if config.audio else None,
-            "canvasSeed": config.canvas.seed if config.canvas else None,
             "fontList": config.fonts.families if config.fonts else None,
             "fontSpacingSeed": config.fonts.spacing_seed if config.fonts else None,
             "hardwareConcurrency": (
@@ -262,7 +261,6 @@ class FirefoxFingerprintCompiler:
         for key, setter in (
             ("fontSpacingSeed", "setFontSpacingSeed"),
             ("audioFingerprintSeed", "setAudioFingerprintSeed"),
-            ("canvasSeed", "setCanvasSeed"),
             ("navigatorPlatform", "setNavigatorPlatform"),
             ("navigatorOscpu", "setNavigatorOscpu"),
             ("hardwareConcurrency", "setNavigatorHardwareConcurrency"),
@@ -314,7 +312,6 @@ class FirefoxFingerprintCompiler:
         for setter in (
             "setFontSpacingSeed",
             "setAudioFingerprintSeed",
-            "setCanvasSeed",
             "setTimezone",
             "setScreenDimensions",
             "setScreenColorDepth",

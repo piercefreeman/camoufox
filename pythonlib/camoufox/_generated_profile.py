@@ -135,15 +135,6 @@ class AudioProfile(BaseModel):
     seed: int | None = Field(None, ge=0)
 
 
-class CanvasProfile(BaseModel):
-    model_config = ConfigDict(
-        extra='forbid',
-    )
-    seed: int | None = Field(None, ge=0)
-    aa_offset: int | None = Field(None, alias='aaOffset')
-    aa_cap_offset: bool | None = Field(None, alias='aaCapOffset')
-
-
 class GeolocationProfile(BaseModel):
     model_config = ConfigDict(
         extra='forbid',
@@ -253,7 +244,6 @@ class CamoufoxProfile(BaseModel):
     battery: BatteryProfile | None = None
     fonts: FontsProfile | None = None
     audio: AudioProfile | None = None
-    canvas: CanvasProfile | None = None
     geolocation: GeolocationProfile | None = None
     timezone: str | None = None
     locale: LocaleProfile | None = None

@@ -22,7 +22,6 @@
 #include "BatteryProfile.h"
 #include "FontsProfile.h"
 #include "AudioProfile.h"
-#include "CanvasProfile.h"
 #include "GeolocationProfile.h"
 #include "LocaleProfile.h"
 #include "HumanizeProfile.h"
@@ -111,13 +110,6 @@ class CamoufoxProfile {
         return false;
       }
       m_audio = value;
-    }
-    if (json.contains("canvas") && !json.at("canvas").is_null()) {
-      CanvasProfile value;
-      if (!value.fromJson(json.at("canvas"))) {
-        return false;
-      }
-      m_canvas = value;
     }
     if (json.contains("geolocation") && !json.at("geolocation").is_null()) {
       GeolocationProfile value;
@@ -254,9 +246,6 @@ class CamoufoxProfile {
     if (m_audio.has_value()) {
       json["audio"] = m_audio->toJson();
     }
-    if (m_canvas.has_value()) {
-      json["canvas"] = m_canvas->toJson();
-    }
     if (m_geolocation.has_value()) {
       json["geolocation"] = m_geolocation->toJson();
     }
@@ -388,14 +377,6 @@ class CamoufoxProfile {
   }
   void setAudio(const AudioProfile& value) {
     m_audio = value;
-  }
-
-  bool canvasIsSet() const { return m_canvas.has_value(); }
-  std::optional<CanvasProfile> getCanvas() const {
-    return m_canvas;
-  }
-  void setCanvas(const CanvasProfile& value) {
-    m_canvas = value;
   }
 
   bool geolocationIsSet() const { return m_geolocation.has_value(); }
@@ -538,7 +519,6 @@ class CamoufoxProfile {
   std::optional<BatteryProfile> m_battery;
   std::optional<FontsProfile> m_fonts;
   std::optional<AudioProfile> m_audio;
-  std::optional<CanvasProfile> m_canvas;
   std::optional<GeolocationProfile> m_geolocation;
   std::optional<std::string> m_timezone;
   std::optional<LocaleProfile> m_locale;

@@ -381,7 +381,7 @@ def test_from_browserforge_compiles_host_compatible_config(
     assert config.voices.items == ["Alex", "Samantha", "Moira (Enhanced)", "Karen (Premium)"]
     assert isinstance(config.fonts.spacing_seed, int)
     assert isinstance(config.audio.seed, int)
-    assert isinstance(config.canvas.seed, int)
+    assert not hasattr(config, "canvas")
 
 
 def test_macos_font_probe_uses_defaults_and_samples_local_extras(
@@ -467,7 +467,7 @@ def test_from_preset_keeps_explicit_preset_path_host_safe(modules: tuple[Any, An
     assert config.voices.items == ["Alex", "Samantha", "Moira (Enhanced)", "Karen (Premium)"]
 
 
-def test_generate_context_fingerprint_strips_webgl_but_keeps_seeds(
+def test_generate_context_fingerprint_strips_webgl_but_keeps_native_canvas(
     modules: tuple[Any, Any, Any],
 ) -> None:
     _, fingerprints, _ = modules
@@ -495,11 +495,11 @@ def test_generate_context_fingerprint_strips_webgl_but_keeps_seeds(
     assert "webGl2" not in payload
     assert isinstance(config.fonts.spacing_seed, int)
     assert isinstance(config.audio.seed, int)
-    assert isinstance(config.canvas.seed, int)
+    assert not hasattr(config, "canvas")
     assert 'if (typeof w.setWebGLVendor === "function") w.setWebGLVendor' not in init_script
     assert 'if (typeof w.setWebGLRenderer === "function") w.setWebGLRenderer' not in init_script
     assert 'if (typeof w.setAudioFingerprintSeed === "function")' in init_script
-    assert 'if (typeof w.setCanvasSeed === "function")' in init_script
+    assert "setCanvasSeed" not in init_script
     assert 'if (typeof w.setFontSpacingSeed === "function")' in init_script
 
 

@@ -21,7 +21,6 @@ from ua_parser import user_agent_parser
 from ._generated_profile import (
     AudioProfile,
     CamoufoxProfile,
-    CanvasProfile,
     FontsProfile,
     GeolocationProfile,
     HistoryProfile,
@@ -478,10 +477,6 @@ class LaunchOptionBuilder:
         config.audio = config.audio or AudioProfile()
         if config.audio.seed is None:
             config.audio.seed = randint(1, 4_294_967_295)  # nosec
-
-        config.canvas = config.canvas or CanvasProfile()
-        if config.canvas.seed is None:
-            config.canvas.seed = randint(1, 4_294_967_295)  # nosec
 
     def _apply_geoip(self) -> None:
         config = self._profile()

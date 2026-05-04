@@ -15,7 +15,6 @@ from typing_extensions import Self
 from .._generated_profile import (
     AudioProfile,
     CamoufoxProfile,
-    CanvasProfile,
     FontsProfile,
     SpeechVoice,
     VoicesProfile,
@@ -328,13 +327,10 @@ def match_installed_voices(voices: list[Voice], discovered_voices: Sequence[Voic
 def _merge_seed_values(config: CamoufoxProfile) -> None:
     config.fonts = config.fonts or FontsProfile()
     config.audio = config.audio or AudioProfile()
-    config.canvas = config.canvas or CanvasProfile()
     if config.fonts.spacing_seed is None:
         config.fonts.spacing_seed = randint(1, 4_294_967_295)  # nosec
     if config.audio.seed is None:
         config.audio.seed = randint(1, 4_294_967_295)  # nosec
-    if config.canvas.seed is None:
-        config.canvas.seed = randint(1, 4_294_967_295)  # nosec
 
 
 def _merge_host_inventories(config: CamoufoxProfile, host: HostFingerprintAdapter) -> None:

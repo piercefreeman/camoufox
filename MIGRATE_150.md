@@ -65,9 +65,9 @@ Patch groups that must be verified for source drift:
 - [ ] Runtime profile/config infrastructure: `config.patch`, `fingerprint-injection.patch`, `cross-process-storage.patch`, `browser-init.patch`, `chromeutil.patch`
 - [ ] Navigator identity: `navigator-spoofing.patch`
 - [ ] Screen/window/document geometry: `screen-spoofing.patch`
-- [ ] Canvas/audio entropy: `canvas-spoofing.patch`, `audio-context-spoofing.patch`, `audio-fingerprint-manager.patch`
+- [ ] Audio entropy: `audio-context-spoofing.patch`, `audio-fingerprint-manager.patch`
 - [x] WebGL identity: remove synthetic `webgl-spoofing.patch`; native host GPU/browser stack is the truth source
-- [x] Canvas readout personality: keep native rendering/GPU behavior, then apply deterministic seed-based 2D readout perturbation in `canvas-spoofing.patch` so contexts are stable over time without claiming impossible hardware.
+- [x] Canvas readout personality: keep native rendering/GPU behavior and do not apply synthetic RGB perturbation by default.
 - [ ] Fonts: `font-list-spoofing.patch`, `anti-font-fingerprinting.patch`, `font-hijacker.patch`
 - [ ] Locale/timezone/geolocation: `locale-spoofing.patch`, `timezone-spoofing.patch`, `geolocation-spoofing.patch`
 - [ ] Media devices/speech/WebRTC: `media-device-spoofing.patch`, `speech-voices-spoofing.patch`, `voice-spoofing.patch`, `webrtc-ip-spoofing.patch`
@@ -219,7 +219,7 @@ Risk: high for cross-signal consistency, not automatically high because it expos
 Policy rationale:
 
 - [x] Prefer truthful hardware-class similarity over unverifiable precision. A Mac M1/M2 cohort is large enough that native WebGL/WebGPU facts are not individually identifying by themselves, while a false GPU claim can be disproven through limits, extensions, shader precision, pixels, timing, and WebGPU behavior.
-- [x] Use seeds for context personality only on surfaces that remain coherent with the host: canvas/audio/font perturbation, font and voice subsets from real inventory, screen/window choices within real constraints, locale/timezone/proxy alignment, and similar host-compatible values.
+- [x] Use seeds for context personality only on surfaces that remain coherent with the host: audio/font perturbation, font and voice subsets from real inventory, screen/window choices within real constraints, locale/timezone/proxy alignment, and similar host-compatible values.
 - [x] Do not expose synthetic GPU profile fields in the runtime schema.
 
 Policy:
@@ -611,7 +611,6 @@ TODO:
 - [x] Ensure generated UA, `navigator.appVersion`, `oscpu`, platform, language, Accept-Language, native WebGL, screen, and media values remain coherent for Firefox 150.
 - [ ] Add generated defaults for any new schema fields.
 - [ ] Ensure random seeds are generated only for fields designed to be seed-derived:
-  - canvas noise
   - audio noise
   - font spacing
   - media capture track IDs if implemented as seed-derived

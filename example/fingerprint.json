@@ -89,11 +89,6 @@
   "audio": {
     "seed": 234567
   },
-  "canvas": {
-    "seed": 345678,
-    "aaOffset": 1,
-    "aaCapOffset": true
-  },
   "geolocation": {
     "latitude": 37.7749,
     "longitude": -122.4194,

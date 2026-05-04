@@ -45,7 +45,6 @@ def convert_preset(ctx: dict[str, Any]) -> dict[str, Any]:
     screen = getattr(config, "screen", None)
     fonts = getattr(config, "fonts", None)
     audio = getattr(config, "audio", None)
-    canvas = getattr(config, "canvas", None)
     voices = getattr(config, "voices", None)
 
     return {
@@ -61,7 +60,6 @@ def convert_preset(ctx: dict[str, Any]) -> dict[str, Any]:
         "profileConfig": {
             "fontSpacingSeed": getattr(fonts, "spacing_seed", None) or 0,
             "audioSeed": getattr(audio, "seed", None) or 0,
-            "canvasSeed": getattr(canvas, "seed", None) or 0,
             "screenWidth": getattr(screen, "width", None) or 1920,
             "screenHeight": getattr(screen, "height", None) or 1080,
             "screenColorDepth": getattr(screen, "color_depth", None) or 24,

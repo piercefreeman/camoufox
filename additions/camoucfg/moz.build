@@ -22,7 +22,6 @@ UNIFIED_SOURCES += [
     "generated/profile/camoucfg/AudioProfile.cpp",
     "generated/profile/camoucfg/BatteryProfile.cpp",
     "generated/profile/camoucfg/CamoufoxProfile.cpp",
-    "generated/profile/camoucfg/CanvasProfile.cpp",
     "generated/profile/camoucfg/DocumentBodyProfile.cpp",
     "generated/profile/camoucfg/DocumentProfile.cpp",
     "generated/profile/camoucfg/FontsProfile.cpp",

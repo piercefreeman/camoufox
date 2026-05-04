@@ -30,8 +30,6 @@ components:
           $ref: "#/components/schemas/FontsProfile"
         audio:
           $ref: "#/components/schemas/AudioProfile"
-        canvas:
-          $ref: "#/components/schemas/CanvasProfile"
         geolocation:
           $ref: "#/components/schemas/GeolocationProfile"
         timezone:
@@ -280,18 +278,6 @@ components:
         seed:
           type: integer
           minimum: 0
-
-    CanvasProfile:
-      type: object
-      additionalProperties: false
-      properties:
-        seed:
-          type: integer
-          minimum: 0
-        aaOffset:
-          type: integer
-        aaCapOffset:
-          type: boolean
 
     GeolocationProfile:
       type: object

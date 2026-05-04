@@ -148,7 +148,6 @@ export interface ProfileConfig {
   colorDepth: number;
   timezone: string;
   audioSeed: number;
-  canvasSeed: number;
   fontSpacingSeed: number;
   fontList: string[];
   speechVoices?: string[];
