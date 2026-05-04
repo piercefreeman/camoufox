@@ -405,6 +405,7 @@ Policy:
 
 - [x] Do not disable HDR/color-space behavior solely for entropy; prefer explicit profile values and native passthrough fallback.
 - [x] Use profile values for display media-query surfaces when supplied.
+- [x] Do not force color-management, theme, system-color, or software-WebGL prefs for screenshot reproducibility; those alter CSS/canvas/image output away from native Firefox/host behavior.
 - [ ] Decide separately whether HDR video rendering and color-input UI need profile controls.
 
 Standards-compliant target:
@@ -426,6 +427,12 @@ Patch/config TODO:
 - [x] Audit CSS media query code paths for color and dynamic range.
 - [x] Patch `color-gamut`, CSS `color` depth, `dynamic-range`, and `video-dynamic-range` to honor profile values when present.
 - [x] Regenerate OpenAPI Python/C++ models and update the Python fingerprint compiler to carry display fields from presets/mappings.
+- [x] Remove non-vanilla rendering defaults from `settings/camoufox.cfg`:
+  - forced compact dark theme / `ui.systemUsesDarkTheme`
+  - `gfx.color_management.mode=0`
+  - `gfx.color_management.rendering_intent=3`
+  - `ui.use_standins_for_native_colors=true`
+  - `webgl.forbid-software=false`
 - [ ] Audit HTML color input behavior when `dom.forms.colorspace.enabled` is true.
 - [ ] Audit canvas/video color management paths for host display influence.
 
