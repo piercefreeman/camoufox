@@ -65,8 +65,9 @@ Patch groups that must be verified for source drift:
 - [ ] Runtime profile/config infrastructure: `config.patch`, `fingerprint-injection.patch`, `cross-process-storage.patch`, `browser-init.patch`, `chromeutil.patch`
 - [ ] Navigator identity: `navigator-spoofing.patch`
 - [ ] Screen/window/document geometry: `screen-spoofing.patch`
-- [ ] Canvas/audio entropy: `audio-context-spoofing.patch`, `audio-fingerprint-manager.patch`
+- [ ] Canvas/audio entropy: `canvas-spoofing.patch`, `audio-context-spoofing.patch`, `audio-fingerprint-manager.patch`
 - [x] WebGL identity: remove synthetic `webgl-spoofing.patch`; native host GPU/browser stack is the truth source
+- [x] Canvas readout personality: keep native rendering/GPU behavior, then apply deterministic seed-based 2D readout perturbation in `canvas-spoofing.patch` so contexts are stable over time without claiming impossible hardware.
 - [ ] Fonts: `font-list-spoofing.patch`, `anti-font-fingerprinting.patch`, `font-hijacker.patch`
 - [ ] Locale/timezone/geolocation: `locale-spoofing.patch`, `timezone-spoofing.patch`, `geolocation-spoofing.patch`
 - [ ] Media devices/speech/WebRTC: `media-device-spoofing.patch`, `speech-voices-spoofing.patch`, `voice-spoofing.patch`, `webrtc-ip-spoofing.patch`

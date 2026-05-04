@@ -403,17 +403,19 @@ Note: `GL_VENDOR` and `GL_RENDERER` (without the debug extension) already return
 
 ### 8. canvas-spoofing.patch
 
-**Controls:** Canvas 2D fingerprint hash — websites draw text, shapes, and gradients on a canvas, then call `toDataURL()` or `getImageData()` to hash the pixel output. GPU, driver, and font rendering differences make this hash highly unique.
+**Controls:** Canvas 2D readout fingerprint hash — websites draw text, shapes, and gradients on a canvas, then call `toDataURL()`, `toBlob()`, or `getImageData()` to hash the copied pixel output. GPU, driver, and font rendering differences make this hash highly unique.
 
 **How it works:** Stores a seed per context via `CanvasFingerprintManager`, then hooks both canvas data extraction paths in `CanvasRenderingContext2D.cpp`:
 - `GetImageBuffer()` — used by `toDataURL()` and `toBlob()`, returns pixels in **BGRA** format
 - `GetImageData()` — used by `ctx.getImageData()`, returns pixels in **RGBA** format
 
-The noise algorithm is **format-agnostic**: for each selected pixel, it iterates RGB channels (skipping alpha) and modifies the first non-zero channel by +/-1. This works correctly regardless of whether byte 0 is Red (RGBA) or Blue (BGRA).
+The noise algorithm is **format-agnostic**: for each selected pixel, it iterates RGB channels (skipping alpha) and applies a deterministic -1/0/+1 adjustment to non-bound color channels. This works correctly regardless of whether byte 0 is Red (RGBA) or Blue (BGRA), because alpha remains byte 3 in both readout buffers.
 
-**Zero-pixel preservation:** Channels with value 0 are skipped. This means `clearRect()` followed by `getImageData()` returns all zeros — no false noise on transparent pixels. This is important because CreepJS specifically tests for noise in cleared canvas regions as a detection vector.
+**Bound preservation:** Transparent pixels and channels with value 0 or 255 are skipped. This means `clearRect()` followed by `getImageData()` returns all zeros and hard-clipped solid colors do not gain impossible underflow/overflow artifacts.
 
 **Noise is deterministic, not random:** Same seed always produces the same pixel modifications, so fingerprinters calling `toDataURL()` multiple times get identical results. This is critical — random noise is trivially detected by calling the API twice and comparing outputs.
+
+**Hardware boundary:** The patch does not alter canvas drawing, GPU backend selection, WebGL/WebGPU limits, shader precision, supported extensions, or timing. It only perturbs copied 2D readout bytes after Firefox has rendered through the native host stack.
 
 **Worker support:** Includes a `WorkerPrivate` fallback for resolving `userContextId` when canvas operations happen in a Web Worker via OffscreenCanvas.
 
