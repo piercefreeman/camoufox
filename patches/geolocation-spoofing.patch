@@ -95,7 +95,7 @@ diff --git a/dom/system/NetworkGeolocationProvider.sys.mjs b/dom/system/NetworkG
 index 7edc62b4a6..19b77aa6b6 100644
 --- a/dom/system/NetworkGeolocationProvider.sys.mjs
 +++ b/dom/system/NetworkGeolocationProvider.sys.mjs
-@@ -356,19 +356,65 @@ NetworkGeolocationProvider.prototype = {
+@@ -356,18 +356,64 @@ NetworkGeolocationProvider.prototype = {
     } else {
       Glean.geolocation.geolocationService.network_ip.add();
     }
@@ -142,7 +142,7 @@ index 7edc62b4a6..19b77aa6b6 100644
 +          let latPrecision = countDecimalPlaces(latitude);
 +          let lonPrecision = countDecimalPlaces(longitude);
 +          let precision = Math.min(latPrecision, lonPrecision);
- 
++
 +          // Estimate accuracy in meters.
 +          accuracy =
 +            (111320 * Math.cos((latitude * Math.PI) / 180)) /
@@ -166,6 +166,6 @@ index 7edc62b4a6..19b77aa6b6 100644
 +          accuracy || result.accuracy
 +        );
 +      }
-+
+ 
       if (this.listener) {
         this.listener.update(newLocation);

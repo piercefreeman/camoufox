@@ -235,7 +235,7 @@ index xxxxxxxxxx..yyyyyyyyyy 100644
  #include "mozilla/gfx/2D.h"
  #include "mozilla/ipc/FileDescriptorUtils.h"
  #include "mozilla/TextUtils.h"
-@@ -1632,6 +1633,16 @@
+@@ -1632,6 +1633,18 @@
    nsAutoCString key;
    GenerateFontListKey(aFamily, key);
  

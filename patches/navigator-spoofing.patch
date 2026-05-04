@@ -479,7 +479,7 @@ diff --git a/dom/webidl/Window.webidl b/dom/webidl/Window.webidl
 index 6a0570cdf7..cf69daa15d 100644
 --- a/dom/webidl/Window.webidl
 +++ b/dom/webidl/Window.webidl
-@@ -900,6 +900,30 @@ partial interface Window {
+@@ -900,7 +900,31 @@ partial interface Window {
    undefined setScrollMarks(sequence<unsigned long> marks,
                             optional boolean onHorizontalScrollbar = false);
  };
