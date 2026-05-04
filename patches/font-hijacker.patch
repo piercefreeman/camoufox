@@ -64,11 +64,12 @@ index f1a90334ea..47d3a881ac 100644
  
  Promise* FontFace::Load(ErrorResult& aRv) {
    EnsurePromise();
-@@ -247,7 +256,17 @@ Promise* FontFace::Load(ErrorResult& aRv) {
+@@ -247,8 +256,17 @@ Promise* FontFace::Load(ErrorResult& aRv) {
      return nullptr;
    }
  
 -  mImpl->Load(aRv);
+-  mImpl->UpdateOwnerKeepAlive();
 +  nsAutoCString fontFamily;
 +  GetFamily(fontFamily);
 +
@@ -156,7 +157,7 @@ diff --git a/layout/style/moz.build b/layout/style/moz.build
 index a14ab6a7ac..6e6a727abf 100644
 --- a/layout/style/moz.build
 +++ b/layout/style/moz.build
-@@ -378,4 +378,7 @@
+@@ -367,4 +367,7 @@ if CONFIG["COMPILE_ENVIRONMENT"]:
      CbindgenHeader(
          "ServoStyleConsts.h",
          inputs=["/servo/ports/geckolib", "/servo/components/style"],

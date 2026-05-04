@@ -254,17 +254,16 @@ diff --git a/dom/base/nsGlobalWindowInner.h b/dom/base/nsGlobalWindowInner.h
 index 3183172d29..d4e5f6a7b8 100644
 --- a/dom/base/nsGlobalWindowInner.h
 +++ b/dom/base/nsGlobalWindowInner.h
-@@ -750,6 +750,10 @@ class nsGlobalWindowInner final : public mozilla::dom::EventTarget,
+@@ -676,5 +676,9 @@ class nsGlobalWindowInner final : public mozilla::dom::EventTarget,
  
-   Worklet* GetPaintWorklet(mozilla::ErrorResult& aRv);
+   mozilla::dom::Worklet* GetPaintWorklet(mozilla::ErrorResult& aRv);
  
 +  // Screen dimension methods for per-context screen spoofing
 +  void SetScreenDimensions(int32_t aWidth, int32_t aHeight, mozilla::ErrorResult& aRv);
 +  void SetScreenColorDepth(int32_t aColorDepth, mozilla::ErrorResult& aRv);
 +
-   void GetRegionalPrefsLocales(nsTArray<nsString>& aLocales);
- 
-   void GetWebExposedLocales(nsTArray<nsString>& aLocales);
+   // Audio fingerprint seed for per-context audio fingerprinting
+   void SetAudioFingerprintSeed(uint32_t seed, mozilla::ErrorResult& aRv);
 
 diff --git a/dom/webidl/Window.webidl b/dom/webidl/Window.webidl
 index a6f0d96a36..b1c2d3e4f5 100644
@@ -296,12 +295,11 @@ diff --git a/dom/base/nsScreen.cpp b/dom/base/nsScreen.cpp
 index 7f7728a6cc..a1b2c3d4e5 100644
 --- a/dom/base/nsScreen.cpp
 +++ b/dom/base/nsScreen.cpp
-@@ -14,6 +14,7 @@
+@@ -14,5 +14,6 @@
  #include "mozilla/dom/DocumentInlines.h"
  #include "mozilla/widget/ScreenManager.h"
  #include "nsCOMPtr.h"
 +#include "ScreenDimensionManager.h"
- #include "nsContentUtils.h"
  #include "nsDeviceContext.h"
  #include "nsGlobalWindowInner.h"
 @@ -67,6 +68,28 @@ nsDeviceContext* nsScreen::GetDeviceContext() const {
@@ -416,18 +414,10 @@ index f83e2c21ca..5362dd77d4 100644
  #include "nsIBaseWindow.h"
  #include "nsIDocShell.h"
  #include "nsIPrintSettings.h"
-@@ -66,14 +68,18 @@ static nsSize GetDeviceSize(const Document& aDocument) {
+@@ -66,6 +68,18 @@ static nsSize GetDeviceSize(const Document& aDocument) {
      return GetSize(aDocument);
    }
  
--  // Media queries in documents in an RDM pane should use the simulated
--  // device size.
--  Maybe<CSSIntSize> deviceSize =
--      nsGlobalWindowOuter::GetRDMDeviceSize(aDocument);
--  if (deviceSize.isSome()) {
--    return CSSPixel::ToAppUnits(deviceSize.value());
--  }
--
 +  // Camoufox: per-context screen dimensions for CSS device-width/height queries
 +  if (nsPIDOMWindowInner* inner = aDocument.GetInnerWindow()) {
 +    nsGlobalWindowInner* win = nsGlobalWindowInner::Cast(inner);
@@ -440,6 +430,6 @@ index f83e2c21ca..5362dd77d4 100644
 +    }
 +  }
 +
-   nsPresContext* pc = aDocument.GetPresContext();
-   // NOTE(emilio): We should probably figure out how to return an appropriate
-   // device size here, though in a multi-screen world that makes no sense
+   // Media queries in documents in an RDM pane should use the simulated
+   // device size.
+   Maybe<CSSIntSize> deviceSize =

@@ -684,14 +684,6 @@ index 6f02e3a566..ca3b60d550 100644
  #include "gfxTextRun.h"
  #include "nsGkAtoms.h"
  
-@@ -47,6 +48,7 @@
- #include "gfxSVGGlyphs.h"
- #include "gfx2DGlue.h"
- #include "TextDrawTarget.h"
-+#include "mozilla/dom/FontSpacingSeedManager.h"
- 
- #include "ThebesRLBox.h"
- 
 @@ -3284,7 +3286,7 @@ bool gfxFont::ProcessShapedWordInternal(
      Script aRunScript, nsAtom* aLanguage, bool aVertical,
      int32_t aAppUnitsPerDevUnit, gfx::ShapedTextFlags aFlags,
@@ -1360,24 +1352,6 @@ index 58f9670e7f..577fd833ce 100644
  #include "mozilla/gfx/2D.h"
  #include "mozilla/intl/UnicodeScriptCodes.h"
  #include "nsCOMPtr.h"
-@@ -360,7 +362,7 @@ already_AddRefed<gfxTextRun> nsPropertiesTable::MakeTextRun(
-                "nsPropertiesTable can only access glyphs by code point");
-   return aFontGroup->MakeTextRun(aGlyph.code, aGlyph.Length(), aDrawTarget,
-                                  aAppUnitsPerDevPixel, mFlags,
--                                 nsTextFrameUtils::Flags(), nullptr);
-+                                 nsTextFrameUtils::Flags(), nullptr, 0); // TODO: Extract private browsing ID
- }
- 
- // An instance of nsOpenTypeTable is associated with one gfxFontEntry that
-@@ -431,7 +433,7 @@ void nsOpenTypeTable::UpdateCache(DrawTarget* aDrawTarget,
-   if (mCharCache != aChar) {
-     RefPtr<gfxTextRun> textRun =
-         aFontGroup->MakeTextRun(&aChar, 1, aDrawTarget, aAppUnitsPerDevPixel,
--                                mFlags, nsTextFrameUtils::Flags(), nullptr);
-+                                mFlags, nsTextFrameUtils::Flags(), nullptr, 0);
-     const gfxTextRun::CompressedGlyph& data = textRun->GetCharacterGlyphs()[0];
-     if (data.IsSimpleGlyph()) {
-       mGlyphID = data.GetSimpleGlyph();
 @@ -1396,10 +1398,19 @@ nsresult nsMathMLChar::StretchInternal(
      flags |= gfx::ShapedTextFlags::TEXT_IS_RTL;
    }
