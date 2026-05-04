@@ -44,10 +44,6 @@ components:
           type: boolean
         audioContext:
           $ref: "#/components/schemas/AudioContextProfile"
-        webGl:
-          $ref: "#/components/schemas/WebGlProfile"
-        webGl2:
-          $ref: "#/components/schemas/WebGlProfile"
         voices:
           $ref: "#/components/schemas/VoicesProfile"
         mediaDevices:
@@ -352,95 +348,6 @@ components:
         maxChannelCount:
           type: integer
           minimum: 0
-
-    WebGlProfile:
-      type: object
-      additionalProperties: false
-      properties:
-        renderer:
-          type: string
-        vendor:
-          type: string
-        supportedExtensions:
-          type: array
-          items:
-            type: string
-        parameters:
-          $ref: "#/components/schemas/WebGlParameters"
-        parametersBlockIfNotDefined:
-          type: boolean
-        shaderPrecisionFormats:
-          $ref: "#/components/schemas/WebGlShaderPrecisionFormats"
-        shaderPrecisionFormatsBlockIfNotDefined:
-          type: boolean
-        contextAttributes:
-          $ref: "#/components/schemas/WebGlContextAttributes"
-
-    WebGlContextAttributes:
-      type: object
-      additionalProperties: false
-      properties:
-        alpha:
-          type: boolean
-        antialias:
-          type: boolean
-        depth:
-          type: boolean
-        failIfMajorPerformanceCaveat:
-          type: boolean
-        powerPreference:
-          type: string
-          enum: [low, high, default]
-        premultipliedAlpha:
-          type: boolean
-        preserveDrawingBuffer:
-          type: boolean
-        stencil:
-          type: boolean
-
-    WebGlShaderPrecisionFormat:
-      type: object
-      additionalProperties: false
-      required:
-        - rangeMin
-        - rangeMax
-        - precision
-      properties:
-        rangeMin:
-          type: integer
-          minimum: 0
-        rangeMax:
-          type: integer
-          minimum: 0
-        precision:
-          type: integer
-          minimum: 0
-
-    WebGlShaderPrecisionFormats:
-      type: object
-      additionalProperties:
-        $ref: "#/components/schemas/WebGlShaderPrecisionFormat"
-
-    WebGlParameterValue:
-      oneOf:
-        - type: integer
-        - type: number
-        - type: boolean
-        - type: string
-        - type: "null"
-        - type: array
-          items:
-            oneOf:
-              - type: integer
-              - type: number
-              - type: boolean
-              - type: string
-              - type: "null"
-
-    WebGlParameters:
-      type: object
-      additionalProperties:
-        $ref: "#/components/schemas/WebGlParameterValue"
 
     VoicesProfile:
       type: object

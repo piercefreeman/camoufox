@@ -147,8 +147,6 @@ export interface ProfileConfig {
   screenHeight: number;
   colorDepth: number;
   timezone: string;
-  webglVendor: string;
-  webglRenderer: string;
   audioSeed: number;
   canvasSeed: number;
   fontSpacingSeed: number;

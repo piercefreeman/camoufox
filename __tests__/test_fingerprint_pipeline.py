@@ -420,6 +420,42 @@ def test_from_preset_keeps_explicit_preset_path_host_safe(modules: tuple[Any, An
     assert config.voices.items == ["Alex", "Samantha", "Moira (Enhanced)", "Karen (Premium)"]
 
 
+def test_generate_context_fingerprint_strips_webgl_but_keeps_seeds(
+    modules: tuple[Any, Any, Any],
+) -> None:
+    _, fingerprints, _ = modules
+    preset = {
+        "navigator": {
+            "platform": "MacIntel",
+            "userAgent": (
+                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:145.0) "
+                "Gecko/20100101 Firefox/145.0"
+            ),
+        },
+        "screen": {"width": 1720, "height": 1100},
+        "webGl": {"vendor": "Synthetic Vendor", "renderer": "Synthetic Renderer"},
+        "webGl2": {"vendor": "Synthetic Vendor", "renderer": "Synthetic Renderer"},
+    }
+
+    result = fingerprints.generate_context_fingerprint(preset=preset, ff_version="150")
+    config = result["config"]
+    init_script = result["init_script"]
+    payload = config.model_dump(by_alias=True, exclude_none=True, mode="json")
+
+    assert not hasattr(config, "web_gl")
+    assert not hasattr(config, "web_gl2")
+    assert "webGl" not in payload
+    assert "webGl2" not in payload
+    assert isinstance(config.fonts.spacing_seed, int)
+    assert isinstance(config.audio.seed, int)
+    assert isinstance(config.canvas.seed, int)
+    assert 'if (typeof w.setWebGLVendor === "function") w.setWebGLVendor' not in init_script
+    assert 'if (typeof w.setWebGLRenderer === "function") w.setWebGLRenderer' not in init_script
+    assert 'if (typeof w.setAudioFingerprintSeed === "function")' in init_script
+    assert 'if (typeof w.setCanvasSeed === "function")' in init_script
+    assert 'if (typeof w.setFontSpacingSeed === "function")' in init_script
+
+
 def test_generate_context_fingerprint_emits_debug_logs(
     modules: tuple[Any, Any, Any],
     fake_fingerprint: FakeFingerprint,
@@ -486,7 +522,7 @@ def test_launch_options_generates_full_config_payload(
     monkeypatch.setattr(utils, "generate_fingerprint", lambda **_: fake_fingerprint)
 
     options = utils.launch_options(
-        config={"webGl": {"vendor": "spoofed"}},
+        config=None,
         env={"TEST_ENV": "1"},
         headless=True,
         locale="en-US",
@@ -509,6 +545,22 @@ def test_launch_options_generates_full_config_payload(
     assert payload["voices"]["items"] == ["Alex", "Samantha", "Moira (Enhanced)", "Karen (Premium)"]
     assert "webGl" not in payload
     assert 1 <= payload["window"]["history"]["length"] <= 5
+
+
+def test_launch_options_rejects_webgl_profile_override(
+    modules: tuple[Any, Any, Any],
+    fake_fingerprint: FakeFingerprint,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _, _, utils = modules
+    monkeypatch.setattr(utils, "generate_fingerprint", lambda **_: fake_fingerprint)
+
+    with pytest.raises(utils.InvalidPropertyType):
+        utils.launch_options(
+            config={"webGl": {"vendor": "spoofed"}},
+            env={"TEST_ENV": "1"},
+            headless=True,
+        )
 
 
 def test_from_browserforge_compiles_linux_host_compatible_config(

@@ -27,8 +27,6 @@
 #include "LocaleProfile.h"
 #include "HumanizeProfile.h"
 #include "AudioContextProfile.h"
-#include "WebGlProfile.h"
-#include "WebGlProfile.h"
 #include "VoicesProfile.h"
 #include "MediaDevicesProfile.h"
 
@@ -163,20 +161,6 @@ class CamoufoxProfile {
       }
       m_audioContext = value;
     }
-    if (json.contains("webGl") && !json.at("webGl").is_null()) {
-      WebGlProfile value;
-      if (!value.fromJson(json.at("webGl"))) {
-        return false;
-      }
-      m_webGl = value;
-    }
-    if (json.contains("webGl2") && !json.at("webGl2").is_null()) {
-      WebGlProfile value;
-      if (!value.fromJson(json.at("webGl2"))) {
-        return false;
-      }
-      m_webGl2 = value;
-    }
     if (json.contains("voices") && !json.at("voices").is_null()) {
       VoicesProfile value;
       if (!value.fromJson(json.at("voices"))) {
@@ -290,12 +274,6 @@ class CamoufoxProfile {
     }
     if (m_audioContext.has_value()) {
       json["audioContext"] = m_audioContext->toJson();
-    }
-    if (m_webGl.has_value()) {
-      json["webGl"] = m_webGl->toJson();
-    }
-    if (m_webGl2.has_value()) {
-      json["webGl2"] = m_webGl2->toJson();
     }
     if (m_voices.has_value()) {
       json["voices"] = m_voices->toJson();
@@ -468,22 +446,6 @@ class CamoufoxProfile {
     m_audioContext = value;
   }
 
-  bool webGlIsSet() const { return m_webGl.has_value(); }
-  std::optional<WebGlProfile> getWebGl() const {
-    return m_webGl;
-  }
-  void setWebGl(const WebGlProfile& value) {
-    m_webGl = value;
-  }
-
-  bool webGl2IsSet() const { return m_webGl2.has_value(); }
-  std::optional<WebGlProfile> getWebGl2() const {
-    return m_webGl2;
-  }
-  void setWebGl2(const WebGlProfile& value) {
-    m_webGl2 = value;
-  }
-
   bool voicesIsSet() const { return m_voices.has_value(); }
   std::optional<VoicesProfile> getVoices() const {
     return m_voices;
@@ -583,8 +545,6 @@ class CamoufoxProfile {
   std::optional<HumanizeProfile> m_humanize;
   std::optional<bool> m_showcursor;
   std::optional<AudioContextProfile> m_audioContext;
-  std::optional<WebGlProfile> m_webGl;
-  std::optional<WebGlProfile> m_webGl2;
   std::optional<VoicesProfile> m_voices;
   std::optional<MediaDevicesProfile> m_mediaDevices;
   std::optional<bool> m_allowMainWorld;
@@ -600,4 +560,3 @@ class CamoufoxProfile {
 }  // namespace camoucfg
 
 #endif  // CAMOUFOX_PROFILE_CamoufoxProfile_H_
-

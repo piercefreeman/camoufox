@@ -256,8 +256,6 @@ class FirefoxFingerprintCompiler:
             "speechVoices": config.voices.items if config.voices else None,
             "timezone": config.timezone,
             "webrtcIP": webrtc_ip or "",
-            "webglRenderer": config.web_gl.renderer if config.web_gl else None,
-            "webglVendor": config.web_gl.vendor if config.web_gl else None,
         }
 
         lines = ["(function() {", "  var w = window;"]
@@ -269,8 +267,6 @@ class FirefoxFingerprintCompiler:
             ("navigatorOscpu", "setNavigatorOscpu"),
             ("hardwareConcurrency", "setNavigatorHardwareConcurrency"),
             ("navigatorUserAgent", "setNavigatorUserAgent"),
-            ("webglVendor", "setWebGLVendor"),
-            ("webglRenderer", "setWebGLRenderer"),
         ):
             value = values.get(key)
             if value is not None:
@@ -326,8 +322,6 @@ class FirefoxFingerprintCompiler:
             "setNavigatorOscpu",
             "setNavigatorHardwareConcurrency",
             "setNavigatorUserAgent",
-            "setWebGLVendor",
-            "setWebGLRenderer",
             "setFontList",
             "setSpeechVoices",
             "setWebRTCIPv4",

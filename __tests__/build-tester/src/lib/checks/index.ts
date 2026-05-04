@@ -16,8 +16,6 @@ const SELF_DESTRUCT_FUNCTIONS = [
   "setNavigatorPlatform",
   "setNavigatorOscpu",
   "setNavigatorHardwareConcurrency",
-  "setWebGLVendor",
-  "setWebGLRenderer",
   "setFontList",
   "setSpeechVoices",
   "setWebRTCIPv4",

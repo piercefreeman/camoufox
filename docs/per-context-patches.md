@@ -4,11 +4,10 @@ Camoufox spoofs fingerprints globally via the runtime profile — every browser 
 
 ### What's New
 
-**New patches (8):**
+**New patches (7):**
 - `audio-fingerprint-manager.patch` — per-context audio fingerprint seeding (all 6 AudioBuffer + AnalyserNode methods)
 - `timezone-spoofing.patch` — true per-realm timezone isolation via SpiderMonkey DateTimeInfo
 - `navigator-spoofing.patch` — per-context platform, oscpu, hardwareConcurrency, userAgent
-- `webgl-spoofing.patch` — per-context UNMASKED_VENDOR/RENDERER_WEBGL
 - `canvas-spoofing.patch` — per-context canvas 2D fingerprint noise
 - `font-list-spoofing.patch` — per-context installed font list filtering via thread-local propagation
 - `speech-voices-spoofing.patch` — per-context `speechSynthesis.getVoices()` filtering
@@ -36,13 +35,11 @@ Camoufox spoofs fingerprints globally via the runtime profile — every browser 
 | `window.setNavigatorUserAgent(ua)` | `navigator-spoofing.patch` | `navigator.userAgent` (+ worker UA) |
 | `window.setWebRTCIPv4(ip)` | `webrtc-ip-spoofing.patch` | WebRTC ICE candidates, SDP, getStats() |
 | `window.setWebRTCIPv6(ip)` | `webrtc-ip-spoofing.patch` | WebRTC IPv6 addresses |
-| `window.setWebGLVendor(vendor)` | `webgl-spoofing.patch` | `UNMASKED_VENDOR_WEBGL` parameter |
-| `window.setWebGLRenderer(renderer)` | `webgl-spoofing.patch` | `UNMASKED_RENDERER_WEBGL` parameter |
 | `window.setCanvasSeed(seed)` | `canvas-spoofing.patch` | Canvas 2D `toDataURL()`/`getImageData()` hash |
 | `window.setFontList(fonts)` | `font-list-spoofing.patch` | Which fonts appear "installed" to fingerprinters |
 | `window.setSpeechVoices(voices)` | `speech-voices-spoofing.patch` | `speechSynthesis.getVoices()` filtering |
 
-All 16 functions **self-destruct after the first call** — page JavaScript cannot detect them via `typeof window.setTimezone`.
+All 14 functions **self-destruct after the first call** — page JavaScript cannot detect them via `typeof window.setTimezone`.
 
 ---
 
@@ -95,12 +92,6 @@ await context.addInitScript((values) => {
   if (typeof w.setNavigatorUserAgent === 'function') {
     w.setNavigatorUserAgent(values.userAgent);
   }
-  if (typeof w.setWebGLVendor === 'function') {
-    w.setWebGLVendor(values.webglVendor);
-  }
-  if (typeof w.setWebGLRenderer === 'function') {
-    w.setWebGLRenderer(values.webglRenderer);
-  }
   if (typeof w.setCanvasSeed === 'function') {
     w.setCanvasSeed(values.canvasSeed);
   }
@@ -122,8 +113,6 @@ await context.addInitScript((values) => {
   navigatorOscpu: 'Intel Mac OS X 10.15',
   hardwareConcurrency: 8,
   userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:146.0) Gecko/20100101 Firefox/146.0',
-  webglVendor: 'Intel Inc.',
-  webglRenderer: 'Intel Iris OpenGL Engine',
   canvasSeed: 55555555,
   fontList: ['Arial', 'Helvetica', 'Georgia', 'Courier New', 'Verdana', 'Times New Roman'],
   speechVoices: 'Microsoft David,Microsoft Zira,Google US English',
@@ -141,25 +130,23 @@ await page.goto('https://example.com');
 ### Running Multiple Isolated Contexts
 
 ```javascript
-// Context A — appears as a New York user with Intel GPU
+// Context A — appears as a New York user
 const ctxA = await browser.newContext();
 await ctxA.addInitScript((v) => {
   if (typeof window.setTimezone === 'function') window.setTimezone(v.tz);
   if (typeof window.setAudioFingerprintSeed === 'function') window.setAudioFingerprintSeed(v.audio);
   if (typeof window.setScreenDimensions === 'function') window.setScreenDimensions(v.sw, v.sh);
   if (typeof window.setCanvasSeed === 'function') window.setCanvasSeed(v.canvas);
-  if (typeof window.setWebGLRenderer === 'function') window.setWebGLRenderer(v.gpu);
-}, { tz: 'America/New_York', audio: 11111, sw: 1920, sh: 1080, canvas: 44444, gpu: 'Intel Iris OpenGL Engine' });
+}, { tz: 'America/New_York', audio: 11111, sw: 1920, sh: 1080, canvas: 44444 });
 
-// Context B — appears as a Tokyo user with Apple GPU (fully isolated from A)
+// Context B — appears as a Tokyo user (fully isolated from A)
 const ctxB = await browser.newContext();
 await ctxB.addInitScript((v) => {
   if (typeof window.setTimezone === 'function') window.setTimezone(v.tz);
   if (typeof window.setAudioFingerprintSeed === 'function') window.setAudioFingerprintSeed(v.audio);
   if (typeof window.setScreenDimensions === 'function') window.setScreenDimensions(v.sw, v.sh);
   if (typeof window.setCanvasSeed === 'function') window.setCanvasSeed(v.canvas);
-  if (typeof window.setWebGLRenderer === 'function') window.setWebGLRenderer(v.gpu);
-}, { tz: 'Asia/Tokyo', audio: 99999, sw: 2560, sh: 1440, canvas: 88888, gpu: 'Apple M1' });
+}, { tz: 'Asia/Tokyo', audio: 99999, sw: 2560, sh: 1440, canvas: 88888 });
 ```
 
 ---
@@ -176,7 +163,7 @@ All patches share `RoverfoxStorageManager`, a thread-safe C++ key-value store ke
 3. The value is stored in RoverfoxStorageManager's local HashMap cache (thread-safe `nsTHashMap` protected by `Mutex`)
 4. The value is also written to Firefox Preferences (`Preferences::SetCString`) with a `roverfox.s.` prefix — all value types (uint32, bool, string) are serialized as CString internally
 5. In content processes, values are sent to the parent (browser) process via sync IPC (`SendRoverfoxStoragePut`)
-6. Some patches also store the value under ucid=0 as a global fallback — this ensures workers that cannot resolve a specific `userContextId` can still read the value. Patches with ucid=0 fallback: **audio**, **canvas**, **navigator** (all 4 functions), **timezone**, **webgl**. Patches without: font-spacing, screen, font-list, speech-voices, webrtc-ip
+6. Some patches also store the value under ucid=0 as a global fallback — this ensures workers that cannot resolve a specific `userContextId` can still read the value. Patches with ucid=0 fallback: **audio**, **canvas**, **navigator** (all 4 functions), **timezone**. Patches without: font-spacing, screen, font-list, speech-voices, webrtc-ip
 
 **Read path (3-tier fallback):**
 1. **Local cache** — in-process `nsTHashMap` protected by `Mutex` (fastest, same-process reads)
@@ -402,28 +389,15 @@ window.setNavigatorUserAgent('Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:1
 
 ---
 
-### 7. webgl-spoofing.patch
+### 7. WebGL Native Hardware Policy
 
-**Controls:** `UNMASKED_VENDOR_WEBGL` and `UNMASKED_RENDERER_WEBGL` — the WebGL debug extension parameters that reveal GPU hardware. These are one of the strongest fingerprint vectors since GPU model + driver version is highly unique.
+**Status:** Synthetic WebGL profile input has been removed. Camoufox keeps WebGL vendor/renderer, limits, extensions, shader precision, and rendering output native so GPU identity matches the host rendering stack.
 
-**How it works:** Stores vendor and renderer strings per context via `WebGLParamsManager`, then hooks `ClientWebGLContext::GetParameter()` to intercept `WEBGL_debug_renderer_info` queries. Three-tier fallback: per-context values -> global runtime profile -> real hardware values.
+**Why:** Hardware-class signals are acceptable when they describe a large, truthful cohort. A Mac M1 WebGL profile generally identifies the OS/browser/GPU family, not an individual device. A false GPU claim is worse: sites can verify it by comparing renderer/vendor strings against WebGL limits, supported extensions, shader precision, canvas pixels, WebGPU limits, and rendering timing.
+
+**Current policy:** The runtime profile schema no longer accepts `webGl` or `webGl2`. Per-context variation should come from host-compatible seeds and surfaces, not synthetic GPU claims.
 
 Note: `GL_VENDOR` and `GL_RENDERER` (without the debug extension) already return `"Mozilla"` universally in Firefox — those don't need spoofing.
-
-**Global MaskConfig scope:** Beyond per-context vendor/renderer, this patch also includes comprehensive global runtime profile spoofing for many other WebGL parameters — context attributes, shader precision, extensions, enabled states, and array parameters. These global overrides apply to all contexts equally and don't require per-context JavaScript.
-
-**Worker support:** Includes a `WorkerPrivate` fallback (via a `GetUserContextId()` helper on `ClientWebGLContext`) for resolving `userContextId` when `GetParameter()` is called from an OffscreenCanvas context in a Web Worker.
-
-**Self-destruct:** Each function (`setWebGLVendor`, `setWebGLRenderer`) has its own disabled flag and removes only itself after the first call. Both should be called from your init script to ensure consistent vendor/renderer pairing.
-
-**API:**
-```javascript
-window.setWebGLVendor('Intel Inc.');              // UNMASKED_VENDOR_WEBGL
-window.setWebGLRenderer('Intel Iris OpenGL Engine');  // UNMASKED_RENDERER_WEBGL
-```
-
-**New C++ files:** `WebGLParamsManager.h/cpp`
-**Modified Firefox files:** `nsGlobalWindowInner.cpp/h`, `ClientWebGLContext.cpp`, `Window.webidl`, `moz.build`
 
 ---
 
@@ -570,7 +544,7 @@ For per-context geolocation, use Playwright's built-in `context.setGeolocation()
 
 ## Build Notes
 
-**SOURCES vs UNIFIED_SOURCES:** Most new `.cpp` manager files use `SOURCES` (separate compilation) in `moz.build` to avoid namespace pollution (`mozilla::dom::mozilla::dom::`) that occurs when files including `RoverfoxStorageManager.h` are concatenated in unified builds. Currently in `SOURCES`: `AudioFingerprintManager.cpp`, `WebRTCIPManager.cpp`, `NavigatorManager.cpp`, `WebGLParamsManager.cpp`, `CanvasFingerprintManager.cpp`, `FontListManager.cpp`, `SpeechVoicesManager.cpp`. Four files use `UNIFIED_SOURCES` instead: `FontSpacingSeedManager.cpp`, `RoverfoxStorageManager.cpp` (both from `anti-font-fingerprinting.patch`), `TimezoneManager.cpp` (from `timezone-spoofing.patch`), and `ScreenDimensionManager.cpp` (from `screen-spoofing.patch`) — these were written before the SOURCES pattern was established and happen to compile without namespace issues in their alphabetical position.
+**SOURCES vs UNIFIED_SOURCES:** Most new `.cpp` manager files use `SOURCES` (separate compilation) in `moz.build` to avoid namespace pollution (`mozilla::dom::mozilla::dom::`) that occurs when files including `RoverfoxStorageManager.h` are concatenated in unified builds. Currently in `SOURCES`: `AudioFingerprintManager.cpp`, `WebRTCIPManager.cpp`, `NavigatorManager.cpp`, `CanvasFingerprintManager.cpp`, `FontListManager.cpp`, `SpeechVoicesManager.cpp`. Four files use `UNIFIED_SOURCES` instead: `FontSpacingSeedManager.cpp`, `RoverfoxStorageManager.cpp` (both from `anti-font-fingerprinting.patch`), `TimezoneManager.cpp` (from `timezone-spoofing.patch`), and `ScreenDimensionManager.cpp` (from `screen-spoofing.patch`) — these were written before the SOURCES pattern was established and happen to compile without namespace issues in their alphabetical position.
 
 **EXPORTS sort conflicts:** Each patch uses a separate `EXPORTS.mozilla.dom += ["Header.h"]` statement near its `SOURCES` block, rather than inserting into the main sorted EXPORTS list. This avoids sort conflicts when multiple patches add headers at similar alphabetical positions.
 
@@ -629,7 +603,7 @@ The Camoufox Python package (`pythonlib/`) generates fingerprints for both `NewB
 |----------|--------|-------|
 | UA, platform, oscpu | BrowserForge or preset | Narrow host-compatible subset only; UA version patched to match Camoufox Firefox version |
 | Screen dims, colorDepth | BrowserForge or preset | Viewport adjusted by -28px for browser chrome |
-| WebGL vendor/renderer | Real host GPU | Default paths no longer spoof GPU identity or sample WebGL params from the database. |
+| WebGL/WebGPU | Real host hardware/browser stack | Runtime profile schema does not accept synthetic GPU fields. |
 | Font list | macOS bundled baseline + host extras | Advertises the installed macOS-bundled font set, plus a random `0-50` extra locally installed fonts. |
 | Font spacing seed | `randint(1, 2^32-1)` | Excludes 0 (0 = no-op in C++) |
 | Audio seed | `randint(1, 2^32-1)` | Excludes 0 |
@@ -653,7 +627,7 @@ The Camoufox Python package (`pythonlib/`) generates fingerprints for both `NewB
 - `launch_options()` — builds the `CAMOU_CONFIG_PATH` profile file, Playwright args, and Firefox prefs
 - Font inventory generated from the real host inventory
 - Voice inventory generated from the real host inventory
-- WebGL uses the real host GPU; spoofing overrides are stripped before serialization
+- WebGL/WebGPU use the real host hardware/browser stack; synthetic GPU fields are not part of the profile schema
 - Config validated against the generated Pydantic profile model before serialization
 
 **`camoufox-profile.openapi.yaml`** — Canonical schema for the nested runtime profile. Python and C++ profile models are generated from this schema.

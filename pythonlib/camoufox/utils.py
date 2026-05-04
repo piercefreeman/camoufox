@@ -66,7 +66,6 @@ def launch_options(
     block_webrtc: bool | None = None,
     block_webgl: bool | None = None,
     disable_coop: bool | None = None,
-    webgl_config: tuple[str, str] | None = None,
     geoip: str | bool | None = None,
     geoip_db: str | None = None,
     humanize: bool | float | None = None,
@@ -111,7 +110,6 @@ def launch_options(
         block_webrtc=block_webrtc,
         block_webgl=block_webgl,
         disable_coop=disable_coop,
-        webgl_config=webgl_config,
         geoip=geoip,
         geoip_db=geoip_db,
         humanize=humanize,
@@ -259,7 +257,6 @@ class LaunchOptionBuilder:
     block_webrtc: bool | None
     block_webgl: bool | None
     disable_coop: bool | None
-    webgl_config: tuple[str, str] | None
     geoip: str | bool | None
     geoip_db: str | None
     humanize: bool | float | None
@@ -365,7 +362,6 @@ class LaunchOptionBuilder:
         generated_config = self._build_generated_config(target_os, ff_version_str)
         config = _merge_profile_missing(config, generated_config)
         self.config = config
-        _strip_gpu_overrides(config)
 
         self._apply_fonts()
         self._apply_launch_defaults()
@@ -585,9 +581,6 @@ class LaunchOptionBuilder:
         if self.block_webgl or allow_webgl is False:
             firefox_user_prefs["webgl.disabled"] = True
             LeakWarning.warn("block_webgl", self.i_know_what_im_doing)
-        elif self.webgl_config:
-            # GPU identity should come from the real host, not from injected strings.
-            pass
 
         if self.enable_cache:
             _merge_missing(firefox_user_prefs, CACHE_PREFS)
@@ -747,11 +740,6 @@ def _merge_missing_nested(target: dict[str, Any], source: dict[str, Any]) -> Non
             _merge_missing_nested(current, value)
         elif key not in target:
             target[key] = value
-
-
-def _strip_gpu_overrides(config: CamoufoxProfile) -> None:
-    config.web_gl = None
-    config.web_gl2 = None
 
 
 def _warn_manual_config(config: CamoufoxProfile) -> None:

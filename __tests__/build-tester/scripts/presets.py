@@ -47,7 +47,6 @@ def convert_preset(ctx: dict[str, Any]) -> dict[str, Any]:
     audio = getattr(config, "audio", None)
     canvas = getattr(config, "canvas", None)
     voices = getattr(config, "voices", None)
-    web_gl = getattr(config, "web_gl", None)
 
     return {
         "initScript": ctx["init_script"],
@@ -70,8 +69,6 @@ def convert_preset(ctx: dict[str, Any]) -> dict[str, Any]:
             "navigatorOscpu": getattr(navigator, "oscpu", None) or "",
             "navigatorUserAgent": getattr(navigator, "user_agent", None) or "",
             "hardwareConcurrency": getattr(navigator, "hardware_concurrency", None) or 0,
-            "webglVendor": getattr(web_gl, "vendor", None) or "",
-            "webglRenderer": getattr(web_gl, "renderer", None) or "",
             "timezone": getattr(config, "timezone", None) or "",
             "fontList": list(getattr(fonts, "families", None) or []),
             "speechVoices": _voice_names(getattr(voices, "items", None)),
@@ -142,6 +139,4 @@ def preset_to_profile_config(preset: dict, name: str, os_type: str, mode: str) -
         "screenHeight": pc["screenHeight"],
         "colorDepth": pc["screenColorDepth"],
         "timezone": pc["timezone"],
-        "webglVendor": pc["webglVendor"],
-        "webglRenderer": pc["webglRenderer"],
     }

@@ -66,7 +66,7 @@ Patch groups that must be verified for source drift:
 - [ ] Navigator identity: `navigator-spoofing.patch`
 - [ ] Screen/window/document geometry: `screen-spoofing.patch`
 - [ ] Canvas/audio entropy: `audio-context-spoofing.patch`, `audio-fingerprint-manager.patch`
-- [ ] WebGL identity: `webgl-spoofing.patch`
+- [x] WebGL identity: remove synthetic `webgl-spoofing.patch`; native host GPU/browser stack is the truth source
 - [ ] Fonts: `font-list-spoofing.patch`, `anti-font-fingerprinting.patch`, `font-hijacker.patch`
 - [ ] Locale/timezone/geolocation: `locale-spoofing.patch`, `timezone-spoofing.patch`, `geolocation-spoofing.patch`
 - [ ] Media devices/speech/WebRTC: `media-device-spoofing.patch`, `speech-voices-spoofing.patch`, `voice-spoofing.patch`, `webrtc-ip-spoofing.patch`
@@ -94,11 +94,10 @@ Firefox 150 patch-application baseline:
 - [x] Built app smoke passed via `CAMOUFOX_FIREFOX_VERSION=150.0.1 ./mach run --version`, reporting `Camoufox Camoufox 150.0.1-beta.25`.
 - [x] Direct `dist/bin/camoufox --version` is not a valid smoke invocation for this local objdir layout; it exits with `Couldn't load XPCOM`, while `mach run --version` launches the packaged app path under `dist/Camoufox.app`.
 - [x] Post-build patch verifier passed all 50 patches with `--skip-syntax` using `/Volumes/CamoufoxBuild/camoufox-patch-verify-150-post-buildfix4`.
-- [x] After adding `patches/zz-reporting-policy.patch`, patch verifier passed all 51 patches with `--skip-syntax` using `/Volumes/CamoufoxBuild/camoufox-patch-verify-150-reporting-policy`.
-- [x] Applied `patches/zz-reporting-policy.patch` and refreshed `lw/camoufox.cfg` in the generated Firefox 150 tree without clobbering the SSD objdir.
-- [x] Incremental `CAMOUFOX_FIREFOX_VERSION=150.0.1 make build` passed after the Reporting policy patch with 2 compiler warnings present.
+- [x] Removed the temporary Reporting policy patch and kept Reporting/CSP prefs aligned with Firefox 150 defaults.
+- [x] Incremental `CAMOUFOX_FIREFOX_VERSION=150.0.1 make build` passed after the earlier Reporting policy experiment with 2 compiler warnings present.
 - [x] Post-Reporting smoke passed via generated-tree `./mach run --version`, reporting `Camoufox Camoufox 150.0.1-beta.25`.
-- [x] Restored generated-tree files from `/Volumes/CamoufoxBuild/camoufox-patch-verify-150-reporting-policy` after local test preparation clobbered patched Juggler files; rebuilt successfully against the SSD objdir with 155 compiler warnings present.
+- [x] Restored generated-tree files from the patch-verifier workspace after local test preparation clobbered patched Juggler files; rebuilt successfully against the SSD objdir with 155 compiler warnings present.
 - [x] Post-restore smoke passed via generated-tree `./mach run --version`, reporting `Camoufox Camoufox 150.0.1-beta.25`.
 - [x] Compile-backed verifier was attempted using `/Volumes/CamoufoxBuild/camoufox-150.0.1-beta.25-obj/clangd/compile_commands.json`; patch application passed, but all 82 selected syntax targets were skipped because no cached compile command matched those files. Treat the successful full build as the authoritative compile validation for this phase.
 - [x] Fixed Firefox 150 Playwright/Juggler `Browser.newPage` handshake: `onOpenWindow` can now arrive while the chrome shell is still initial `about:blank` with `readyState=complete` and no `gBrowser`; `TargetRegistry` waits for the real browser chrome `DOMContentLoaded` before registering tabs.
@@ -109,7 +108,7 @@ Firefox 150 patch-application baseline:
 - [x] Incremental `CAMOUFOX_FIREFOX_VERSION=150.0.1 make build` passed after the popup actor binding fix with `0 compiler warnings present`.
 - [x] Full Playwright async suite passed after the popup actor binding fix: `1241 passed, 65 skipped, 18 xfailed`.
 - [x] After updating `upstream.sh` to Firefox 150.0.1, default `make build` passed with `0 compiler warnings present`.
-- [x] Default `make verify-patches` verified Firefox 150.0.1 patch application for all 51 patches; compile-backed syntax remained skipped because no cached compile-command context was available.
+- [x] Default `make verify-patches` verified Firefox 150.0.1 patch application for the current patch set; compile-backed syntax remained skipped because no cached compile-command context was available.
 - [ ] Inspect non-blocking `/usr/bin/patch` warnings from `fingerprint-injection.patch` and `patches/librewolf/mozilla_dirs.patch`: both patches applied with no rejects, but emitted `No such line ... ignoring`.
 
 Post-build Firefox 150 compatibility fixes now tracked in patches:
@@ -123,7 +122,7 @@ Post-build Firefox 150 compatibility fixes now tracked in patches:
 - [x] `patches/playwright/0-playwright.patch`: restored and adapted `nsDOMWindowUtils::SendTouchEvent*` implementations for the Playwright IDL declarations, using Firefox 150 widget dispatch return types.
 - [x] `additions/juggler/TargetRegistry.js`: waits for browser chrome `DOMContentLoaded` when Firefox 150 reports an initial complete `about:blank` chrome shell with no `gBrowser`, preventing `Browser.newPage` from waiting forever for an unregistered target.
 - [x] `additions/juggler/TargetRegistry.js` and `additions/juggler/JugglerFrameParent.*`: keep early popup actors pending by `browserId` and bind them once the corresponding `PageTarget` exists, restoring `window.open`/`expect_popup` behavior on Firefox 150.
-- [x] `patches/zz-reporting-policy.patch`: makes `Reporting-Endpoints` processing honor `dom.reporting.header.enabled`, so the Reporting API can remain exposed while report-endpoint delivery is policy-disabled.
+- [x] Reporting/CSP policy: removed the temporary endpoint-disabling patch and kept Firefox 150's standards-visible defaults.
 
 `patches/playwright/0-playwright.patch` rejects against Firefox 150.0.1:
 
@@ -152,7 +151,7 @@ Resolved Firefox 150 patch blockers:
 - [x] `patches/macos-sdk-bootstrap-26.4.patch`: rebased from Firefox 150's macOS SDK 26.2 baseline to 26.4.
 - [x] `patches/librewolf/mozilla_dirs.patch`: rebased native manifest directory handling after forced-legacy path changes.
 - [x] `patches/screen-spoofing.patch`: rebased window declarations, `nsScreen.cpp` includes, and CSS device-size override placement.
-- [x] `patches/webgl-spoofing.patch`: rebased WebGL renderer/vendor overrides onto Firefox 150 RFP renderer/vendor branches.
+- [x] WebGL spoofing patch removed after policy review; Firefox 150 should expose native WebGL/WebGPU hardware-class behavior instead of synthetic GPU claims.
 - [x] `patches/windows-theming-bug-modified.patch`: dropped obsolete `EXTRA_DEPS` manifest hunk; retained manifest branding and macOS asset guard.
 
 Remaining Firefox 150 patch blockers:
@@ -202,8 +201,8 @@ TODO:
   - `media.captureStream.enabled=true`
   - `dom.location.ancestorOrigins.enabled=true`
   - `dom.reporting.enabled=true`
-  - `dom.reporting.header.enabled=false`
-  - `security.csp.reporting.enabled=false`
+  - `dom.reporting.header.enabled=true`
+  - `security.csp.reporting.enabled=true`
 - [x] Pin disabled until modeled:
   - `dom.security.credentialmanagement.digital.enabled=false`
   - `dom.modelcontext.enabled=false`
@@ -214,38 +213,31 @@ TODO:
 
 ## Phase 2: WebGPU
 
-Risk: high for cross-signal consistency, not automatically high because it exposes real GPU facts. WebGPU can expose adapter identity, supported features, limits, shader/compiler behavior, backend differences, worker availability, and rendering/timing characteristics. Existing WebGL spoofing does not cover this surface.
+Risk: high for cross-signal consistency, not automatically high because it exposes real GPU facts. WebGPU can expose adapter identity, supported features, limits, shader/compiler behavior, backend differences, worker availability, and rendering/timing characteristics.
+
+Policy rationale:
+
+- [x] Prefer truthful hardware-class similarity over unverifiable precision. A Mac M1/M2 cohort is large enough that native WebGL/WebGPU facts are not individually identifying by themselves, while a false GPU claim can be disproven through limits, extensions, shader precision, pixels, timing, and WebGPU behavior.
+- [x] Use seeds for context personality only on surfaces that remain coherent with the host: canvas/audio/font perturbation, font and voice subsets from real inventory, screen/window choices within real constraints, locale/timezone/proxy alignment, and similar host-compatible values.
+- [x] Do not expose synthetic GPU profile fields in the runtime schema.
 
 Policy:
 
 - [x] Do not disable `dom.webgpu.enabled` by default solely because WebGPU exposes GPU entropy.
-- [x] Keep Firefox 150's WebGPU behavior available when the selected fingerprint policy is native/passthrough and the host platform is the truth source.
-- [ ] Disable WebGPU only when a profile explicitly selects `disabled`/`unavailable`, or when an enabled synthetic profile would otherwise create an impossible contradiction that is not yet patched.
+- [x] Keep Firefox 150's WebGPU behavior available when the host platform is the truth source.
+- [ ] Disable WebGPU only if Firefox itself would not expose it in the target build or if a platform-specific runtime cannot make it coherent.
 - [ ] Treat entropy as a bug only when it is unmodeled persistent identity, contradicts other exposed signals, or bypasses per-context policy.
 
 Standards-compliant target:
 
 - [ ] Keep WebGPU available where Firefox 150 would normally expose it and the selected fingerprint policy permits it.
-- [ ] In native/passthrough mode, expose the actual host GPU class consistently with actual WebGL, OS, architecture, and Firefox behavior.
-- [ ] In synthetic/spoofed mode, return realistic adapter capabilities that match the selected WebGL profile, OS, architecture, and Firefox version.
+- [ ] Expose the actual host GPU class consistently with actual WebGL, OS, architecture, and Firefox behavior.
 - [ ] Avoid returning impossible combinations such as Apple GPU WebGL renderer with Windows-only WebGPU limits.
 
 Profile schema TODO:
 
-- [ ] Add `webGpu` to `CamoufoxProfile` only if Firefox 150 exposes WebGPU in our supported builds or if BrowserForge needs to describe its policy.
-- [ ] Add `webGpu.policy` with values such as `native`, `disabled`, `unavailable`, `spoofed`.
-- [ ] Default generated fingerprints to `native` when the broader fingerprint strategy uses actual host GPU facts.
-- [ ] Add explicit adapter identity fields for whatever Firefox 150 exposes:
-  - vendor
-  - architecture
-  - device
-  - description
-  - backend or adapter type if exposed
-- [ ] Add `webGpu.features` as an explicit string array.
-- [ ] Add `webGpu.limits` as an explicit map of WebGPU limit names to numeric values.
-- [ ] Add `webGpu.wgslLanguageFeatures` if Firefox exposes `navigator.gpu.wgslLanguageFeatures`.
-- [ ] Add `webGpu.isFallbackAdapter` if Firefox exposes fallback adapter state.
-- [ ] Add explicit values for synthetic mode; use seeds only for deterministic behavior that cannot be represented as explicit capabilities.
+- [x] Do not add `webGpu`, `webGl`, or `webGl2` synthetic capability fields to `CamoufoxProfile`.
+- [ ] Add schema only for a non-GPU-identity policy switch if a future platform needs to disable an unavailable API without claiming alternate hardware.
 
 Patch TODO:
 
@@ -253,11 +245,10 @@ Patch TODO:
 - [x] Confirm what Firefox 150 exposes from the host adapter versus normalized browser capabilities:
   - public `GPUAdapterInfo.vendor`, `architecture`, `device`, and `description` currently return empty strings
   - `features`, `limits`, `wgslLanguageFeatures`, subgroup sizes, and fallback state remain capability/coherence surfaces
-- [ ] Patch `navigator.gpu` exposure consistently in windows and workers only if profile policy requires a non-default result.
-- [ ] Patch `GPU.requestAdapter()` to resolve or reject according to profile policy.
-- [ ] Patch adapter info, features, limits, fallback state, and language features only for synthetic/coherence modes that need it.
-- [ ] Ensure WebGPU state is per-context and uses the same storage model as navigator/WebGL/audio.
-- [ ] Prevent raw host adapter info from leaking through logs, errors, crash annotations, or GPU-process IPC when the active policy is not native.
+- [ ] Patch `navigator.gpu` exposure consistently in windows and workers only if Firefox-default behavior is incoherent on a supported runtime.
+- [ ] Patch `GPU.requestAdapter()` only to match Firefox standards behavior on platforms where native availability is inconsistent.
+- [ ] Do not patch adapter info, features, limits, fallback state, or language features into alternate hardware identities.
+- [ ] Prevent raw host adapter info from leaking through logs, errors, crash annotations, or GPU-process IPC only if Firefox would not otherwise expose that fact.
 - [ ] Align WebGPU fallback behavior with Firefox standards behavior rather than throwing non-standard errors.
 
 Test TODO:
@@ -477,29 +468,28 @@ Test TODO:
 
 ## Phase 10: Reporting API and CSP Reporting
 
-Risk: low-medium by default. Firefox 150 defaults `dom.reporting.enabled=true` and `dom.reporting.header.enabled=true`; the browser can store reports, deliver network requests, and expose browser behavior if endpoint processing is left on.
+Risk: low-medium by default. Firefox 150 defaults `dom.reporting.enabled=true` and `dom.reporting.header.enabled=true`; keeping those defaults preserves standards-visible behavior and avoids a missing-reporting fingerprint.
 
-Temporary policy:
+Current policy:
 
 - [x] Keep the Reporting API exposed for standards behavior.
-- [x] Disable report endpoint ingestion and CSP report delivery by policy.
+- [x] Keep report endpoint ingestion and CSP report delivery enabled to match Firefox 150 defaults.
 
 Standards-compliant target:
 
-- [ ] If endpoint delivery is enabled later, use per-context ephemeral report storage and deterministic delivery behavior.
+- [ ] Audit report persistence and network delivery paths; if needed, make storage per-context without disabling standards surfaces.
 
 Profile schema TODO:
 
-- [ ] Keep as global policy unless sites require enabled Reporting API.
-- [ ] If enabled later, add `reporting.enabled` and report delivery policy fields.
+- [ ] Keep as Firefox-default behavior unless a concrete privacy leak requires a narrower per-context storage model.
 
 Patch/config TODO:
 
 - [x] Set `dom.reporting.enabled=true` to preserve the standards-visible API.
-- [x] Set `dom.reporting.header.enabled=false`.
-- [x] Set `security.csp.reporting.enabled=false`.
-- [x] Patch `ReportingHeader::ProcessReportingEndpointsListFromResponse()` to honor `dom.reporting.header.enabled`.
-- [ ] Audit report persistence and network delivery paths before enabling endpoint delivery.
+- [x] Set `dom.reporting.header.enabled=true`.
+- [x] Set `security.csp.reporting.enabled=true`.
+- [x] Removed the temporary endpoint-disabling patch.
+- [ ] Audit report persistence and network delivery paths under normal Firefox-default delivery.
 
 Test TODO:
 
@@ -526,21 +516,22 @@ Patch/test TODO:
 - [x] Add navigator `modelContext` absence test while disabled.
 - [ ] Audit future Firefox releases for additional local AI APIs.
 
-## Phase 12: WebGL Revalidation for Firefox 150
+## Phase 12: Native WebGL Revalidation for Firefox 150
 
-Risk: medium. Existing WebGL spoofing is broad, but Firefox 150 adds or reorganizes WebGL prefs and code paths.
+Risk: medium. WebGL is a high-entropy hardware-class surface, but native Firefox behavior is more coherent than synthetic GPU claims. The goal is to verify that WebGL, WebGPU, canvas, OS, and architecture all describe the same real host.
 
 Profile schema TODO:
 
-- [ ] Reuse existing `webGl` and `webGl2` profile sections if all Firefox 150 parameters still fit.
-- [ ] Add schema fields only for newly exposed values that cannot fit `parameters`, `shaderPrecisionFormats`, `contextAttributes`, or extension lists.
+- [x] Remove `webGl` and `webGl2` profile sections from the runtime schema.
+- [x] Remove generated Python/C++ profile model support for synthetic WebGL fields.
 
 Patch TODO:
 
 - [ ] Audit `webgl.allow-in-content`.
 - [ ] Audit `webgl.allow-in-parent`.
-- [ ] Audit any changed `getParameter`, extension, shader precision, and context creation paths.
-- [ ] Confirm WebGL2 handling still mirrors WebGL profile policy.
+- [x] Remove `patches/webgl-spoofing.patch`.
+- [ ] Audit native `getParameter`, extension, shader precision, and context creation paths for Firefox 150 host coherence.
+- [ ] Confirm WebGL2 remains native and coherent with WebGL/WebGPU.
 - [ ] Confirm GPU/WebGL cross-signal consistency after WebGPU work.
 
 Test TODO:
@@ -609,16 +600,15 @@ TODO:
 
 - [ ] Confirm BrowserForge supports Firefox 150 fingerprints.
 - [x] Update tests currently pinned to `ff_version="146"`.
-- [x] Ensure generated UA, `navigator.appVersion`, `oscpu`, platform, language, Accept-Language, WebGL, screen, and media values remain coherent for Firefox 150.
+- [x] Ensure generated UA, `navigator.appVersion`, `oscpu`, platform, language, Accept-Language, native WebGL, screen, and media values remain coherent for Firefox 150.
 - [ ] Add generated defaults for any new schema fields.
 - [ ] Ensure random seeds are generated only for fields designed to be seed-derived:
   - canvas noise
   - audio noise
   - font spacing
   - media capture track IDs if implemented as seed-derived
-  - WebGPU nondeterministic behavior only when synthetic/coherence mode cannot use explicit standard values
+  - WebGPU nondeterministic behavior only if Firefox-native behavior needs deterministic stabilization
 - [ ] Ensure explicit values are used for fields that should be coherent platform facts:
-  - WebGPU policy, adapter identity, limits, and features when not using native passthrough
   - display color/dynamic range
   - WebAuthn capability policy
   - geolocation coordinates
@@ -633,9 +623,9 @@ TODO:
 - [x] `CAMOUFOX_FIREFOX_VERSION=150.0.1 make dir`
 - [x] Full build on primary development platform.
 - [x] Package smoke test via generated-tree `./mach run --version`.
-- [x] Patch verifier passed all 51 patches after Reporting policy patch.
+- [x] Patch verifier passed after Firefox 150 patch rebasing.
 - [x] Default `make verify-patches` passes after `upstream.sh` was bumped to 150.0.1.
-- [x] Incremental build and generated-tree `./mach run --version` passed after `patches/zz-reporting-policy.patch`.
+- [x] Incremental build and generated-tree `./mach run --version` passed during Reporting policy validation.
 - [x] Build tester one-profile smoke no longer blocks at Playwright/Juggler page creation and passes `134/134`.
 - [x] Build tester full 8-profile suite passes `1072/1072`.
 - [x] `make lint`
@@ -649,7 +639,7 @@ TODO:
 
 ## Open Decisions
 
-- [x] Should Firefox 150 WebGPU use native/passthrough as the default policy, with synthetic/coherence mode added only when BrowserForge chooses non-native GPU facts? Decision: yes.
+- [x] Should Firefox 150 WebGPU/WebGL use native/passthrough as the default policy? Decision: yes, and synthetic GPU identity is removed from the runtime profile surface.
 - [x] Should `captureStream()` ship disabled first, or do we need standards-compliant support in the first Firefox 150 binary? Decision: keep enabled and test; do not disable solely for entropy.
 - [x] Should `location.ancestorOrigins` be disabled for privacy uniformity or enabled to match Firefox 150 standards behavior? Decision: keep enabled and test embedding behavior.
 - [ ] Should LNA follow Firefox defaults for standards compliance or be pinned to stricter deterministic network policy?

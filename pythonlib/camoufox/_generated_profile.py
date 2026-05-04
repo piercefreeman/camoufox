@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from enum import Enum
 
-from pydantic import BaseModel, ConfigDict, Field, RootModel
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class DoNotTrack(Enum):
@@ -181,51 +181,6 @@ class AudioContextProfile(BaseModel):
     max_channel_count: int | None = Field(None, alias='maxChannelCount', ge=0)
 
 
-class PowerPreference(Enum):
-    low = 'low'
-    high = 'high'
-    default = 'default'
-
-
-class WebGlContextAttributes(BaseModel):
-    model_config = ConfigDict(
-        extra='forbid',
-    )
-    alpha: bool | None = None
-    antialias: bool | None = None
-    depth: bool | None = None
-    fail_if_major_performance_caveat: bool | None = Field(
-        None, alias='failIfMajorPerformanceCaveat'
-    )
-    power_preference: PowerPreference | None = Field(None, alias='powerPreference')
-    premultiplied_alpha: bool | None = Field(None, alias='premultipliedAlpha')
-    preserve_drawing_buffer: bool | None = Field(None, alias='preserveDrawingBuffer')
-    stencil: bool | None = None
-
-
-class WebGlShaderPrecisionFormat(BaseModel):
-    model_config = ConfigDict(
-        extra='forbid',
-    )
-    range_min: int = Field(..., alias='rangeMin', ge=0)
-    range_max: int = Field(..., alias='rangeMax', ge=0)
-    precision: int = Field(..., ge=0)
-
-
-class WebGlShaderPrecisionFormats(RootModel[dict[str, WebGlShaderPrecisionFormat]]):
-    root: dict[str, WebGlShaderPrecisionFormat]
-
-
-class WebGlParameterValue(
-    RootModel[int | float | bool | str | list[int | float | bool | str | None] | None]
-):
-    root: int | float | bool | str | list[int | float | bool | str | None] | None
-
-
-class WebGlParameters(RootModel[dict[str, WebGlParameterValue | None]]):
-    root: dict[str, WebGlParameterValue | None]
-
-
 class SpeechVoice(BaseModel):
     model_config = ConfigDict(
         extra='forbid',
@@ -272,28 +227,6 @@ class DocumentProfile(BaseModel):
     body: DocumentBodyProfile | None = None
 
 
-class WebGlProfile(BaseModel):
-    model_config = ConfigDict(
-        extra='forbid',
-    )
-    renderer: str | None = None
-    vendor: str | None = None
-    supported_extensions: list[str] | None = Field(None, alias='supportedExtensions')
-    parameters: WebGlParameters | None = None
-    parameters_block_if_not_defined: bool | None = Field(
-        None, alias='parametersBlockIfNotDefined'
-    )
-    shader_precision_formats: WebGlShaderPrecisionFormats | None = Field(
-        None, alias='shaderPrecisionFormats'
-    )
-    shader_precision_formats_block_if_not_defined: bool | None = Field(
-        None, alias='shaderPrecisionFormatsBlockIfNotDefined'
-    )
-    context_attributes: WebGlContextAttributes | None = Field(
-        None, alias='contextAttributes'
-    )
-
-
 class VoicesProfile(BaseModel):
     model_config = ConfigDict(
         extra='forbid',
@@ -327,8 +260,6 @@ class CamoufoxProfile(BaseModel):
     humanize: HumanizeProfile | None = None
     showcursor: bool | None = None
     audio_context: AudioContextProfile | None = Field(None, alias='audioContext')
-    web_gl: WebGlProfile | None = Field(None, alias='webGl')
-    web_gl2: WebGlProfile | None = Field(None, alias='webGl2')
     voices: VoicesProfile | None = None
     media_devices: MediaDevicesProfile | None = Field(None, alias='mediaDevices')
     allow_main_world: bool | None = Field(None, alias='allowMainWorld')

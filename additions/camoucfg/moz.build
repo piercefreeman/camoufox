@@ -37,11 +37,6 @@ UNIFIED_SOURCES += [
     "generated/profile/camoucfg/SpeechVoice.cpp",
     "generated/profile/camoucfg/VoicesProfile.cpp",
     "generated/profile/camoucfg/VoicesProfileItemsInner.cpp",
-    "generated/profile/camoucfg/WebGlContextAttributes.cpp",
-    "generated/profile/camoucfg/WebGlParameterValue.cpp",
-    "generated/profile/camoucfg/WebGlParameterValueOneOfInner.cpp",
-    "generated/profile/camoucfg/WebGlProfile.cpp",
-    "generated/profile/camoucfg/WebGlShaderPrecisionFormat.cpp",
     "generated/profile/camoucfg/WebRtcProfile.cpp",
     "generated/profile/camoucfg/WindowProfile.cpp",
 ]
