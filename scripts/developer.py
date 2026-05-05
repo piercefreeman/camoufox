@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 """
-GUI for managing Camoufox patches.
+GUI for managing Rotunda patches.
 """
 import os
 import re
@@ -11,16 +11,16 @@ import easygui
 from _mixin import find_src_dir, is_bootstrap_patch, list_patches, patch, run, temp_cd
 
 
-def into_camoufox_dir():
-    """Cd to the camoufox-* folder"""
+def into_rotunda_dir():
+    """Cd to the rotunda-* folder"""
     this_script = os.path.dirname(os.path.abspath(__file__))
     # Go one directory up from the current script path
     os.chdir(os.path.dirname(this_script))
     os.chdir(find_src_dir('.', version=sys.argv[1], release=sys.argv[2]))
 
 
-def reset_camoufox():
-    """Reset the Camoufox source"""
+def reset_rotunda():
+    """Reset the Rotunda source"""
     with temp_cd('..'):
         run('make revert')
     run('touch _READY')
@@ -68,7 +68,7 @@ def open_patch_workspace(selected_patch, stop_at_patch=False):
     Resets a workspace for editing a patch.
 
     Process:
-    1. Resets Camoufox
+    1. Resets Rotunda
     2. Patches all except the selected patch
     3. Sets checkpoint
     4. Reruns the selected patch, but reads rejects similar to "Find broken patches"
@@ -77,7 +77,7 @@ def open_patch_workspace(selected_patch, stop_at_patch=False):
     patch_files = list_patches()
 
     # Reset workspace
-    reset_camoufox()
+    reset_rotunda()
 
     skipped_patches = []
     applied_patches = []
@@ -186,20 +186,20 @@ def handle_choice(choice):
     """Handle UI choice"""
     match choice:
         case "Reset workspace":
-            reset_camoufox()
+            reset_rotunda()
             easygui.msgbox(
                 "Reset. All patches & changes have been removed.",
                 "Reset Complete",
             )
 
         case "Create new patch":
-            # Reset camoufox, apply all patches, then create a checkpoint
-            reset_camoufox()
+            # Reset rotunda, apply all patches, then create a checkpoint
+            reset_rotunda()
             with temp_cd('..'):
                 run('make dir')
                 run('make first-checkpoint')
             easygui.msgbox(
-                "Created new patch workspace. You can test Camoufox with 'make run'.\n\n"
+                "Created new patch workspace. You can test Rotunda with 'make run'.\n\n"
                 "When you are finished, write your workspace back to a new patch.",
                 "New Patch Workspace",
             )
@@ -254,7 +254,7 @@ def handle_choice(choice):
                 easygui.msgbox("Unpatching completed.", "Unpatching Complete")
 
         case "Find broken patches (resets workspace)":
-            reset_camoufox()
+            reset_rotunda()
 
             get_all = None
 
@@ -356,7 +356,7 @@ def handle_choice(choice):
 
 
 if __name__ == "__main__":
-    into_camoufox_dir()
+    into_rotunda_dir()
 
-    while choice := easygui.choicebox("Select an option:", "Camoufox Dev Tools", choices):
+    while choice := easygui.choicebox("Select an option:", "Rotunda Dev Tools", choices):
         handle_choice(choice)

@@ -197,7 +197,7 @@ def generate_certificate(full_result: dict, secret: str) -> dict:
             break
 
     fx_match = re.search(r"Firefox/(\d+\.\d+)", ua)
-    camoufox_version = f"Firefox {fx_match.group(1)}" if fx_match else ua[:60]
+    rotunda_version = f"Firefox {fx_match.group(1)}" if fx_match else ua[:60]
 
     return {
         "id": str(uuid.uuid4()),
@@ -205,7 +205,7 @@ def generate_certificate(full_result: dict, secret: str) -> dict:
         "resultsHash": results_hash,
         "timestamp": full_result["timestamp"],
         "platform": "Multi-OS",
-        "camoufoxVersion": camoufox_version,
+        "rotundaVersion": rotunda_version,
         "passCount": full_result["totalPassed"],
         "totalTests": full_result["totalChecks"],
         "overallPass": full_result["totalPassed"] == full_result["totalChecks"],
@@ -226,7 +226,7 @@ def build_certificate_text(cert: dict, cross_profile: dict, overall_grade: str) 
     lines.append("")
     lines.append(f"╔{'═' * w}╗")
 
-    title = "CAMOUFOX BUILD VERIFICATION CERTIFICATE"
+    title = "ROTUNDA BUILD VERIFICATION CERTIFICATE"
     lines.append(f"║{title:^{w}}║")
     lines.append(f"╠{'═' * w}╣")
 
@@ -287,7 +287,7 @@ def print_certificate(cert: dict, cross_profile: dict, overall_grade: str) -> No
     print()
     print(BOLD + box_top() + RESET)
 
-    title = "CAMOUFOX BUILD VERIFICATION CERTIFICATE"
+    title = "ROTUNDA BUILD VERIFICATION CERTIFICATE"
     print(BOLD + box_line(f"{title:^{w}}") + RESET)
     print(BOLD + box_sep() + RESET)
 

@@ -1,19 +1,19 @@
 """
-Async Camoufox example for scraping multiple pages concurrently.
+Async Rotunda example for scraping multiple pages concurrently.
 
 Install deps:
-    pip install camoufox
-    python -m camoufox fetch
+    pip install rotunda
+    python -m rotunda fetch
 
 Local repo development:
-    export CAMOUFOX_EXECUTABLE_PATH=/path/to/Camoufox.app/Contents/MacOS/camoufox
+    export ROTUNDA_EXECUTABLE_PATH=/path/to/Rotunda.app/Contents/MacOS/rotunda
     uv run --group dev python example/async_example.py
 """
 
 import asyncio
 import os
 
-from camoufox import AsyncCamoufox, AsyncNewContext
+from rotunda import AsyncRotunda, AsyncNewContext
 
 URLS = [
     "https://httpbin.org/headers",
@@ -30,10 +30,10 @@ async def scrape(page, url: str) -> dict:
 
 async def main():
     launch_options = {"headless": True}
-    if os.getenv("CAMOUFOX_EXECUTABLE_PATH"):
-        launch_options["executable_path"] = os.environ["CAMOUFOX_EXECUTABLE_PATH"]
+    if os.getenv("ROTUNDA_EXECUTABLE_PATH"):
+        launch_options["executable_path"] = os.environ["ROTUNDA_EXECUTABLE_PATH"]
 
-    async with AsyncCamoufox(**launch_options) as browser:
+    async with AsyncRotunda(**launch_options) as browser:
         context = await AsyncNewContext(browser)
 
         pages = [await context.new_page() for _ in URLS]

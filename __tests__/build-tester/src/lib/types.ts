@@ -209,7 +209,7 @@ export interface CertificateData {
   id: string;
   timestamp: string;
   platform: string;
-  camoufoxVersion: string;
+  rotundaVersion: string;
   passCount: number;
   totalTests: number;
   overallPass: boolean;

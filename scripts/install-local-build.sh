@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Install a custom Camoufox build into the local channel.
+# Install a custom Rotunda build into the local channel.
 #
 # Usage:
 #   ./install-local-build.sh [artifact.zip] [version-build]
@@ -7,7 +7,7 @@
 # If no artifact is given, uses the latest zip in dist/.
 # If no version-build is given, extracts it from the zip filename.
 #
-# Installs to ~/.cache/camoufox/browsers/local/<version-build>/
+# Installs to ~/.cache/rotunda/browsers/local/<version-build>/
 # and sets active_version in config.json.
 
 set -euo pipefail
@@ -15,10 +15,10 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(dirname "$SCRIPT_DIR")"
 
-CACHE_DIR="${HOME}/Library/Caches/camoufox"
+CACHE_DIR="${HOME}/Library/Caches/rotunda"
 # Fall back to XDG if not on macOS
 if [[ ! -d "${HOME}/Library/Caches" ]]; then
-    CACHE_DIR="${XDG_CACHE_HOME:-${HOME}/.cache}/camoufox"
+    CACHE_DIR="${XDG_CACHE_HOME:-${HOME}/.cache}/rotunda"
 fi
 
 BROWSERS_DIR="${CACHE_DIR}/browsers"
@@ -28,7 +28,7 @@ CONFIG_FILE="${CACHE_DIR}/config.json"
 
 ARTIFACT="${1:-}"
 if [[ -z "$ARTIFACT" ]]; then
-    ARTIFACT="$(ls -t "$REPO_ROOT"/dist/camoufox-*-mac.arm64.zip 2>/dev/null | head -1)"
+    ARTIFACT="$(ls -t "$REPO_ROOT"/dist/rotunda-*-mac.arm64.zip 2>/dev/null | head -1)"
     if [[ -z "$ARTIFACT" ]]; then
         echo "No artifact found in dist/. Pass the zip path as an argument."
         exit 1
@@ -45,10 +45,10 @@ fi
 
 VERSION_BUILD="${2:-}"
 if [[ -z "$VERSION_BUILD" ]]; then
-    # Extract from filename: camoufox-<version>-<build>-mac.arm64.zip
+    # Extract from filename: rotunda-<version>-<build>-mac.arm64.zip
     BASENAME="$(basename "$ARTIFACT")"
-    # Strip prefix "camoufox-" and suffix "-mac.arm64.zip" (or similar)
-    VERSION_BUILD="${BASENAME#camoufox-}"
+    # Strip prefix "rotunda-" and suffix "-mac.arm64.zip" (or similar)
+    VERSION_BUILD="${BASENAME#rotunda-}"
     VERSION_BUILD="${VERSION_BUILD%-mac.*}"
     VERSION_BUILD="${VERSION_BUILD%-linux.*}"
     VERSION_BUILD="${VERSION_BUILD%-win.*}"
@@ -83,11 +83,11 @@ trap 'rm -rf "$TMP_DIR"' EXIT
 
 unzip -q "$ARTIFACT" -d "$TMP_DIR"
 
-# Handle macOS structure: the zip may contain Camoufox.app directly or nested
-if [[ -d "$TMP_DIR/Camoufox.app" ]]; then
-    mv "$TMP_DIR/Camoufox.app" "$INSTALL_DIR/Camoufox.app"
-elif [[ -d "$TMP_DIR/Camoufox/Camoufox.app" ]]; then
-    mv "$TMP_DIR/Camoufox/Camoufox.app" "$INSTALL_DIR/Camoufox.app"
+# Handle macOS structure: the zip may contain Rotunda.app directly or nested
+if [[ -d "$TMP_DIR/Rotunda.app" ]]; then
+    mv "$TMP_DIR/Rotunda.app" "$INSTALL_DIR/Rotunda.app"
+elif [[ -d "$TMP_DIR/Rotunda/Rotunda.app" ]]; then
+    mv "$TMP_DIR/Rotunda/Rotunda.app" "$INSTALL_DIR/Rotunda.app"
 else
     # Linux/Windows: move everything
     mv "$TMP_DIR"/* "$INSTALL_DIR/"
@@ -131,11 +131,11 @@ echo "Installed: $INSTALL_DIR"
 echo "Active:    $RELATIVE_PATH"
 
 # Verify
-PLIST="$INSTALL_DIR/Camoufox.app/Contents/Info.plist"
+PLIST="$INSTALL_DIR/Rotunda.app/Contents/Info.plist"
 if [[ -f "$PLIST" ]]; then
     BUNDLE_VERSION="$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$PLIST" 2>/dev/null || echo "unknown")"
     echo "Bundle:    $BUNDLE_VERSION"
 fi
 
 echo ""
-echo "Done. Run 'camoufox list' to see installed versions."
+echo "Done. Run 'rotunda list' to see installed versions."

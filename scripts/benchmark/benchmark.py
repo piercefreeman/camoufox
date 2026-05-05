@@ -2,9 +2,9 @@ import argparse
 import subprocess
 import time
 
-from camoufox.pkgman import launch_path
-from camoufox.sync_api import Camoufox
-from camoufox.virtdisplay import VirtualDisplay
+from rotunda.pkgman import launch_path
+from rotunda.sync_api import Rotunda
+from rotunda.virtdisplay import VirtualDisplay
 from playwright.sync_api import sync_playwright
 from tabulate import tabulate
 
@@ -41,13 +41,13 @@ def run_playwright(mode, browser_name):
     virt = VirtualDisplay()
     env = {"DISPLAY": virt.get()}
 
-    if browser_name == "camoufox-ubo":
-        camoufox = Camoufox(headless=headless, env=env)
-        browser = camoufox.start()
+    if browser_name == "rotunda-ubo":
+        rotunda = Rotunda(headless=headless, env=env)
+        browser = rotunda.start()
     elif browser_name == "firefox":
         playwright = sync_playwright().start()
         browser = playwright.firefox.launch(headless=headless, env=env)
-    elif browser_name == "camoufox":
+    elif browser_name == "rotunda":
         playwright = sync_playwright().start()
         browser = playwright.firefox.launch(
             headless=headless, env=env, executable_path=launch_path()
@@ -58,7 +58,7 @@ def run_playwright(mode, browser_name):
         page.goto(url)
         time.sleep(5)  # Allow the page to load
         memory = get_average_memory(
-            name="camoufox-bin" if browser_name.startswith('camoufox') else 'firefox', duration=10
+            name="rotunda-bin" if browser_name.startswith('rotunda') else 'firefox', duration=10
         )
         memory_usage.append((url, memory))
         page.close()
@@ -81,7 +81,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--browser",
         type=str,
-        choices=["firefox", "camoufox", "camoufox-ubo"],
+        choices=["firefox", "rotunda", "rotunda-ubo"],
         required=True,
         help="Browser to use for the benchmark.",
     )

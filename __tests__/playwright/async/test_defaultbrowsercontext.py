@@ -329,7 +329,7 @@ async def test_should_support_contrast_option(
 
 
 @pytest.mark.xfail(
-    reason="Camoufox persistent contexts do not currently honor the Playwright locale override.",
+    reason="Rotunda persistent contexts do not currently honor the Playwright locale override.",
     strict=False,
 )
 async def test_should_support_locale_option(

@@ -52,7 +52,7 @@ HELPER_SEEDED_PATHS = {
     "build/vs/pack_vs.py",
     "browser/config/version.txt",
     "browser/config/version_display.txt",
-    "lw/camoufox.cfg",
+    "lw/rotunda.cfg",
     "lw/chrome.css",
     "lw/local-settings.js",
     "lw/moz.build",
@@ -147,8 +147,8 @@ def parse_upstream_metadata(upstream_path: Path = UPSTREAM_SH) -> BuildMetadata:
         key, value = line.split("=", 1)
         values[key.strip()] = value.strip()
 
-    version = os.environ.get("CAMOUFOX_FIREFOX_VERSION", values["version"])
-    release = os.environ.get("CAMOUFOX_RELEASE", values["release"])
+    version = os.environ.get("ROTUNDA_FIREFOX_VERSION", values["version"])
+    release = os.environ.get("ROTUNDA_RELEASE", values["release"])
     return BuildMetadata(version=version, release=release)
 
 
@@ -328,7 +328,7 @@ class PatchVerifier:
             console.print(f"[cyan]Using workspace:[/cyan] {self.options.workspace}")
             return self.options.workspace
 
-        workdir = Path(tempfile.mkdtemp(prefix="camoufox-patch-verify-"))
+        workdir = Path(tempfile.mkdtemp(prefix="rotunda-patch-verify-"))
         console.print(f"[cyan]Created temp workspace:[/cyan] {workdir}")
         return workdir
 
@@ -410,7 +410,7 @@ class PatchVerifier:
             "services/settings/dumps/main/search-config.json",
         )
         self.copy_file(PATCHES_DIR / "librewolf" / "pack_vs.py", "build/vs/pack_vs.py")
-        self.copy_file(SETTINGS_DIR / "camoufox.cfg", "lw/camoufox.cfg")
+        self.copy_file(SETTINGS_DIR / "rotunda.cfg", "lw/rotunda.cfg")
         self.copy_file(
             SETTINGS_DIR / "distribution" / "policies.json",
             "lw/policies.json",
@@ -675,7 +675,7 @@ class PatchVerifier:
         # lane stops being fast.
         source_tree = self.options.source_tree
         if source_tree is None:
-            default_source_tree = REPO_ROOT / f"camoufox-{self.metadata.version}-{self.metadata.release}"
+            default_source_tree = REPO_ROOT / f"rotunda-{self.metadata.version}-{self.metadata.release}"
             if default_source_tree.exists():
                 source_tree = default_source_tree
 
@@ -837,7 +837,7 @@ class PatchVerifier:
     def run_syntax_checks(self) -> list[SyntaxResult]:
         # Limitations:
         # - This fast lane only checks translation units touched by the current
-        #   patch diff, not every file in the whole Camoufox patch stack.
+        #   patch diff, not every file in the whole Rotunda patch stack.
         # - It reuses compile flags and generated headers from a previously
         #   built source tree / syntax SDK.
         # - Header-only changes and brand-new files without cached compile
@@ -973,7 +973,7 @@ class PatchVerifier:
 @click.option(
     "--cache-dir",
     type=click.Path(path_type=Path, file_okay=False),
-    default=Path.home() / ".cache" / "camoufox" / "firefox-source",
+    default=Path.home() / ".cache" / "rotunda" / "firefox-source",
     show_default=True,
     help="Directory for cached Firefox source tarballs.",
 )
@@ -990,7 +990,7 @@ class PatchVerifier:
 @click.option(
     "--source-tree",
     type=click.Path(path_type=Path, file_okay=False),
-    help="Existing built Camoufox/Firefox tree to use as the cached syntax context.",
+    help="Existing built Rotunda/Firefox tree to use as the cached syntax context.",
 )
 @click.option(
     "--compile-commands-dir",
@@ -1028,7 +1028,7 @@ def main(
     console.rule("[bold blue]Firefox Patch Verification[/bold blue]")
     console.print(
         f"Verifying Firefox [bold]{metadata.version}[/bold] with "
-        f"Camoufox release [bold]{metadata.release}[/bold]"
+        f"Rotunda release [bold]{metadata.release}[/bold]"
     )
     options = VerifierOptions(
         cache_dir=cache_dir,

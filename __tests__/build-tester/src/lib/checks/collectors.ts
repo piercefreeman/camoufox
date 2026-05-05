@@ -456,9 +456,9 @@ export async function collectFingerprints(): Promise<FingerprintData> {
   // Font metrics — use "Arial" (concrete font name) instead of "monospace" (generic family).
   // The fontPlatformConsistency check in extended.ts calls isFontAvailable() 11 times with
   // different font families + monospace fallback, which pollutes fontconfig's generic family
-  // resolution cache. On macOS Global (CAMOU_CONFIG), this causes "monospace" to resolve to
+  // resolution cache. On macOS Global (ROTUNDA_CONFIG_PATH), this causes "monospace" to resolve to
   // a different actual font between the two collectFingerprints() calls (42.6px delta observed).
-  // Arial is a concrete font always available in all Camoufox font lists, immune to this.
+  // Arial is a concrete font always available in all Rotunda font lists, immune to this.
   await document.fonts.ready;
   const fontData = (() => {
     try {

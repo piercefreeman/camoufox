@@ -22,14 +22,14 @@ function hashConsoleMessage(params) {
 }
 
 function isHumanizeEnabled() {
-  return ChromeUtils.camouGetBool('humanize.enabled', false);
+  return ChromeUtils.rotundaGetBool('humanize.enabled', false);
 }
 
 function humanizedMousePoints(fromX, fromY, toX, toY, bounds) {
   if (!isHumanizeEnabled() || fromX === toX && fromY === toY)
     return null;
 
-  const flatPoints = ChromeUtils.camouGetMouseTrajectory(
+  const flatPoints = ChromeUtils.rotundaGetMouseTrajectory(
     Math.round(fromX),
     Math.round(fromY),
     Math.round(toX),

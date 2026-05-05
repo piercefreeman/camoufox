@@ -415,7 +415,7 @@ index 3ee8c0aa76..4cf10f3039 100644
  LOCAL_INCLUDES += [".."]
  
  # DOM Mask
- LOCAL_INCLUDES += ["/camoucfg"]
+ LOCAL_INCLUDES += ["/rotundacfg"]
 +
 +# AudioFingerprintManager in dom/base
 +LOCAL_INCLUDES += ["/dom/base"]

@@ -168,8 +168,8 @@ jobs:
         with:
           fetch-depth: 1
 
-      - name: Resolve Camoufox release version
-        id: camoufox-release
+      - name: Resolve Rotunda release version
+        id: rotunda-release
         env:
           GITHUB_EVENT_RELEASE_TAG_NAME: ${{ github.event.release.tag_name }}
         run: bash .github/scripts/resolve-release-version.sh
@@ -232,7 +232,7 @@ jobs:
 
       - name: Fetch source
         env:
-          CAMOUFOX_PASSWD: ${{ secrets.CAMOUFOX_PASSWD }}
+          ROTUNDA_PASSWD: ${{ secrets.ROTUNDA_PASSWD }}
         run: |
           make fetch
 
@@ -292,7 +292,7 @@ jobs:
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v4
         with:
-          name: CamoufoxBuilds-${{ matrix.target }}-${{ matrix.arch }}
+          name: RotundaBuilds-${{ matrix.target }}-${{ matrix.arch }}
           path: dist/*.zip
           if-no-files-found: error
 
@@ -380,7 +380,7 @@ jobs:
       - name: Download build artifact
         uses: actions/download-artifact@v4
         with:
-          name: CamoufoxBuilds-${{ matrix.target }}-${{ matrix.arch }}
+          name: RotundaBuilds-${{ matrix.target }}-${{ matrix.arch }}
           path: dist-artifact
 
       - name: Inspect downloaded build artifact
@@ -442,7 +442,7 @@ jobs:
           sudo apt-get install -y unzip
           uv run --group dev --group playwright-tests --locked playwright install-deps firefox
 
-      - name: Resolve Camoufox executable
+      - name: Resolve Rotunda executable
         id: artifact
         run: |
           python3 scripts/resolve_ci_artifact.py \
@@ -452,7 +452,7 @@ jobs:
 
       - name: Run integration tests
         env:
-          CAMOUFOX_EXECUTABLE_PATH: ${{ steps.artifact.outputs.executable_path }}
+          ROTUNDA_EXECUTABLE_PATH: ${{ steps.artifact.outputs.executable_path }}
         run: |
           uv run --group dev --group playwright-tests --locked pytest \
             --integration \

@@ -12,16 +12,16 @@ from pathlib import Path
 
 
 EXECUTABLE_PATTERNS = (
-    "**/Camoufox.app/Contents/MacOS/camoufox",
-    "**/Camoufox.app/Contents/MacOS/Camoufox",
-    "**/camoufox-bin",
-    "**/camoufox.exe",
+    "**/Rotunda.app/Contents/MacOS/rotunda",
+    "**/Rotunda.app/Contents/MacOS/Rotunda",
+    "**/rotunda-bin",
+    "**/rotunda.exe",
 )
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Extract a built Camoufox artifact and locate its executable."
+        description="Extract a built Rotunda artifact and locate its executable."
     )
     parser.add_argument(
         "--artifact",
@@ -63,7 +63,7 @@ def resolve_executable(extract_dir: Path) -> Path:
                     executable.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH
                 )
             return executable
-    raise SystemExit(f"Could not find a Camoufox executable under {extract_dir}")
+    raise SystemExit(f"Could not find a Rotunda executable under {extract_dir}")
 
 
 def extract_artifact(artifact: Path, extract_dir: Path) -> None:

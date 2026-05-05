@@ -373,7 +373,7 @@ index a2b3e60fe5..faa0c113bc 100644
      CXXFLAGS += CONFIG["MOZ_PANGO_CFLAGS"]
 +
 +# DOM Mask
-+LOCAL_INCLUDES += ["/camoucfg"]
++LOCAL_INCLUDES += ["/rotundacfg"]
 
 diff --git a/gfx/src/nsDeviceContext.cpp b/gfx/src/nsDeviceContext.cpp
 index 7a4fa8d48f..408b754d92 100644
@@ -418,7 +418,7 @@ index f83e2c21ca..5362dd77d4 100644
      return GetSize(aDocument);
    }
  
-+  // Camoufox: per-context screen dimensions for CSS device-width/height queries
++  // Rotunda: per-context screen dimensions for CSS device-width/height queries
 +  if (nsPIDOMWindowInner* inner = aDocument.GetInnerWindow()) {
 +    nsGlobalWindowInner* win = nsGlobalWindowInner::Cast(inner);
 +    if (win) {

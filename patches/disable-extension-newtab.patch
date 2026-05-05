@@ -6,8 +6,8 @@ index 179816fa96..c7de1c2278 100644
  /* eslint-enable mozilla/balanced-listeners */
  
  global.openOptionsPage = extension => {
-+  if (!ChromeUtils.camouGetBool('allowAddonNewtab', false)) {
-+    return Promise.reject({ message: "Rejected by Camoufox." });
++  if (!ChromeUtils.rotundaGetBool('allowAddonNewtab', false)) {
++    return Promise.reject({ message: "Rejected by Rotunda." });
 +  }
    let window = windowTracker.topWindow;
    if (!window) {
@@ -20,8 +20,8 @@ index b47f0510e3..649caccc60 100644
          }).api(),
  
          create(createProperties) {
-+          if (!ChromeUtils.camouGetBool('allowAddonNewtab', false)) {
-+            return Promise.reject({ message: "Rejected by Camoufox." });
++          if (!ChromeUtils.rotundaGetBool('allowAddonNewtab', false)) {
++            return Promise.reject({ message: "Rejected by Rotunda." });
 +          }
            return new Promise(resolve => {
              let window =

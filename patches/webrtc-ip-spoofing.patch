@@ -391,7 +391,7 @@ index ca237977cd..abfc081ae7 100644
    }
  
    if (!IsClosed()) {
-+    // Camoufox: Capture userContextId for stats sanitization
++    // Rotunda: Capture userContextId for stats sanitization
 +    uint32_t statsUserContextId = 0;
 +    if (mWindow) {
 +      if (BrowsingContext* bc = mWindow->GetBrowsingContext()) {
@@ -406,7 +406,7 @@ index ca237977cd..abfc081ae7 100644
 -            [promise, window = mWindow](
 +            [promise, window = mWindow, statsUserContextId, shouldSanitizeStats](
                  UniquePtr<dom::RTCStatsReportInternal>&& aReport) {
-+              // Camoufox: Sanitize IP addresses in stats before exposing to JS
++              // Rotunda: Sanitize IP addresses in stats before exposing to JS
 +              if (shouldSanitizeStats && aReport) {
 +                nsString ipv4, ipv6;
 +                WebRTCIPManager::GetIPv4(statsUserContextId, ipv4);
@@ -727,7 +727,7 @@ index 62bb6eecff..da26fe05ee 100644
  FINAL_LIBRARY = "xul"
 +
 +# DOM Mask
-+LOCAL_INCLUDES += ["/camoucfg"]
++LOCAL_INCLUDES += ["/rotundacfg"]
 diff --git a/dom/webidl/Window.webidl b/dom/webidl/Window.webidl
 index 7c509eb87e..0a9010c2d1 100644
 --- a/dom/webidl/Window.webidl

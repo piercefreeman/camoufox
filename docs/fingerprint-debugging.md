@@ -17,10 +17,10 @@ BUILD_TARGET=macos,arm64 make build
 The built executable is:
 
 ```text
-camoufox-150.0.1-beta.25/obj-aarch64-apple-darwin/dist/Camoufox.app/Contents/MacOS/camoufox
+rotunda-150.0.1-beta.25/obj-aarch64-apple-darwin/dist/Rotunda.app/Contents/MacOS/rotunda
 ```
 
-Launch through the Python/Camoufox path when validating fingerprint behavior.
+Launch through the Python/Rotunda path when validating fingerprint behavior.
 Directly running the executable can hit profile/config mismatches and is not the
 same path that users exercise through Playwright.
 
@@ -38,7 +38,7 @@ Two important patch-stack rules:
   the helper.
 - If a patch modifies a file created by another patch, the modifier must sort
   after the creator. For example, a follow-up patch touching
-  `js/src/vm/CamoufoxVMAccessLog.cpp` must sort after
+  `js/src/vm/RotundaVMAccessLog.cpp` must sort after
   `vm-access-logging.patch`.
 
 The verifier now allows follow-up patches to touch patch-created files, but the
@@ -158,7 +158,7 @@ capture is not visible to page JavaScript.
 PixelScan's `Fingerprint: Masking detected` verdict can be triggered by
 synthetic font metrics. The C++ font-spacing patch already treats
 `fonts.spacingSeed == 0` as a no-op, but the Python defaults previously filled a
-missing spacing seed with a random nonzero value. That made ordinary Camoufox
+missing spacing seed with a random nonzero value. That made ordinary Rotunda
 launches perturb HarfBuzz glyph advances and produce font/canvas text metrics
 that do not match real population data.
 
@@ -171,16 +171,16 @@ previous app bundle can continue using stale font-spacing code. Rebuild/link the
 library and refresh the app copy before retesting:
 
 ```sh
-cd camoufox-150.0.1-beta.25
+cd rotunda-150.0.1-beta.25
 ./mach build --allow-subdirectory-build gfx/thebes layout/generic toolkit/library
 cp obj-aarch64-apple-darwin/dist/bin/XUL \
-  obj-aarch64-apple-darwin/dist/Camoufox.app/Contents/MacOS/XUL
+  obj-aarch64-apple-darwin/dist/Rotunda.app/Contents/MacOS/XUL
 ```
 
 PixelScan's font check is a 160-family canvas probe. Stock Firefox on this host
 produces 147 unique canvas outputs with one expected STIX/Times duplicate group.
-The stale Camoufox app produced only 133 unique outputs and several extra
-duplicate groups. After refreshing `XUL`, Camoufox matched stock Firefox:
+The stale Rotunda app produced only 133 unique outputs and several extra
+duplicate groups. After refreshing `XUL`, Rotunda matched stock Firefox:
 
 ```text
 /s/api/co: osFontsStatus=true
@@ -190,7 +190,7 @@ page: Your Browser Fingerprint is consistent / No masking detected
 
 The font allowlist aliases are still useful. PixelScan's expected macOS list
 contains legacy/CoreText family names, and regular Firefox resolves those names
-on the same host. Camoufox should allow those aliases through `setFontList()` so
+on the same host. Rotunda should allow those aliases through `setFontList()` so
 Firefox's native resolver can handle them.
 
 The fix is Python-side allowlist alias support: keep discovered font families
@@ -211,35 +211,35 @@ stay aligned with the executable.
 The VM logger is controlled by environment variables:
 
 ```sh
-CAMOUFOX_VM_ACCESS_LOG=1
-CAMOUFOX_VM_ACCESS_FILTER='fingerprint'
-CAMOUFOX_VM_ACCESS_OBJECT_FILTER='Window'
-CAMOUFOX_VM_ACCESS_SYMBOLS=1
-CAMOUFOX_VM_ACCESS_RETURNS=1
-CAMOUFOX_VM_ACCESS_BUFFERED=1
-CAMOUFOX_VM_ACCESS_REALM=1
-CAMOUFOX_VM_ACCESS_VALUE_STRINGS=1
-CAMOUFOX_VM_ACCESS_FUNCTION_NAMES=1
-CAMOUFOX_VM_ACCESS_SAMPLE_RATE=1
-CAMOUFOX_VM_ACCESS_MAX_ARGS=8
-CAMOUFOX_VM_ACCESS_MAX_STRING=256
-CAMOUFOX_VM_ACCESS_MAX_QUEUE_BYTES=67108864
+ROTUNDA_VM_ACCESS_LOG=1
+ROTUNDA_VM_ACCESS_FILTER='fingerprint'
+ROTUNDA_VM_ACCESS_OBJECT_FILTER='Window'
+ROTUNDA_VM_ACCESS_SYMBOLS=1
+ROTUNDA_VM_ACCESS_RETURNS=1
+ROTUNDA_VM_ACCESS_BUFFERED=1
+ROTUNDA_VM_ACCESS_REALM=1
+ROTUNDA_VM_ACCESS_VALUE_STRINGS=1
+ROTUNDA_VM_ACCESS_FUNCTION_NAMES=1
+ROTUNDA_VM_ACCESS_SAMPLE_RATE=1
+ROTUNDA_VM_ACCESS_MAX_ARGS=8
+ROTUNDA_VM_ACCESS_MAX_STRING=256
+ROTUNDA_VM_ACCESS_MAX_QUEUE_BYTES=67108864
 ```
 
 Under Playwright, browser stderr is not reliably visible from the Python launch
 path. Prefer logging directly to a file:
 
 ```sh
-CAMOUFOX_VM_ACCESS_LOG=1 \
-CAMOUFOX_VM_ACCESS_LOG_FILE=/tmp/camoufox-fp-vm.log \
+ROTUNDA_VM_ACCESS_LOG=1 \
+ROTUNDA_VM_ACCESS_LOG_FILE=/tmp/rotunda-fp-vm.log \
 PYTHONPATH=pythonlib \
 .venv/bin/python scripts_or_inline_repro.py
 ```
 
 Useful filters:
 
-- Use `CAMOUFOX_VM_ACCESS_OBJECT_FILTER=Window` for global/window probes.
-- Use `CAMOUFOX_VM_ACCESS_OBJECT_FILTER=Navigator` for navigator probes.
+- Use `ROTUNDA_VM_ACCESS_OBJECT_FILTER=Window` for global/window probes.
+- Use `ROTUNDA_VM_ACCESS_OBJECT_FILTER=Navigator` for navigator probes.
 - Use no object filter for a full run, but expect very large logs.
 - Script URL filters can be brittle because the Fingerprint script URL changes
   and minified code may be loaded through different bundle URLs.
@@ -252,26 +252,26 @@ The logger records:
 - Native and scripted calls, including callee name, `this` class, and capped
   argument previews.
 - Return previews for calls, property gets, and `in` checks when
-  `CAMOUFOX_VM_ACCESS_RETURNS=1`.
+  `ROTUNDA_VM_ACCESS_RETURNS=1`.
 - String return/argument contents only when
-  `CAMOUFOX_VM_ACCESS_VALUE_STRINGS=1`; otherwise strings are logged as the
+  `ROTUNDA_VM_ACCESS_VALUE_STRINGS=1`; otherwise strings are logged as the
   cheaper `<string>` marker.
-- Native caller and target realm attribution when `CAMOUFOX_VM_ACCESS_REALM=1`,
+- Native caller and target realm attribution when `ROTUNDA_VM_ACCESS_REALM=1`,
   which usually identifies both the script owner and the page/frame/global owner
   of the object being inspected without adding page-visible wrappers.
 
-When `CAMOUFOX_VM_ACCESS_LOG_FILE` is set, the logger uses a native buffered
+When `ROTUNDA_VM_ACCESS_LOG_FILE` is set, the logger uses a native buffered
 writer thread by default. The JS execution thread records compact structured
 events with interned string ids and primitive previews; the writer thread formats
-the grep-friendly text lines. Set `CAMOUFOX_VM_ACCESS_BUFFERED=0` only when
+the grep-friendly text lines. Set `ROTUNDA_VM_ACCESS_BUFFERED=0` only when
 debugging the logger itself. If a full unfiltered run outpaces the writer,
 overflow is reported as
 `op=log-dropped ... reason=queue-full`; raise
-`CAMOUFOX_VM_ACCESS_MAX_QUEUE_BYTES` for short local sessions where completeness
+`ROTUNDA_VM_ACCESS_MAX_QUEUE_BYTES` for short local sessions where completeness
 matters more than memory.
-Use `CAMOUFOX_VM_ACCESS_SAMPLE_RATE=N` to record roughly every Nth VM event when
+Use `ROTUNDA_VM_ACCESS_SAMPLE_RATE=N` to record roughly every Nth VM event when
 the full stream still changes page timing too much. Use
-`CAMOUFOX_VM_ACCESS_FUNCTION_NAMES=0` if function-name lookup itself becomes a
+`ROTUNDA_VM_ACCESS_FUNCTION_NAMES=0` if function-name lookup itself becomes a
 hot-path cost; object value previews still report class names either way.
 
 ## Debug Dump Mode
@@ -282,12 +282,12 @@ selected high-value API outputs. The Python launch/context path now supports
 this small env-flag surface:
 
 ```sh
-CAMOUFOX_DEBUG_DUMP_DIR=/tmp/camoufox-debug
-CAMOUFOX_DEBUG_DUMP=manifest,network,console,vm,returns
-CAMOUFOX_DEBUG_DUMP_MAX_BODY=1048576
+ROTUNDA_DEBUG_DUMP_DIR=/tmp/rotunda-debug
+ROTUNDA_DEBUG_DUMP=manifest,network,console,vm,returns
+ROTUNDA_DEBUG_DUMP_MAX_BODY=1048576
 ```
 
-Set `CAMOUFOX_DEBUG_DUMP_RAW=1` only for isolated local repros where secrets are
+Set `ROTUNDA_DEBUG_DUMP_RAW=1` only for isolated local repros where secrets are
 not a concern. Without raw mode, obvious credentials in headers and common token
 strings are redacted.
 The `returns` section implies `vm` because native return previews are emitted by
@@ -309,12 +309,12 @@ The dump is JSONL-first so normal shell tools work:
   page errors, and uncaught exceptions. This should capture debug output from
   patched third-party agents without relying on browser stderr.
 - `vm-access.log`: the existing native VM property/call records. When `vm` is
-  enabled, the Python launcher automatically sets `CAMOUFOX_VM_ACCESS_LOG=1` and
-  points `CAMOUFOX_VM_ACCESS_LOG_FILE` at this file. It also enables the native
+  enabled, the Python launcher automatically sets `ROTUNDA_VM_ACCESS_LOG=1` and
+  points `ROTUNDA_VM_ACCESS_LOG_FILE` at this file. It also enables the native
   buffered writer and realm attribution. When `returns` is enabled, it sets
-  `CAMOUFOX_VM_ACCESS_RETURNS=1`, which adds return-preview lines for
+  `ROTUNDA_VM_ACCESS_RETURNS=1`, which adds return-preview lines for
   native/scripted calls plus property `get` and `in` checks. Set
-  `CAMOUFOX_VM_ACCESS_VALUE_STRINGS=1` for investigations where actual string
+  `ROTUNDA_VM_ACCESS_VALUE_STRINGS=1` for investigations where actual string
   values such as `Error.stack` matter more than timing fidelity.
 
 Network logging and return logging solve different problems and both are needed:
@@ -324,7 +324,7 @@ Network logging and return logging solve different problems and both are needed:
 - VM return dumps show what page JavaScript actually observed before it built or
   encrypted a payload, such as `Error.stack`, `navigator.userAgent`,
   `screen.availHeight`, canvas hashes, or font probe measurements. Actual
-  string contents require `CAMOUFOX_VM_ACCESS_VALUE_STRINGS=1`; numbers,
+  string contents require `ROTUNDA_VM_ACCESS_VALUE_STRINGS=1`; numbers,
   booleans, object classes, and error markers are captured without that flag.
 - Native surface-specific summaries would keep logs grepable when generic VM
   logging produces too much data or enormous binary strings.
@@ -332,7 +332,7 @@ Network logging and return logging solve different problems and both are needed:
 Implemented:
 
 - Add a Python-side network dump hook for all `NewContext`/`AsyncNewContext`
-  contexts when `CAMOUFOX_DEBUG_DUMP` includes `network`.
+  contexts when `ROTUNDA_DEBUG_DUMP` includes `network`.
 - Add console and page-error dumps for pages created from a debug-dump context.
 - Automatically route existing native VM logs into the dump directory when `vm`
   is enabled.
@@ -376,17 +376,17 @@ This avoids creating mismatched launch/context identities:
 import os
 from pathlib import Path
 
-from camoufox import Camoufox, NewContext
-from camoufox.fingerprints import generate_fingerprint
+from rotunda import Rotunda, NewContext
+from rotunda.fingerprints import generate_fingerprint
 
 exe = Path(
-    "camoufox-150.0.1-beta.25/"
-    "obj-aarch64-apple-darwin/dist/Camoufox.app/Contents/MacOS/camoufox"
+    "rotunda-150.0.1-beta.25/"
+    "obj-aarch64-apple-darwin/dist/Rotunda.app/Contents/MacOS/rotunda"
 ).resolve()
 
 fp = generate_fingerprint(debug=True)
 
-with Camoufox(
+with Rotunda(
     headless=False,
     executable_path=str(exe),
     fingerprint=fp,

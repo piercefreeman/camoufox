@@ -1,6 +1,6 @@
 # Firefox Patch Upgrading Guide for LLMs
 
-This guide provides step-by-step instructions for updating Camoufox patches when upgrading Firefox versions. Patches frequently break due to Firefox API changes, file reorganizations, and line number shifts.
+This guide provides step-by-step instructions for updating Rotunda patches when upgrading Firefox versions. Patches frequently break due to Firefox API changes, file reorganizations, and line number shifts.
 
 **All patches are located in the `patches/` directory.** There are no separate context patches to merge—per-context functionality is already built into the patches.
 
@@ -20,7 +20,7 @@ This guide provides step-by-step instructions for updating Camoufox patches when
 
 ### Patch Categories
 
-All Camoufox patches are in the `patches/` directory:
+All Rotunda patches are in the `patches/` directory:
 
 - **Core Patches**: `0-playwright.patch`, `1-leak-fixes.patch`, etc.
 - **Feature Patches**: `webrtc-ip-spoofing.patch`, `anti-font-fingerprinting.patch`, etc.
@@ -69,7 +69,7 @@ Some patches depend on others being applied first:
 ### Step 1: Apply Base Patch and Identify Rejects
 
 ```bash
-cd camoufox-<version>
+cd rotunda-<version>
 patch -p1 < ../patches/patch-name.patch
 ```
 
@@ -132,7 +132,7 @@ cp /tmp/patch-name.patch ../patches/patch-name.patch
 ```bash
 cd ..
 make clean
-cd camoufox-<version>
+cd rotunda-<version>
 patch -p1 < ../patches/patch-name.patch
 find . -name '*.rej' -type f  # Should return nothing
 ```
@@ -233,7 +233,7 @@ mouseOrPointerEvent.convertToPointer = aOptions.mConvertToPointer;
 
 ```bash
 # Search across the codebase
-grep -r "FunctionName" camoufox-<version>/ --include="*.cpp"
+grep -r "FunctionName" rotunda-<version>/ --include="*.cpp"
 ```
 
 ### Type 4: New Parameter Added to Function Calls
@@ -308,7 +308,7 @@ Merge all changes from `*.context.patch` into the corresponding base patch so th
 
 2. **Apply base patch first**:
    ```bash
-   cd camoufox-<version>
+   cd rotunda-<version>
    patch -p1 < ../patches/anti-font-fingerprinting.patch
    ```
 
@@ -339,7 +339,7 @@ Merge all changes from `*.context.patch` into the corresponding base patch so th
    ```bash
    cd ..
    make clean
-   cd camoufox-<version>
+   cd rotunda-<version>
    patch -p1 < ../patches/anti-font-fingerprinting.patch
    find . -name '*.rej' -type f  # Should be empty
    ```
@@ -378,7 +378,7 @@ After updating a patch, always verify:
 1. **Patch applies cleanly**:
    ```bash
    make clean
-   cd camoufox-<version>
+   cd rotunda-<version>
    patch -p1 < ../patches/patch-name.patch
    find . -name '*.rej' -type f
    ```
@@ -438,7 +438,7 @@ Here's a complete example of updating `0-playwright.patch` from Firefox 144 to F
 
 ```bash
 make clean
-cd camoufox-146.0.1-beta.25
+cd rotunda-146.0.1-beta.25
 patch -p1 < ../patches/0-playwright.patch
 ```
 
@@ -489,7 +489,7 @@ cp /tmp/0-playwright.patch ../patches/0-playwright.patch
 ```bash
 cd ..
 make clean
-cd camoufox-146.0.1-beta.25
+cd rotunda-146.0.1-beta.25
 patch -p1 < ../patches/0-playwright.patch
 find . -name '*.rej' -type f  # Should be empty
 ```

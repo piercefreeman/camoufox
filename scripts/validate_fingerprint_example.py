@@ -10,9 +10,9 @@ import yaml
 
 
 ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_SCHEMA = ROOT / "schemas" / "camoufox-profile.openapi.yaml"
+DEFAULT_SCHEMA = ROOT / "schemas" / "rotunda-profile.openapi.yaml"
 DEFAULT_EXAMPLE = ROOT / "example" / "fingerprint.json"
-ROOT_SCHEMA_REF = "#/components/schemas/CamoufoxProfile"
+ROOT_SCHEMA_REF = "#/components/schemas/RotundaProfile"
 
 
 class FingerprintExampleValidationError(ValueError):
@@ -172,7 +172,7 @@ class OpenApiValidator:
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
-            "Validate example/fingerprint.json against schemas/camoufox-profile.openapi.yaml "
+            "Validate example/fingerprint.json against schemas/rotunda-profile.openapi.yaml "
             "while treating every object property as required."
         )
     )

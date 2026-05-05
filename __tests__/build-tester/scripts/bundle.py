@@ -54,7 +54,7 @@ def ensure_bundle(project_dir: Path) -> Path:
             "--platform=browser",
             "--target=es2017",
             "--format=iife",
-            "--global-name=CamoufoxChecks",
+            "--global-name=RotundaChecks",
             f"--outfile={bundle_path}",
         ],
         capture_output=True,

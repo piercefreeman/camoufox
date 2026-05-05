@@ -1,6 +1,6 @@
 """
-Generates per-context + global fingerprint configs using the Camoufox Python API.
-Called by the camoufox-tester to get realistic fingerprint data.
+Generates per-context + global fingerprint configs using the Rotunda Python API.
+Called by the rotunda-tester to get realistic fingerprint data.
 
 Output: JSON object to stdout with macPerContext, linuxPerContext, macGlobal, linuxGlobal
 """

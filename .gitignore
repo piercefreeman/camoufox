@@ -1,4 +1,5 @@
 # Local builds
+/rotunda-*
 /camoufox-*
 /firefox-*
 /mozilla-unified
@@ -37,6 +38,7 @@ venv/
 __pycache__/
 *.pyc
 *.mmdb
+pythonlib/rotunda.egg-info/
 pythonlib/camoufox.egg-info/
 pythonlib-dev/
 run-pw-dev.py
@@ -54,14 +56,14 @@ closedsrc
 
 # Build outputs
 *.so
-/camoufox
+/rotunda
 /omni.ja
 /precomplete
 /dependentlibs.list
 /application.ini
 /platform.ini
-/camoufox.cfg
-/camoucfg.jvv
+/rotunda.cfg
+/rotundacfg.jvv
 /chrome.css
 /properties.json
 /removed-files

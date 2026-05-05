@@ -1,6 +1,6 @@
 """
 WSL (Windows Subsystem for Linux) detection and path conversion helpers.
-Used when running a Linux Camoufox binary from a Windows host.
+Used when running a Linux Rotunda binary from a Windows host.
 """
 
 import re
