@@ -48,6 +48,8 @@ jobs:
 
           if event_name == "workflow_dispatch":
               runner_profile = os.environ["WORKFLOW_DISPATCH_RUNNER_PROFILE"] or "standard"
+          elif event_name == "push":
+              runner_profile = "fast"
           elif event_name == "pull_request":
               labels = set(json.loads(os.environ.get("PR_LABELS_JSON") or "[]"))
               if "full-build-fast" in labels:
