@@ -129,7 +129,7 @@ index 0000000..a7a38e6
 +  return !gObjectFilter || (value && strstr(value, gObjectFilter));
 +}
 +
-+static const char* ClassName(JSObject* obj) {
++static const char* ObjectClassName(JSObject* obj) {
 +  return obj && obj->getClass() ? obj->getClass()->name : "<null>";
 +}
 +
@@ -146,7 +146,8 @@ index 0000000..a7a38e6
 +
 +  if (id.isString()) {
 +    JS::AutoSaveExceptionState savedExc(cx);
-+    *owned = JS_EncodeStringToUTF8(cx, id.toString());
++    JS::RootedString str(cx, id.toString());
++    *owned = JS_EncodeStringToUTF8(cx, str);
 +    if (*owned) {
 +      *out = owned->get();
 +    } else {
@@ -182,7 +183,8 @@ index 0000000..a7a38e6
 +  }
 +
 +  JS::AutoSaveExceptionState savedExc(cx);
-+  *ownedName = JS_EncodeStringToUTF8(cx, name);
++  JS::RootedString str(cx, name);
++  *ownedName = JS_EncodeStringToUTF8(cx, str);
 +  if (*ownedName) {
 +    *functionName = ownedName->get();
 +  }
@@ -250,7 +252,8 @@ index 0000000..a7a38e6
 +  }
 +  if (value.isString()) {
 +    JS::AutoSaveExceptionState savedExc(cx);
-+    JS::UniqueChars encoded = JS_EncodeStringToUTF8(cx, value.toString());
++    JS::RootedString str(cx, value.toString());
++    JS::UniqueChars encoded = JS_EncodeStringToUTF8(cx, str);
 +    PrintEscapedString(encoded ? encoded.get() : nullptr);
 +    return;
 +  }
@@ -260,7 +263,7 @@ index 0000000..a7a38e6
 +  }
 +  if (value.isObject()) {
 +    JSObject* obj = &value.toObject();
-+    const char* className = ClassName(obj);
++    const char* className = ObjectClassName(obj);
 +    JS::UniqueChars ownedName;
 +    const char* functionName = nullptr;
 +    FormatFunctionName(cx, obj, &ownedName, &functionName);
@@ -329,8 +332,8 @@ index 0000000..a7a38e6
 +  JSObject* thisObj =
 +      args.thisv().isObject() ? &args.thisv().toObject() : nullptr;
 +
-+  const char* calleeClass = ClassName(calleeObj);
-+  const char* thisClass = thisObj ? ClassName(thisObj) : "<primitive>";
++  const char* calleeClass = ObjectClassName(calleeObj);
++  const char* thisClass = thisObj ? ObjectClassName(thisObj) : "<primitive>";
 +  JS::UniqueChars ownedFunctionName;
 +  const char* functionName = nullptr;
 +  FormatFunctionName(cx, calleeObj, &ownedFunctionName, &functionName);
@@ -419,7 +422,7 @@ index 0000000..6d262f7
 +#include "js/RootingAPI.h"   // JS::Handle
 +#include "js/TypeDecls.h"    // JSContext
 +
-+struct JSObject;
++class JSObject;
 +
 +namespace js {
 +
