@@ -291,6 +291,26 @@ class FirefoxFingerprintCompiler:
                 )
 
         if values["screenWidth"] and values["screenHeight"]:
+            window = config.window
+            if (
+                window
+                and isinstance(window.outer_width, int)
+                and window.outer_width > 0
+                and isinstance(window.outer_height, int)
+                and window.outer_height > 0
+                and isinstance(window.inner_width, int)
+                and window.inner_width > 0
+                and isinstance(window.inner_height, int)
+                and window.inner_height > 0
+            ):
+                screen_x = window.screen_x if isinstance(window.screen_x, int) else 0
+                screen_y = window.screen_y if isinstance(window.screen_y, int) else 0
+                lines.append(
+                    "  if (typeof w.setWindowDimensions === \"function\") "
+                    f"w.setWindowDimensions({window.outer_width}, {window.outer_height}, "
+                    f"{window.inner_width}, {window.inner_height}, "
+                    f"{max(screen_x, 0)}, {max(screen_y, 0)});"
+                )
             lines.append(
                 "  if (typeof w.setScreenDimensions === \"function\") "
                 f"w.setScreenDimensions({values['screenWidth']}, {values['screenHeight']});"
@@ -333,6 +353,7 @@ class FirefoxFingerprintCompiler:
             "setTimezone",
             "setScreenDimensions",
             "setScreenColorDepth",
+            "setWindowDimensions",
             "setNavigatorPlatform",
             "setNavigatorOscpu",
             "setNavigatorHardwareConcurrency",

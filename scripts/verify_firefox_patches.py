@@ -379,12 +379,19 @@ class PatchVerifier:
         return (ADDITIONS_DIR / PurePosixPath(normalized)).is_file()
 
     def prepare_source_tree(self) -> None:
+        patch_created_paths = {
+            normalize_posix(entry.target_path)
+            for entries in self.patch_entries_by_path.values()
+            for entry in entries
+            if entry.old_path is None and entry.target_path is not None
+        }
         upstream_paths = sorted(
             {
                 entry.extract_path
                 for entries in self.patch_entries_by_path.values()
                 for entry in entries
                 if entry.extract_path is not None and not self.is_locally_seeded(entry.extract_path)
+                and normalize_posix(entry.extract_path) not in patch_created_paths
             }
         )
         missing_paths = [path for path in upstream_paths if not self.tar_index.has(path)]
