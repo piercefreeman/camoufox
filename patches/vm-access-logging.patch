@@ -594,7 +594,7 @@ index d14128d..ae3a4c5 100644
  # Interpreter.cpp is gigantic and destroys incremental build times for any files
  # unlucky enough to be unified with it.
  SOURCES += [
-+    "RotundaVMAccessLog.cpp",
      "Interpreter.cpp",
      "ProfilingStack.cpp",
++    "RotundaVMAccessLog.cpp",
  ]

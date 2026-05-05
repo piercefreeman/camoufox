@@ -20,8 +20,8 @@ index e69de29bb2..5459e4ac36 100644
 +++ b/lw/moz.build
 @@ -0,0 +1,13 @@
 +FINAL_TARGET_FILES += [
++  "chrome.css",
 +  "rotunda.cfg",
-+  "chrome.css"
 +]
 +
 +FINAL_TARGET_FILES.distribution += [

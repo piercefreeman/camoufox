@@ -5,8 +5,8 @@ index xxxxxxxxxx..yyyyyyyyyy 100644
 @@ -72,6 +72,7 @@ if not CONFIG["JS_STANDALONE"]:
  
  LOCAL_INCLUDES += [
-+    "/rotundacfg",
      "/intl/icu_capi/bindings/cpp",
++    "/rotundacfg",
  ]
  
  if not CONFIG["MOZ_SYSTEM_ICU"]:
