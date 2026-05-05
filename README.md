@@ -2,7 +2,7 @@
 
 ![Rotunda Logo](https://raw.githubusercontent.com/MonkeySee-AI/rotunda/main/docs/media/header.png)
 
-Giving your Agents the power to browse the web is like giving them superpowers. You can automate almost anything. Rotunda is a browser built for Agents from the ground up. Sick of seeing more captchas and roadblocks than when you open Chrome and do it yourself? Try Rotunda.
+Giving your agents the power to browse the web is like giving them superpowers. You can automate almost anything. Rotunda is a browser built for agents from the ground up. Sick of seeing more captchas during automation than when you open Chrome and do it yourself? Try Rotunda.
 
 ## Getting Started
 
