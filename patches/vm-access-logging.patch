@@ -3,7 +3,7 @@ new file mode 100644
 index 0000000..a7a38e6
 --- /dev/null
 +++ b/js/src/vm/CamoufoxVMAccessLog.cpp
-@@ -0,0 +1,394 @@
+@@ -0,0 +1,397 @@
 +/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*-
 + * vim: set ts=8 sts=2 et sw=2 tw=80:
 + * This Source Code Form is subject to the terms of the Mozilla Public
