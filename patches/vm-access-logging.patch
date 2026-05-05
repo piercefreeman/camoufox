@@ -590,9 +590,7 @@ diff --git a/js/src/vm/moz.build b/js/src/vm/moz.build
 index d14128d..ae3a4c5 100644
 --- a/js/src/vm/moz.build
 +++ b/js/src/vm/moz.build
-@@ -127,6 +127,7 @@ if CONFIG["ENABLE_EXPLICIT_RESOURCE_MANAGEMENT"]:
- # Interpreter.cpp is gigantic and destroys incremental build times for any files
- # unlucky enough to be unified with it.
+@@ -129,4 +129,5 @@
  SOURCES += [
      "Interpreter.cpp",
      "ProfilingStack.cpp",
