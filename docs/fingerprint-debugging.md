@@ -218,7 +218,10 @@ CAMOUFOX_VM_ACCESS_SYMBOLS=1
 CAMOUFOX_VM_ACCESS_RETURNS=1
 CAMOUFOX_VM_ACCESS_BUFFERED=1
 CAMOUFOX_VM_ACCESS_REALM=1
-CAMOUFOX_VM_ACCESS_MAX_ARGS=16
+CAMOUFOX_VM_ACCESS_VALUE_STRINGS=1
+CAMOUFOX_VM_ACCESS_FUNCTION_NAMES=1
+CAMOUFOX_VM_ACCESS_SAMPLE_RATE=1
+CAMOUFOX_VM_ACCESS_MAX_ARGS=8
 CAMOUFOX_VM_ACCESS_MAX_STRING=256
 CAMOUFOX_VM_ACCESS_MAX_QUEUE_BYTES=67108864
 ```
@@ -246,21 +249,30 @@ The logger records:
 - Property gets and `in` checks.
 - `getOwnPropertyDescriptor`.
 - `ownKeys`.
-- Native and scripted calls, including callee name, `this` class, and arguments.
+- Native and scripted calls, including callee name, `this` class, and capped
+  argument previews.
 - Return previews for calls, property gets, and `in` checks when
   `CAMOUFOX_VM_ACCESS_RETURNS=1`.
+- String return/argument contents only when
+  `CAMOUFOX_VM_ACCESS_VALUE_STRINGS=1`; otherwise strings are logged as the
+  cheaper `<string>` marker.
 - Native caller and target realm attribution when `CAMOUFOX_VM_ACCESS_REALM=1`,
   which usually identifies both the script owner and the page/frame/global owner
   of the object being inspected without adding page-visible wrappers.
 
 When `CAMOUFOX_VM_ACCESS_LOG_FILE` is set, the logger uses a native buffered
-writer thread by default. The JS execution thread still formats each log line,
-but file writes and flushes move off the page path. Set
-`CAMOUFOX_VM_ACCESS_BUFFERED=0` only when debugging the logger itself. If a full
-unfiltered run outpaces the writer, overflow is reported as
+writer thread by default. The JS execution thread records compact structured
+events with interned string ids and primitive previews; the writer thread formats
+the grep-friendly text lines. Set `CAMOUFOX_VM_ACCESS_BUFFERED=0` only when
+debugging the logger itself. If a full unfiltered run outpaces the writer,
+overflow is reported as
 `op=log-dropped ... reason=queue-full`; raise
 `CAMOUFOX_VM_ACCESS_MAX_QUEUE_BYTES` for short local sessions where completeness
 matters more than memory.
+Use `CAMOUFOX_VM_ACCESS_SAMPLE_RATE=N` to record roughly every Nth VM event when
+the full stream still changes page timing too much. Use
+`CAMOUFOX_VM_ACCESS_FUNCTION_NAMES=0` if function-name lookup itself becomes a
+hot-path cost; object value previews still report class names either way.
 
 ## Debug Dump Mode
 
@@ -301,7 +313,9 @@ The dump is JSONL-first so normal shell tools work:
   points `CAMOUFOX_VM_ACCESS_LOG_FILE` at this file. It also enables the native
   buffered writer and realm attribution. When `returns` is enabled, it sets
   `CAMOUFOX_VM_ACCESS_RETURNS=1`, which adds return-preview lines for
-  native/scripted calls plus property `get` and `in` checks.
+  native/scripted calls plus property `get` and `in` checks. Set
+  `CAMOUFOX_VM_ACCESS_VALUE_STRINGS=1` for investigations where actual string
+  values such as `Error.stack` matter more than timing fidelity.
 
 Network logging and return logging solve different problems and both are needed:
 
@@ -309,7 +323,9 @@ Network logging and return logging solve different problems and both are needed:
   (`developer_tools`, `osFontsStatus`, `result:false`).
 - VM return dumps show what page JavaScript actually observed before it built or
   encrypted a payload, such as `Error.stack`, `navigator.userAgent`,
-  `screen.availHeight`, canvas hashes, or font probe measurements.
+  `screen.availHeight`, canvas hashes, or font probe measurements. Actual
+  string contents require `CAMOUFOX_VM_ACCESS_VALUE_STRINGS=1`; numbers,
+  booleans, object classes, and error markers are captured without that flag.
 - Native surface-specific summaries would keep logs grepable when generic VM
   logging produces too much data or enormous binary strings.
 
@@ -324,6 +340,9 @@ Implemented:
   `returns` is enabled.
 - Move native VM file writes and flushes to a buffered writer thread, with a
   bounded queue and explicit drop markers on overflow.
+- Move VM line formatting to the native writer thread by queueing compact
+  structured events, with interned strings, capped call arguments, optional
+  string-value capture, and event sampling.
 - Add caller and target realm-name attribution to VM lines so script reads can
   be tied back to the native frame/global owner without page-context
   instrumentation.

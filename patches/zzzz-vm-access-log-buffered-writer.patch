@@ -1,6 +1,6 @@
 --- a/js/src/vm/CamoufoxVMAccessLog.cpp
 +++ b/js/src/vm/CamoufoxVMAccessLog.cpp
-@@ -7,20 +7,35 @@
+@@ -7,20 +7,37 @@
  
  #include "vm/CamoufoxVMAccessLog.h"
  
@@ -11,6 +11,7 @@
  #include <string.h>
 +#include <stdarg.h>
 +#include <string>
++#include <unordered_map>
 +#include <utility>
  
 +#include "js/AllocPolicy.h"        // js::SystemAllocPolicy
@@ -22,6 +23,7 @@
  #include "js/UniquePtr.h"          // JS::UniqueChars
 +#include "js/Utility.h"            // js_new, js_delete
  #include "js/Value.h"              // JS::Value
++#include "mozilla/Atomics.h"       // mozilla::Atomic
 +#include "mozilla/Vector.h"        // mozilla::Vector
 +#include "threading/ConditionVariable.h"  // js::ConditionVariable
 +#include "threading/LockGuard.h"          // js::UniqueLock
@@ -36,16 +38,83 @@
  #include "vm/StringType.h"         // JSString
  #include "vm/SymbolType.h"         // JS::Symbol
  
-@@ -35,9 +50,20 @@
+@@ -30,17 +47,103 @@
+ 
+ enum class AccessLogState : uint8_t { Uninitialized, Disabled, Enabled };
+ 
++enum class LogEventKind : uint8_t {
++  Access,
++  OwnKeys,
++  Call,
++  AccessResult,
++  CallResult,
++};
++
++enum class ValuePreviewKind : uint8_t {
++  Missing,
++  Undefined,
++  Null,
++  Boolean,
++  Int32,
++  Double,
++  String,
++  Symbol,
++  Object,
++  Other,
++  Error,
++};
++
++constexpr unsigned kMaxStoredCallArgs = 8;
++constexpr uint32_t kNoStringId = 0;
++
++struct ValuePreview {
++  ValuePreviewKind kind = ValuePreviewKind::Missing;
++  bool boolValue = false;
++  int32_t intValue = 0;
++  double doubleValue = 0.0;
++  uint32_t stringId = kNoStringId;
++  uint32_t classId = kNoStringId;
++  uint32_t functionId = kNoStringId;
++};
++
++struct LogEvent {
++  LogEventKind eventKind = LogEventKind::Access;
++  uint32_t opId = kNoStringId;
++  uint32_t kindId = kNoStringId;
++  uint32_t classId = kNoStringId;
++  uint32_t propId = kNoStringId;
++  uint32_t scriptId = kNoStringId;
++  uint32_t callerRealmId = kNoStringId;
++  uint32_t targetRealmId = kNoStringId;
++  uint32_t calleeClassId = kNoStringId;
++  uint32_t calleeId = kNoStringId;
++  uint32_t thisClassId = kNoStringId;
++  uint32_t line = 0;
++  uint32_t column = 0;
++  uint32_t flags = 0;
++  uint32_t argc = 0;
++  uint32_t argCount = 0;
++  uint32_t extraArgs = 0;
++  bool ok = false;
++  ValuePreview result;
++  ValuePreview args[kMaxStoredCallArgs];
++};
++
+ AccessLogState gState = AccessLogState::Uninitialized;
+ const char* gScriptFilter = nullptr;
  const char* gObjectFilter = nullptr;
  bool gLogSymbols = false;
  bool gLogReturns = false;
 +bool gLogRealm = true;
++bool gLogValueStrings = false;
++bool gLogFunctionNames = true;
  unsigned gMaxCallArgs = 8;
  unsigned gMaxStringBytes = 160;
 +unsigned gMaxQueueBytes = 64 * 1024 * 1024;
++unsigned gSampleRate = 1;
  FILE* gLogFile = nullptr;
 +Mutex gLogMutex(mutexid::CamoufoxVMAccessLog);
++Mutex gInternMutex(mutexid::CamoufoxVMAccessLog);
 +ConditionVariable gLogWakeup;
 +Thread* gLogWriterThread = nullptr;
 +bool gLogWriterStarted = false;
@@ -53,14 +122,135 @@
 +bool gShutdownRegistered = false;
 +size_t gQueuedBytes = 0;
 +uint64_t gDroppedLines = 0;
-+mozilla::Vector<std::string, 0, SystemAllocPolicy> gLogQueue;
++mozilla::Atomic<uint64_t, mozilla::Relaxed> gSampleCounter(0);
++mozilla::Vector<LogEvent, 0, SystemAllocPolicy> gLogQueue;
++mozilla::Vector<std::string, 0, SystemAllocPolicy> gInternedStrings;
++std::unordered_map<std::string, uint32_t> gInternedStringIds;
++std::unordered_map<const char*, uint32_t> gPointerStringIds;
++std::unordered_map<JS::Realm*, uint32_t> gRealmStringIds;
  
  thread_local bool gIsLogging = false;
  
-@@ -60,6 +86,152 @@
++class AutoLoggingGuard {
++ public:
++  AutoLoggingGuard() { gIsLogging = true; }
++  ~AutoLoggingGuard() { gIsLogging = false; }
++};
++
++static void FormatLogEvent(const LogEvent& event, std::string& out);
++
+ static bool EnvFlagEnabled(const char* value) {
+   return value && value[0] && strcmp(value, "0") != 0 &&
+          strcmp(value, "false") != 0 && strcmp(value, "no") != 0;
+@@ -60,6 +163,262 @@
    return unsigned(parsed);
  }
  
++static uint32_t InternStringLocked(const char* value) {
++  if (!value) {
++    return kNoStringId;
++  }
++
++  auto found = gInternedStringIds.find(value);
++  if (found != gInternedStringIds.end()) {
++    return found->second;
++  }
++
++  uint32_t id = uint32_t(gInternedStrings.length() + 1);
++  std::string owned(value);
++  if (!gInternedStrings.append(std::move(owned))) {
++    return kNoStringId;
++  }
++
++  gInternedStringIds.emplace(gInternedStrings[id - 1], id);
++  return id;
++}
++
++static uint32_t InternString(const char* value) {
++  UniqueLock<Mutex> lock(gInternMutex);
++  return InternStringLocked(value);
++}
++
++static uint32_t InternStaticString(const char* value) {
++  if (!value) {
++    return kNoStringId;
++  }
++
++  UniqueLock<Mutex> lock(gInternMutex);
++  auto found = gPointerStringIds.find(value);
++  if (found != gPointerStringIds.end()) {
++    return found->second;
++  }
++
++  uint32_t id = InternStringLocked(value);
++  if (id) {
++    gPointerStringIds.emplace(value, id);
++  }
++  return id;
++}
++
++static std::string CopyInternedString(uint32_t id, const char* fallback) {
++  if (!id) {
++    return fallback ? std::string(fallback) : std::string();
++  }
++
++  UniqueLock<Mutex> lock(gInternMutex);
++  size_t index = size_t(id - 1);
++  if (index >= gInternedStrings.length()) {
++    return fallback ? std::string(fallback) : std::string();
++  }
++  return gInternedStrings[index];
++}
++
++static uint32_t InternRealm(JSContext* cx, JS::Realm* realm) {
++  if (!gLogRealm || !cx || !realm) {
++    return kNoStringId;
++  }
++
++  {
++    UniqueLock<Mutex> lock(gInternMutex);
++    auto found = gRealmStringIds.find(realm);
++    if (found != gRealmStringIds.end()) {
++      return found->second;
++    }
++  }
++
++  auto nameCallback = cx->runtime()->realmNameCallback;
++  if (!nameCallback) {
++    return kNoStringId;
++  }
++
++  char buffer[512];
++  buffer[0] = '\0';
++  JS::AutoSuppressGCAnalysis nogc;
++  nameCallback(cx, realm, buffer, sizeof(buffer), nogc);
++  buffer[sizeof(buffer) - 1] = '\0';
++  if (!buffer[0]) {
++    return kNoStringId;
++  }
++
++  uint32_t id = InternString(buffer);
++  if (!id) {
++    return kNoStringId;
++  }
++
++  UniqueLock<Mutex> lock(gInternMutex);
++  auto found = gRealmStringIds.find(realm);
++  if (found != gRealmStringIds.end()) {
++    return found->second;
++  }
++  gRealmStringIds.emplace(realm, id);
++  return id;
++}
++
++static bool ShouldSample() {
++  if (gSampleRate <= 1) {
++    return true;
++  }
++  uint64_t count = ++gSampleCounter;
++  return (count % gSampleRate) == 0;
++}
++
 +static void WriteDirect(const char* line) {
 +  FILE* stream = gLogFile ? gLogFile : stderr;
 +  fputs(line, stream);
@@ -70,7 +260,7 @@
 +static void LogWriterMain() {
 +  ThisThread::SetName("Camoufox VM Access Log");
 +
-+  mozilla::Vector<std::string, 0, SystemAllocPolicy> batch;
++  mozilla::Vector<LogEvent, 0, SystemAllocPolicy> batch;
 +  while (true) {
 +    uint64_t dropped = 0;
 +    {
@@ -96,7 +286,10 @@
 +              " reason=queue-full\n",
 +              dropped);
 +    }
-+    for (const std::string& line : batch) {
++    std::string line;
++    for (const LogEvent& event : batch) {
++      line.clear();
++      FormatLogEvent(event, line);
 +      fputs(line.c_str(), stream);
 +    }
 +    batch.clear();
@@ -151,8 +344,10 @@
 +  return true;
 +}
 +
-+static void EnqueueLogLine(std::string&& line) {
++static void EnqueueLogEvent(const LogEvent& event) {
 +  if (!gLogWriterStarted) {
++    std::string line;
++    FormatLogEvent(event, line);
 +    WriteDirect(line.c_str());
 +    return;
 +  }
@@ -163,20 +358,20 @@
 +    return;
 +  }
 +
-+  size_t lineBytes = line.size();
-+  if (gQueuedBytes + lineBytes > gMaxQueueBytes) {
++  size_t eventBytes = sizeof(LogEvent);
++  if (gQueuedBytes + eventBytes > gMaxQueueBytes) {
 +    gDroppedLines++;
 +    gLogWakeup.notify_one();
 +    return;
 +  }
 +
-+  if (!gLogQueue.append(std::move(line))) {
++  if (!gLogQueue.append(event)) {
 +    gDroppedLines++;
 +    gLogWakeup.notify_one();
 +    return;
 +  }
 +
-+  gQueuedBytes += lineBytes;
++  gQueuedBytes += eventBytes;
 +  gLogWakeup.notify_one();
 +}
 +
@@ -210,19 +405,32 @@
  static bool Enabled() {
    if (gState == AccessLogState::Uninitialized) {
      if (!EnvFlagEnabled(getenv("CAMOUFOX_VM_ACCESS_LOG"))) {
-@@ -79,18 +251,28 @@
+@@ -79,18 +438,40 @@
  
      gLogSymbols = EnvFlagEnabled(getenv("CAMOUFOX_VM_ACCESS_SYMBOLS"));
      gLogReturns = EnvFlagEnabled(getenv("CAMOUFOX_VM_ACCESS_RETURNS"));
 +    const char* realmEnv = getenv("CAMOUFOX_VM_ACCESS_REALM");
 +    gLogRealm = !realmEnv || EnvFlagEnabled(realmEnv);
++    gLogValueStrings =
++        EnvFlagEnabled(getenv("CAMOUFOX_VM_ACCESS_VALUE_STRINGS"));
++    const char* functionNamesEnv =
++        getenv("CAMOUFOX_VM_ACCESS_FUNCTION_NAMES");
++    gLogFunctionNames =
++        !functionNamesEnv || EnvFlagEnabled(functionNamesEnv);
      gMaxCallArgs =
-         EnvUnsigned(getenv("CAMOUFOX_VM_ACCESS_MAX_ARGS"), 8, 32);
+-        EnvUnsigned(getenv("CAMOUFOX_VM_ACCESS_MAX_ARGS"), 8, 32);
++        EnvUnsigned(getenv("CAMOUFOX_VM_ACCESS_MAX_ARGS"), 8,
++                    kMaxStoredCallArgs);
      gMaxStringBytes =
          EnvUnsigned(getenv("CAMOUFOX_VM_ACCESS_MAX_STRING"), 160, 1024);
 +    gMaxQueueBytes = EnvUnsigned(
 +        getenv("CAMOUFOX_VM_ACCESS_MAX_QUEUE_BYTES"), 64 * 1024 * 1024,
 +        512 * 1024 * 1024);
++    gSampleRate =
++        EnvUnsigned(getenv("CAMOUFOX_VM_ACCESS_SAMPLE_RATE"), 1, 1000000);
++    if (gSampleRate == 0) {
++      gSampleRate = 1;
++    }
  
      const char* logFile = getenv("CAMOUFOX_VM_ACCESS_LOG_FILE");
      if (logFile && logFile[0]) {
@@ -240,7 +448,7 @@
  
      gState = AccessLogState::Enabled;
    }
-@@ -98,10 +280,6 @@
+@@ -98,10 +479,6 @@
    return gState == AccessLogState::Enabled;
  }
  
@@ -251,42 +459,22 @@
  static const char* CurrentFilename(JSContext* cx, uint32_t* line,
                                     uint32_t* column) {
    JSScript* script = cx->currentScript();
-@@ -200,12 +378,42 @@
+@@ -200,12 +577,22 @@
    }
  }
  
 -static void PrintEscapedString(const char* value) {
 -  FILE* stream = LogStream();
 -  fputc('"', stream);
-+static const char* RealmName(JSContext* cx, JS::Realm* realm, char* buffer,
-+                             size_t bufferLen) {
-+  if (!gLogRealm || !cx || !realm || !bufferLen) {
-+    return nullptr;
-+  }
-+
-+  auto nameCallback = cx->runtime()->realmNameCallback;
-+  if (!nameCallback) {
-+    return nullptr;
-+  }
-+
-+  buffer[0] = '\0';
-+  JS::AutoSuppressGCAnalysis nogc;
-+  nameCallback(cx, realm, buffer, bufferLen, nogc);
-+  buffer[bufferLen - 1] = '\0';
-+  return buffer[0] ? buffer : nullptr;
++static uint32_t CurrentRealmId(JSContext* cx) {
++  return InternRealm(cx, JS::GetCurrentRealmOrNull(cx));
 +}
 +
-+static const char* CurrentRealmName(JSContext* cx, char* buffer,
-+                                    size_t bufferLen) {
-+  return RealmName(cx, JS::GetCurrentRealmOrNull(cx), buffer, bufferLen);
-+}
-+
-+static const char* ObjectRealmName(JSContext* cx, JSObject* obj, char* buffer,
-+                                   size_t bufferLen) {
++static uint32_t ObjectRealmId(JSContext* cx, JSObject* obj) {
 +  if (!obj) {
-+    return nullptr;
++    return kNoStringId;
 +  }
-+  return RealmName(cx, JS::GetObjectRealmOrNull(obj), buffer, bufferLen);
++  return InternRealm(cx, JS::GetObjectRealmOrNull(obj));
 +}
 +
 +static void AppendEscapedString(std::string& out, const char* value) {
@@ -299,7 +487,7 @@
      return;
    }
  
-@@ -214,63 +422,63 @@
+@@ -214,82 +601,257 @@
         cursor++, printed++) {
      switch (*cursor) {
        case '\\':
@@ -339,80 +527,274 @@
  
 -static void PrintValue(JSContext* cx, JS::HandleValue value) {
 -  FILE* stream = LogStream();
-+static void AppendValue(JSContext* cx, JS::HandleValue value,
-+                        std::string& out) {
++static ValuePreview CaptureValuePreview(JSContext* cx, JS::HandleValue value) {
++  ValuePreview preview;
    if (value.isUndefined()) {
 -    fputs("undefined", stream);
-+    out.append("undefined");
-     return;
+-    return;
++    preview.kind = ValuePreviewKind::Undefined;
++    return preview;
    }
    if (value.isNull()) {
 -    fputs("null", stream);
-+    out.append("null");
-     return;
+-    return;
++    preview.kind = ValuePreviewKind::Null;
++    return preview;
    }
    if (value.isBoolean()) {
 -    fputs(value.toBoolean() ? "true" : "false", stream);
-+    out.append(value.toBoolean() ? "true" : "false");
-     return;
+-    return;
++    preview.kind = ValuePreviewKind::Boolean;
++    preview.boolValue = value.toBoolean();
++    return preview;
    }
    if (value.isInt32()) {
 -    fprintf(stream, "%d", value.toInt32());
-+    AppendFormat(out, "%d", value.toInt32());
-     return;
+-    return;
++    preview.kind = ValuePreviewKind::Int32;
++    preview.intValue = value.toInt32();
++    return preview;
    }
    if (value.isDouble()) {
 -    fprintf(stream, "%.17g", value.toDouble());
-+    AppendFormat(out, "%.17g", value.toDouble());
-     return;
+-    return;
++    preview.kind = ValuePreviewKind::Double;
++    preview.doubleValue = value.toDouble();
++    return preview;
    }
    if (value.isString()) {
-     JS::AutoSaveExceptionState savedExc(cx);
-     JS::RootedString str(cx, value.toString());
-     JS::UniqueChars encoded = JS_EncodeStringToUTF8(cx, str);
+-    JS::AutoSaveExceptionState savedExc(cx);
+-    JS::RootedString str(cx, value.toString());
+-    JS::UniqueChars encoded = JS_EncodeStringToUTF8(cx, str);
 -    PrintEscapedString(encoded ? encoded.get() : nullptr);
-+    AppendEscapedString(out, encoded ? encoded.get() : nullptr);
-     return;
+-    return;
++    preview.kind = ValuePreviewKind::String;
++    if (gLogValueStrings) {
++      JS::AutoSaveExceptionState savedExc(cx);
++      JS::RootedString str(cx, value.toString());
++      JS::UniqueChars encoded = JS_EncodeStringToUTF8(cx, str);
++      preview.stringId = InternString(encoded ? encoded.get() : nullptr);
++    }
++    return preview;
    }
    if (value.isSymbol()) {
 -    fputs("<symbol>", stream);
-+    out.append("<symbol>");
-     return;
+-    return;
++    preview.kind = ValuePreviewKind::Symbol;
++    return preview;
    }
    if (value.isObject()) {
-@@ -280,16 +488,28 @@
-     const char* functionName = nullptr;
-     FormatFunctionName(cx, obj, &ownedName, &functionName);
-     if (functionName) {
+     JSObject* obj = &value.toObject();
+-    const char* className = ObjectClassName(obj);
+-    JS::UniqueChars ownedName;
+-    const char* functionName = nullptr;
+-    FormatFunctionName(cx, obj, &ownedName, &functionName);
+-    if (functionName) {
 -      fprintf(stream, "<%s:%s>", className, functionName);
-+      AppendFormat(out, "<%s:%s>", className, functionName);
-     } else {
+-    } else {
 -      fprintf(stream, "<%s>", className);
-+      AppendFormat(out, "<%s>", className);
++    preview.kind = ValuePreviewKind::Object;
++    preview.classId = InternStaticString(ObjectClassName(obj));
++    return preview;
++  }
++
++  preview.kind = ValuePreviewKind::Other;
++  return preview;
++}
++
++static ValuePreview ErrorPreview() {
++  ValuePreview preview;
++  preview.kind = ValuePreviewKind::Error;
++  return preview;
++}
++
++static void AppendInterned(std::string& out, uint32_t id,
++                           const char* fallback) {
++  std::string value = CopyInternedString(id, fallback);
++  out.append(value);
++}
++
++static void AppendEscapedInterned(std::string& out, uint32_t id,
++                                  const char* fallback) {
++  std::string value = CopyInternedString(id, fallback);
++  AppendEscapedString(out, value.c_str());
++}
++
++static void AppendValuePreview(std::string& out, const ValuePreview& value) {
++  switch (value.kind) {
++    case ValuePreviewKind::Missing:
++      out.append("<missing>");
++      break;
++    case ValuePreviewKind::Undefined:
++      out.append("undefined");
++      break;
++    case ValuePreviewKind::Null:
++      out.append("null");
++      break;
++    case ValuePreviewKind::Boolean:
++      out.append(value.boolValue ? "true" : "false");
++      break;
++    case ValuePreviewKind::Int32:
++      AppendFormat(out, "%d", value.intValue);
++      break;
++    case ValuePreviewKind::Double:
++      AppendFormat(out, "%.17g", value.doubleValue);
++      break;
++    case ValuePreviewKind::String:
++      if (value.stringId) {
++        AppendEscapedInterned(out, value.stringId, "<string-oom>");
++      } else {
++        out.append("<string>");
++      }
++      break;
++    case ValuePreviewKind::Symbol:
++      out.append("<symbol>");
++      break;
++    case ValuePreviewKind::Object: {
++      std::string className = CopyInternedString(value.classId, "<null>");
++      if (value.functionId) {
++        std::string functionName =
++            CopyInternedString(value.functionId, "<anonymous>");
++        AppendFormat(out, "<%s:%s>", className.c_str(), functionName.c_str());
++      } else {
++        AppendFormat(out, "<%s>", className.c_str());
++      }
++      break;
      }
-     return;
+-    return;
++    case ValuePreviewKind::Other:
++      out.append("<value>");
++      break;
++    case ValuePreviewKind::Error:
++      out.append("<error>");
++      break;
    }
++}
  
 -  fputs("<value>", stream);
-+  out.append("<value>");
++static void AppendRealmFields(std::string& out, uint32_t callerRealmId,
++                              uint32_t targetRealmId) {
++  if (callerRealmId) {
++    out.append(" callerRealm=");
++    AppendEscapedInterned(out, callerRealmId, nullptr);
++  }
++  if (targetRealmId) {
++    out.append(" targetRealm=");
++    AppendEscapedInterned(out, targetRealmId, nullptr);
++  }
  }
  
-+static void AppendRealmFields(std::string& out, const char* callerRealm,
-+                              const char* targetRealm) {
-+  if (callerRealm) {
-+    out.append(" callerRealm=");
-+    AppendEscapedString(out, callerRealm);
-+  }
-+  if (targetRealm) {
-+    out.append(" targetRealm=");
-+    AppendEscapedString(out, targetRealm);
++static void FormatLogEvent(const LogEvent& event, std::string& out) {
++  switch (event.eventKind) {
++    case LogEventKind::Access:
++      out.append("[camoufox-vm-access] op=");
++      AppendInterned(out, event.opId, "<unknown>");
++      out.append(" class=");
++      AppendInterned(out, event.classId, "<null>");
++      out.append(" prop=");
++      AppendInterned(out, event.propId, "<null>");
++      out.append(" script=");
++      AppendInterned(out, event.scriptId, "<unknown>");
++      AppendFormat(out, ":%u:%u", event.line, event.column);
++      AppendRealmFields(out, event.callerRealmId, event.targetRealmId);
++      out.push_back('\n');
++      break;
++
++    case LogEventKind::OwnKeys:
++      out.append("[camoufox-vm-access] op=ownKeys class=");
++      AppendInterned(out, event.classId, "<null>");
++      AppendFormat(out, " flags=0x%x script=", event.flags);
++      AppendInterned(out, event.scriptId, "<unknown>");
++      AppendFormat(out, ":%u:%u", event.line, event.column);
++      AppendRealmFields(out, event.callerRealmId, event.targetRealmId);
++      out.push_back('\n');
++      break;
++
++    case LogEventKind::Call:
++      out.append("[camoufox-vm-access] op=");
++      AppendInterned(out, event.opId, "<unknown>");
++      out.append(" kind=");
++      AppendInterned(out, event.kindId, "<unknown>");
++      out.append(" calleeClass=");
++      AppendInterned(out, event.calleeClassId, "<null>");
++      out.append(" callee=");
++      AppendInterned(out, event.calleeId, "<anonymous>");
++      out.append(" thisClass=");
++      AppendInterned(out, event.thisClassId, "<primitive>");
++      AppendFormat(out, " argc=%u args=(", event.argc);
++      for (uint32_t i = 0; i < event.argCount; i++) {
++        if (i) {
++          out.append(", ");
++        }
++        AppendValuePreview(out, event.args[i]);
++      }
++      if (event.extraArgs) {
++        if (event.argCount) {
++          out.append(", ");
++        }
++        AppendFormat(out, "...+%u", event.extraArgs);
++      }
++      out.append(") script=");
++      AppendInterned(out, event.scriptId, "<unknown>");
++      AppendFormat(out, ":%u:%u", event.line, event.column);
++      AppendRealmFields(out, event.callerRealmId, event.targetRealmId);
++      out.push_back('\n');
++      break;
++
++    case LogEventKind::AccessResult:
++      out.append("[camoufox-vm-access] op=");
++      AppendInterned(out, event.opId, "<unknown>");
++      out.append("-return class=");
++      AppendInterned(out, event.classId, "<null>");
++      out.append(" prop=");
++      AppendInterned(out, event.propId, "<null>");
++      AppendFormat(out, " ok=%s result=", event.ok ? "true" : "false");
++      AppendValuePreview(out, event.result);
++      out.append(" script=");
++      AppendInterned(out, event.scriptId, "<unknown>");
++      AppendFormat(out, ":%u:%u", event.line, event.column);
++      AppendRealmFields(out, event.callerRealmId, event.targetRealmId);
++      out.push_back('\n');
++      break;
++
++    case LogEventKind::CallResult:
++      out.append("[camoufox-vm-access] op=");
++      AppendInterned(out, event.opId, "<unknown>");
++      out.append("-return kind=");
++      AppendInterned(out, event.kindId, "<unknown>");
++      out.append(" calleeClass=");
++      AppendInterned(out, event.calleeClassId, "<null>");
++      out.append(" callee=");
++      AppendInterned(out, event.calleeId, "<anonymous>");
++      out.append(" thisClass=");
++      AppendInterned(out, event.thisClassId, "<primitive>");
++      AppendFormat(out, " ok=%s result=", event.ok ? "true" : "false");
++      AppendValuePreview(out, event.result);
++      out.append(" script=");
++      AppendInterned(out, event.scriptId, "<unknown>");
++      AppendFormat(out, ":%u:%u", event.line, event.column);
++      AppendRealmFields(out, event.callerRealmId, event.targetRealmId);
++      out.push_back('\n');
++      break;
 +  }
 +}
 +
  }  // namespace
  
  void js::MaybeLogCamoufoxVMAccess(JSContext* cx, JS::Handle<JSObject*> obj,
-@@ -317,13 +537,23 @@
+@@ -309,22 +871,28 @@
+       !ShouldLogForObject(obj, &className)) {
+     return;
+   }
++  if (!ShouldSample()) {
++    return;
++  }
+ 
+-  gIsLogging = true;
++  AutoLoggingGuard guard;
+ 
+   char propFallback[64];
+   const char* prop = nullptr;
    JS::UniqueChars ownedProp;
    FormatId(cx, id, propFallback, sizeof(propFallback), &ownedProp, &prop);
  
@@ -422,29 +804,41 @@
 -          className ? className : "<null>", prop ? prop : "<null>",
 -          filename ? filename : "<unknown>", line, column);
 -  fflush(stream);
-+  char callerRealmBuffer[512];
-+  char targetRealmBuffer[512];
-+  const char* callerRealm =
-+      CurrentRealmName(cx, callerRealmBuffer, sizeof(callerRealmBuffer));
-+  const char* targetRealm =
-+      ObjectRealmName(cx, obj.get(), targetRealmBuffer,
-+                      sizeof(targetRealmBuffer));
- 
-+  std::string logLine;
-+  AppendFormat(logLine,
-+               "[camoufox-vm-access] op=%s class=%s prop=%s script=%s:%u:%u",
-+               op, className ? className : "<null>", prop ? prop : "<null>",
-+               filename ? filename : "<unknown>", line, column);
-+  AppendRealmFields(logLine, callerRealm, targetRealm);
-+  logLine.push_back('\n');
-+  EnqueueLogLine(std::move(logLine));
-+
-   gIsLogging = false;
+-
+-  gIsLogging = false;
++  LogEvent event;
++  event.eventKind = LogEventKind::Access;
++  event.opId = InternStaticString(op);
++  event.classId = InternStaticString(className);
++  event.propId = InternString(prop);
++  event.scriptId = InternStaticString(filename ? filename : "<unknown>");
++  event.line = line;
++  event.column = column;
++  event.callerRealmId = CurrentRealmId(cx);
++  event.targetRealmId = ObjectRealmId(cx, obj.get());
++  EnqueueLogEvent(event);
  }
  
-@@ -358,32 +588,41 @@
+ void js::MaybeLogCamoufoxVMCall(JSContext* cx, const JS::CallArgs& args,
+@@ -349,43 +917,45 @@
+   const char* thisClass = thisObj ? ObjectClassName(thisObj) : "<primitive>";
+   JS::UniqueChars ownedFunctionName;
+   const char* functionName = nullptr;
+-  FormatFunctionName(cx, calleeObj, &ownedFunctionName, &functionName);
++  if (gLogFunctionNames || gObjectFilter) {
++    FormatFunctionName(cx, calleeObj, &ownedFunctionName, &functionName);
++  }
  
-   gIsLogging = true;
+   if (gObjectFilter && !MatchesObjectFilter(calleeClass) &&
+       !MatchesObjectFilter(thisClass) && !MatchesObjectFilter(functionName)) {
+     return;
+   }
++  if (!ShouldSample()) {
++    return;
++  }
+ 
+-  gIsLogging = true;
++  AutoLoggingGuard guard;
  
 -  FILE* stream = LogStream();
 -  fprintf(stream,
@@ -453,54 +847,58 @@
 -          op, kind ? kind : "<unknown>", calleeClass,
 -          functionName ? functionName : "<anonymous>", thisClass,
 -          args.length());
-+  std::string logLine;
-+  AppendFormat(logLine,
-+               "[camoufox-vm-access] op=%s kind=%s calleeClass=%s callee=%s "
-+               "thisClass=%s argc=%u args=(",
-+               op, kind ? kind : "<unknown>", calleeClass,
-+               functionName ? functionName : "<anonymous>", thisClass,
-+               args.length());
++  LogEvent event;
++  event.eventKind = LogEventKind::Call;
++  event.opId = InternStaticString(op);
++  event.kindId = InternStaticString(kind ? kind : "<unknown>");
++  event.calleeClassId = InternStaticString(calleeClass);
++  event.calleeId =
++      gLogFunctionNames ? InternString(functionName) : kNoStringId;
++  event.thisClassId = InternStaticString(thisClass);
++  event.argc = args.length();
++  event.scriptId = InternStaticString(filename ? filename : "<unknown>");
++  event.line = line;
++  event.column = column;
  
    unsigned maxArgs = args.length() < gMaxCallArgs ? args.length() : gMaxCallArgs;
++  event.argCount = maxArgs;
    for (unsigned i = 0; i < maxArgs; i++) {
-     if (i) {
+-    if (i) {
 -      fputs(", ", stream);
-+      logLine.append(", ");
-     }
+-    }
      JS::RootedValue arg(cx, args[i]);
 -    PrintValue(cx, arg);
-+    AppendValue(cx, arg, logLine);
++    event.args[i] = CaptureValuePreview(cx, arg);
    }
    if (args.length() > maxArgs) {
-     if (maxArgs) {
+-    if (maxArgs) {
 -      fputs(", ", stream);
-+      logLine.append(", ");
-     }
+-    }
 -    fprintf(stream, "...+%u", args.length() - maxArgs);
-+    AppendFormat(logLine, "...+%u", args.length() - maxArgs);
++    event.extraArgs = args.length() - maxArgs;
    }
- 
+-
 -  fprintf(stream, ") script=%s:%u:%u\n", filename ? filename : "<unknown>",
 -          line, column);
 -  fflush(stream);
-+  AppendFormat(logLine, ") script=%s:%u:%u", filename ? filename : "<unknown>",
-+               line, column);
-+  char callerRealmBuffer[512];
-+  char targetRealmBuffer[512];
-+  const char* callerRealm =
-+      CurrentRealmName(cx, callerRealmBuffer, sizeof(callerRealmBuffer));
-+  const char* targetRealm = ObjectRealmName(
-+      cx, thisObj ? thisObj : calleeObj, targetRealmBuffer,
-+      sizeof(targetRealmBuffer));
-+  AppendRealmFields(logLine, callerRealm, targetRealm);
-+  logLine.push_back('\n');
-+  EnqueueLogLine(std::move(logLine));
- 
-   gIsLogging = false;
+-
+-  gIsLogging = false;
++  event.callerRealmId = CurrentRealmId(cx);
++  event.targetRealmId = ObjectRealmId(cx, thisObj ? thisObj : calleeObj);
++  EnqueueLogEvent(event);
  }
-@@ -405,13 +644,24 @@
  
-   gIsLogging = true;
+ void js::MaybeLogCamoufoxVMOwnKeys(JSContext* cx, JS::Handle<JSObject*> obj,
+@@ -402,17 +972,22 @@
+       !ShouldLogForObject(obj, &className)) {
+     return;
+   }
++  if (!ShouldSample()) {
++    return;
++  }
+ 
+-  gIsLogging = true;
++  AutoLoggingGuard guard;
  
 -  FILE* stream = LogStream();
 -  fprintf(stream,
@@ -508,28 +906,34 @@
 -          className ? className : "<null>", flags,
 -          filename ? filename : "<unknown>", line, column);
 -  fflush(stream);
-+  char callerRealmBuffer[512];
-+  char targetRealmBuffer[512];
-+  const char* callerRealm =
-+      CurrentRealmName(cx, callerRealmBuffer, sizeof(callerRealmBuffer));
-+  const char* targetRealm =
-+      ObjectRealmName(cx, obj.get(), targetRealmBuffer,
-+                      sizeof(targetRealmBuffer));
- 
-+  std::string logLine;
-+  AppendFormat(logLine,
-+               "[camoufox-vm-access] op=ownKeys class=%s flags=0x%x "
-+               "script=%s:%u:%u",
-+               className ? className : "<null>", flags,
-+               filename ? filename : "<unknown>", line, column);
-+  AppendRealmFields(logLine, callerRealm, targetRealm);
-+  logLine.push_back('\n');
-+  EnqueueLogLine(std::move(logLine));
-+
-   gIsLogging = false;
+-
+-  gIsLogging = false;
++  LogEvent event;
++  event.eventKind = LogEventKind::OwnKeys;
++  event.classId = InternStaticString(className);
++  event.flags = flags;
++  event.scriptId = InternStaticString(filename ? filename : "<unknown>");
++  event.line = line;
++  event.column = column;
++  event.callerRealmId = CurrentRealmId(cx);
++  event.targetRealmId = ObjectRealmId(cx, obj.get());
++  EnqueueLogEvent(event);
  }
  
-@@ -445,19 +695,29 @@
+ bool js::IsCamoufoxVMAccessLogEnabled() { return Enabled(); }
+@@ -437,29 +1012,30 @@
+       !ShouldLogForObject(obj, &className)) {
+     return;
+   }
++  if (!ShouldSample()) {
++    return;
++  }
+ 
+-  gIsLogging = true;
++  AutoLoggingGuard guard;
+ 
+   char propFallback[64];
+   const char* prop = nullptr;
    JS::UniqueChars ownedProp;
    FormatId(cx, id, propFallback, sizeof(propFallback), &ownedProp, &prop);
  
@@ -538,40 +942,51 @@
 -          "[camoufox-vm-access] op=%s-return class=%s prop=%s ok=%s result=",
 -          op, className ? className : "<null>", prop ? prop : "<null>",
 -          ok ? "true" : "false");
-+  std::string logLine;
-+  AppendFormat(logLine,
-+               "[camoufox-vm-access] op=%s-return class=%s prop=%s ok=%s "
-+               "result=",
-+               op, className ? className : "<null>", prop ? prop : "<null>",
-+               ok ? "true" : "false");
-   if (ok) {
+-  if (ok) {
 -    PrintValue(cx, value);
-+    AppendValue(cx, value, logLine);
-   } else {
+-  } else {
 -    fputs("<error>", stream);
-+    logLine.append("<error>");
-   }
+-  }
 -  fprintf(stream, " script=%s:%u:%u\n", filename ? filename : "<unknown>",
 -          line, column);
 -  fflush(stream);
-+  AppendFormat(logLine, " script=%s:%u:%u", filename ? filename : "<unknown>",
-+               line, column);
-+  char callerRealmBuffer[512];
-+  char targetRealmBuffer[512];
-+  const char* callerRealm =
-+      CurrentRealmName(cx, callerRealmBuffer, sizeof(callerRealmBuffer));
-+  const char* targetRealm =
-+      ObjectRealmName(cx, obj.get(), targetRealmBuffer,
-+                      sizeof(targetRealmBuffer));
-+  AppendRealmFields(logLine, callerRealm, targetRealm);
-+  logLine.push_back('\n');
-+  EnqueueLogLine(std::move(logLine));
- 
-   gIsLogging = false;
+-
+-  gIsLogging = false;
++  LogEvent event;
++  event.eventKind = LogEventKind::AccessResult;
++  event.opId = InternStaticString(op);
++  event.classId = InternStaticString(className);
++  event.propId = InternString(prop);
++  event.ok = ok;
++  event.result = ok ? CaptureValuePreview(cx, value) : ErrorPreview();
++  event.scriptId = InternStaticString(filename ? filename : "<unknown>");
++  event.line = line;
++  event.column = column;
++  event.callerRealmId = CurrentRealmId(cx);
++  event.targetRealmId = ObjectRealmId(cx, obj.get());
++  EnqueueLogEvent(event);
  }
-@@ -505,22 +765,31 @@
  
-   gIsLogging = true;
+ void js::MaybeLogCamoufoxVMHasResult(JSContext* cx,
+@@ -496,31 +1072,39 @@
+   const char* thisClass = thisObj ? ObjectClassName(thisObj) : "<primitive>";
+   JS::UniqueChars ownedFunctionName;
+   const char* functionName = nullptr;
+-  FormatFunctionName(cx, calleeObj, &ownedFunctionName, &functionName);
++  if (gLogFunctionNames || gObjectFilter) {
++    FormatFunctionName(cx, calleeObj, &ownedFunctionName, &functionName);
++  }
+ 
+   if (gObjectFilter && !MatchesObjectFilter(calleeClass) &&
+       !MatchesObjectFilter(thisClass) && !MatchesObjectFilter(functionName)) {
+     return;
+   }
++  if (!ShouldSample()) {
++    return;
++  }
+ 
+-  gIsLogging = true;
++  AutoLoggingGuard guard;
  
 -  FILE* stream = LogStream();
 -  fprintf(stream,
@@ -580,38 +995,34 @@
 -          op, kind ? kind : "<unknown>", calleeClass,
 -          functionName ? functionName : "<anonymous>", thisClass,
 -          ok ? "true" : "false");
-+  std::string logLine;
-+  AppendFormat(logLine,
-+               "[camoufox-vm-access] op=%s-return kind=%s calleeClass=%s "
-+               "callee=%s thisClass=%s ok=%s result=",
-+               op, kind ? kind : "<unknown>", calleeClass,
-+               functionName ? functionName : "<anonymous>", thisClass,
-+               ok ? "true" : "false");
++  LogEvent event;
++  event.eventKind = LogEventKind::CallResult;
++  event.opId = InternStaticString(op);
++  event.kindId = InternStaticString(kind ? kind : "<unknown>");
++  event.calleeClassId = InternStaticString(calleeClass);
++  event.calleeId =
++      gLogFunctionNames ? InternString(functionName) : kNoStringId;
++  event.thisClassId = InternStaticString(thisClass);
++  event.ok = ok;
    if (ok) {
      JS::RootedValue rval(cx, args.rval());
 -    PrintValue(cx, rval);
-+    AppendValue(cx, rval, logLine);
++    event.result = CaptureValuePreview(cx, rval);
    } else {
 -    fputs("<error>", stream);
-+    logLine.append("<error>");
++    event.result = ErrorPreview();
    }
 -  fprintf(stream, " script=%s:%u:%u\n", filename ? filename : "<unknown>",
 -          line, column);
 -  fflush(stream);
-+  AppendFormat(logLine, " script=%s:%u:%u", filename ? filename : "<unknown>",
-+               line, column);
-+  char callerRealmBuffer[512];
-+  char targetRealmBuffer[512];
-+  const char* callerRealm =
-+      CurrentRealmName(cx, callerRealmBuffer, sizeof(callerRealmBuffer));
-+  const char* targetRealm = ObjectRealmName(
-+      cx, thisObj ? thisObj : calleeObj, targetRealmBuffer,
-+      sizeof(targetRealmBuffer));
-+  AppendRealmFields(logLine, callerRealm, targetRealm);
-+  logLine.push_back('\n');
-+  EnqueueLogLine(std::move(logLine));
- 
-   gIsLogging = false;
+-
+-  gIsLogging = false;
++  event.scriptId = InternStaticString(filename ? filename : "<unknown>");
++  event.line = line;
++  event.column = column;
++  event.callerRealmId = CurrentRealmId(cx);
++  event.targetRealmId = ObjectRealmId(cx, thisObj ? thisObj : calleeObj);
++  EnqueueLogEvent(event);
  }
 --- a/js/src/vm/MutexIDs.h
 +++ b/js/src/vm/MutexIDs.h

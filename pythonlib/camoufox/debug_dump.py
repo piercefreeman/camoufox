@@ -156,6 +156,12 @@ def configure_launch_debug_dump(
                 "CAMOUFOX_VM_ACCESS_BUFFERED": env.get("CAMOUFOX_VM_ACCESS_BUFFERED"),
                 "CAMOUFOX_VM_ACCESS_REALM": env.get("CAMOUFOX_VM_ACCESS_REALM"),
                 "CAMOUFOX_VM_ACCESS_RETURNS": env.get("CAMOUFOX_VM_ACCESS_RETURNS"),
+                "CAMOUFOX_VM_ACCESS_VALUE_STRINGS": env.get(
+                    "CAMOUFOX_VM_ACCESS_VALUE_STRINGS"
+                ),
+                "CAMOUFOX_VM_ACCESS_FUNCTION_NAMES": env.get(
+                    "CAMOUFOX_VM_ACCESS_FUNCTION_NAMES"
+                ),
                 "CAMOUFOX_VM_ACCESS_FILTER": env.get("CAMOUFOX_VM_ACCESS_FILTER"),
                 "CAMOUFOX_VM_ACCESS_OBJECT_FILTER": env.get("CAMOUFOX_VM_ACCESS_OBJECT_FILTER"),
                 "CAMOUFOX_VM_ACCESS_MAX_ARGS": env.get("CAMOUFOX_VM_ACCESS_MAX_ARGS"),
@@ -163,6 +169,7 @@ def configure_launch_debug_dump(
                 "CAMOUFOX_VM_ACCESS_MAX_QUEUE_BYTES": env.get(
                     "CAMOUFOX_VM_ACCESS_MAX_QUEUE_BYTES"
                 ),
+                "CAMOUFOX_VM_ACCESS_SAMPLE_RATE": env.get("CAMOUFOX_VM_ACCESS_SAMPLE_RATE"),
             },
         },
     )

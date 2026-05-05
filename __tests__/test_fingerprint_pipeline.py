@@ -765,6 +765,8 @@ def test_launch_options_enables_debug_dump_env_and_manifest(
         env={
             "CAMOUFOX_DEBUG_DUMP_DIR": str(tmp_path),
             "CAMOUFOX_DEBUG_DUMP": "manifest,returns",
+            "CAMOUFOX_VM_ACCESS_SAMPLE_RATE": "10",
+            "CAMOUFOX_VM_ACCESS_VALUE_STRINGS": "1",
         },
         headless=True,
     )
@@ -779,6 +781,8 @@ def test_launch_options_enables_debug_dump_env_and_manifest(
     assert manifest["launch"]["executable_path"] == "/tmp/camoufox"
     assert manifest["launch"]["config"]["navigator"]["userAgent"].endswith("Firefox/150.0")
     assert manifest["launch"]["xul"]["app_bundle"]["exists"] is False
+    assert manifest["launch"]["env"]["CAMOUFOX_VM_ACCESS_SAMPLE_RATE"] == "10"
+    assert manifest["launch"]["env"]["CAMOUFOX_VM_ACCESS_VALUE_STRINGS"] == "1"
 
 
 def test_new_context_installs_debug_dump_hooks(
