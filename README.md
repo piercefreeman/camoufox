@@ -22,7 +22,20 @@ This results in a browser that's not suitable for crawling. For public sites you
 
 ## Fingerprint Blocked?
 
-If you've been flagged as a bot, run the same site with our debugging handlers. This echos every call that the site has made into the Javascript VM - as well as any outgoing page request sent to their servers. 99.99% of the time these two payloads reveal that the site picked up on something anomalous. The only thing they don't really cover is the TCP handshake but we're using the authentic Firefox protocol for that anyway.
+You're a lot less likely to get flagged as a bot with our host-passthrough approach. But that doesn't mean it's impossible. First we recommend you open the same site in Chrome/Firefox and see if you still start seeing flags. If you do it might be because of your IP reputation.
+
+If other browsers work fine and you suspect it's at the Cadence level, run the same site with our debugging handlers. This echos the calls that the site makes into the Javascript VM, the return values from those calls, console output, and outgoing page requests sent to their servers. 99.99% of the time these payloads reveal that the site picked up on something anomalous. The only thing they don't really cover is the TCP handshake, but we're using the authentic Firefox protocol for that anyway.
+
+```sh
+export CAMOUFOX_DEBUG_DUMP_DIR=/tmp/cadence-fingerprint-debug
+export CAMOUFOX_DEBUG_DUMP=manifest,network,console,vm,returns
+export CAMOUFOX_VM_ACCESS_SAMPLE_RATE=10
+
+python your_repro_script.py
+zip -r cadence-fingerprint-debug.zip "$CAMOUFOX_DEBUG_DUMP_DIR"
+```
+
+Attach `cadence-fingerprint-debug.zip` to a GitHub Issue with the site URL, what you expected to happen, and what the site reported instead. The dump includes request/response bodies, so review it before sharing and do not set `CAMOUFOX_DEBUG_DUMP_RAW=1` unless a maintainer asks for it.
 
 ## Credits
 

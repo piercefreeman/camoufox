@@ -55,7 +55,7 @@ class DebugDump:
         self.directory.mkdir(parents=True, exist_ok=True)
 
     @classmethod
-    def from_env(cls, env: dict[str, Any] | None = None) -> "DebugDump | None":
+    def from_env(cls, env: dict[str, Any] | None = None) -> DebugDump | None:
         source = env if env is not None else os.environ
         directory = source.get("CAMOUFOX_DEBUG_DUMP_DIR")
         if not directory:
@@ -91,10 +91,9 @@ class DebugDump:
             **event,
         }
         line = json.dumps(_jsonable(payload, raw=self.raw), sort_keys=True, ensure_ascii=False)
-        with self._lock:
-            with self.path(filename).open("a", encoding="utf-8") as handle:
-                handle.write(line)
-                handle.write("\n")
+        with self._lock, self.path(filename).open("a", encoding="utf-8") as handle:
+            handle.write(line)
+            handle.write("\n")
 
     def update_manifest(self, section: str, data: dict[str, Any]) -> None:
         if not self.enabled("manifest"):
@@ -179,8 +178,8 @@ def attach_debug_metadata(target: Any, launch_options: dict[str, Any]) -> Any:
     env = launch_options.get("env") if isinstance(launch_options, dict) else None
     if env:
         try:
-            setattr(target, "_camoufox_debug_dump_env", dict(env))
-            setattr(target, "_camoufox_debug_dump_launch_options", _jsonable(launch_options))
+            target._camoufox_debug_dump_env = dict(env)
+            target._camoufox_debug_dump_launch_options = _jsonable(launch_options)
         except Exception:
             pass
     return target
@@ -287,6 +286,7 @@ def _install_sync_network_dump(context: Any, dump: DebugDump) -> None:
 
 def _install_async_network_dump(context: Any, dump: DebugDump) -> None:
     request_ids: dict[int, str] = {}
+    pending_tasks: set[asyncio.Task[Any]] = set()
 
     def request_id(request: Any) -> str:
         key = id(request)
@@ -298,7 +298,9 @@ def _install_async_network_dump(context: Any, dump: DebugDump) -> None:
         dump.append_jsonl("network.jsonl", _request_event("request", request_id(request), request, dump))
 
     def on_request_finished(request: Any) -> None:
-        asyncio.create_task(_async_dump_request_finished(request, request_id(request), dump))
+        task = asyncio.create_task(_async_dump_request_finished(request, request_id(request), dump))
+        pending_tasks.add(task)
+        task.add_done_callback(pending_tasks.discard)
 
     def on_request_failed(request: Any) -> None:
         event = _request_event("requestfailed", request_id(request), request, dump)
