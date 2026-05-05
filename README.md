@@ -28,3 +28,12 @@ This fork is focused more on automation than it is on crawling; it gives your Ag
 - Upstream docs: [camoufox.com](https://camoufox.com)
 - Python package code in this repo: [pythonlib/README.md](pythonlib/README.md)
 
+## FAQ
+
+Can't I just control Chrome with computer vision?
+
+You certainly can try! Computer vision isn't a perfect answer here because it's so slow, fills up your context window, and doesn't allow your agent to see any content that's not in the viewport. It's much more convenient to grab the current DOM and parse it into an LLM friendly representation of the page. But grabbing this representation opens you up to the same question of Playwright/CDP control that we were trying to avoid.
+
+Launching in most cloud VMs to use computer vision also risks leaking state about the underlying host. Most use the same stealth plugins that are pretty easy to detect, which means you're going to eventually get flagged if you use them naturally.
+
+Plus computer vision sometimes makes it hard to click around some websites because direct click events are hard to translate cleanly (see reports of Claude being unable to select dropdowns from form lists).
