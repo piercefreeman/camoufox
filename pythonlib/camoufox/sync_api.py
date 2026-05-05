@@ -13,6 +13,7 @@ from playwright.sync_api import (
 
 from camoufox.virtdisplay import VirtualDisplay
 
+from .debug_dump import attach_debug_metadata, install_sync_context_debug_dump
 from .exceptions import InvalidProxy
 from .fingerprints import _derive_browser_major_version, generate_context_fingerprint
 from .utils import launch_options, sync_attach_vd
@@ -98,10 +99,12 @@ def NewBrowser(
     # Persistent context
     if persistent_context:
         context = playwright.firefox.launch_persistent_context("", **from_options)
+        attach_debug_metadata(context, from_options)
         return sync_attach_vd(context, virtual_display)
 
     # Browser
     browser = playwright.firefox.launch(**from_options)
+    attach_debug_metadata(browser, from_options)
     return sync_attach_vd(browser, virtual_display)
 
 
@@ -196,4 +199,10 @@ def NewContext(
 
     context = browser.new_context(**opts)
     context.add_init_script(fp['init_script'])
+    install_sync_context_debug_dump(
+        context,
+        browser=browser,
+        fingerprint_payload=fp,
+        context_options=opts,
+    )
     return context

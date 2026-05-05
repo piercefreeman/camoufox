@@ -215,6 +215,7 @@ CAMOUFOX_VM_ACCESS_LOG=1
 CAMOUFOX_VM_ACCESS_FILTER='fingerprint'
 CAMOUFOX_VM_ACCESS_OBJECT_FILTER='Window'
 CAMOUFOX_VM_ACCESS_SYMBOLS=1
+CAMOUFOX_VM_ACCESS_RETURNS=1
 CAMOUFOX_VM_ACCESS_MAX_ARGS=16
 CAMOUFOX_VM_ACCESS_MAX_STRING=256
 ```
@@ -243,25 +244,36 @@ The logger records:
 - `getOwnPropertyDescriptor`.
 - `ownKeys`.
 - Native and scripted calls, including callee name, `this` class, and arguments.
+- Return previews for calls, property gets, and `in` checks when
+  `CAMOUFOX_VM_ACCESS_RETURNS=1`.
 
-## TODO: Debug Dump Mode
+## Debug Dump Mode
 
 This debugging session would have been much shorter with one reproducible dump
 directory containing the browser identity, network traffic, VM accesses, and
-selected high-value API outputs. The goal should be a small env-flag surface:
+selected high-value API outputs. The Python launch/context path now supports
+this small env-flag surface:
 
 ```sh
 CAMOUFOX_DEBUG_DUMP_DIR=/tmp/camoufox-debug
-CAMOUFOX_DEBUG_DUMP=manifest,network,console,vm,returns,surfaces
+CAMOUFOX_DEBUG_DUMP=manifest,network,console,vm,returns
 CAMOUFOX_DEBUG_DUMP_MAX_BODY=1048576
 ```
 
-The dump should be JSONL-first so normal shell tools work:
+Set `CAMOUFOX_DEBUG_DUMP_RAW=1` only for isolated local repros where secrets are
+not a concern. Without raw mode, obvious credentials in headers and common token
+strings are redacted.
+The `returns` section implies `vm` because native return previews are emitted by
+the VM access logger.
+Do not implement dump collection by replacing or wrapping page-visible
+JavaScript APIs. Anything injected into the page realm changes function identity,
+property descriptors, stack traces, or timing and is itself fingerprintable.
+
+The dump is JSONL-first so normal shell tools work:
 
 - `manifest.json`: executable path, `browser.version`, generated UA, context UA,
-  Firefox prefs, config payload, profile path, source revision, patch revision,
-  `dist/bin/XUL` hash, app-bundle `XUL` hash, and mtimes. This would have caught
-  the stale `.app` `XUL` problem immediately.
+  Firefox prefs, config payload, `dist/bin/XUL` hash, app-bundle `XUL` hash, and
+  mtimes. This would have caught the stale `.app` `XUL` problem immediately.
 - `network.jsonl`: request id, frame URL, method, URL, request headers, posted
   body, status, response headers, response body, timing, and redirect chain.
   PixelScan's `/s/api/co` response explicitly exposed `osFontsStatus:false`, so
@@ -269,16 +281,11 @@ The dump should be JSONL-first so normal shell tools work:
 - `console.jsonl`: console method, arguments, stack/script URL when available,
   page errors, and uncaught exceptions. This should capture debug output from
   patched third-party agents without relying on browser stderr.
-- `vm-access.jsonl`: existing VM property/call records, with stable timestamps,
-  browsing context id, user context id, frame URL, script URL, and object class.
-- `vm-returns.jsonl`: return previews for property gets and function calls. Log
-  primitive values directly; for objects log class, length/size, own-key summary,
-  and a stable hash. Avoid serializers that invoke getters, proxy traps, or page
-  code while logging.
-- `surfaces.jsonl`: targeted high-signal API output summaries for canvas, fonts,
-  WebGL, audio, screen/window, navigator, storage, cookies, timezone, locale,
-  WebRTC candidates, and `Error.stack`. Include arguments and return hashes for
-  large values like `canvas.toDataURL()`, `getImageData()`, and audio buffers.
+- `vm-access.log`: the existing native VM property/call records. When `vm` is
+  enabled, the Python launcher automatically sets `CAMOUFOX_VM_ACCESS_LOG=1` and
+  points `CAMOUFOX_VM_ACCESS_LOG_FILE` at this file. When `returns` is enabled,
+  it also sets `CAMOUFOX_VM_ACCESS_RETURNS=1`, which adds return-preview lines
+  for native/scripted calls plus property `get` and `in` checks.
 
 Network logging and return logging solve different problems and both are needed:
 
@@ -287,24 +294,34 @@ Network logging and return logging solve different problems and both are needed:
 - VM return dumps show what page JavaScript actually observed before it built or
   encrypted a payload, such as `Error.stack`, `navigator.userAgent`,
   `screen.availHeight`, canvas hashes, or font probe measurements.
-- Surface-specific summaries keep the log grepable when generic VM logging would
-  produce too much data or enormous binary strings.
+- Native surface-specific summaries would keep logs grepable when generic VM
+  logging produces too much data or enormous binary strings.
 
-Implementation TODOs:
+Implemented:
 
 - Add a Python-side network dump hook for all `NewContext`/`AsyncNewContext`
   contexts when `CAMOUFOX_DEBUG_DUMP` includes `network`.
-- Extend the C++ VM logger to optionally record return previews for native calls,
-  scripted calls, and property gets under `CAMOUFOX_VM_ACCESS_RETURNS=1`.
-- Add targeted native logging for fingerprint-heavy APIs where return values are
-  too large for raw VM logs: canvas, WebGL, AudioContext, font metrics, WebRTC,
-  and `Error.stack`.
+- Add console and page-error dumps for pages created from a debug-dump context.
+- Automatically route existing native VM logs into the dump directory when `vm`
+  is enabled.
+- Add native return previews for calls, property gets, and `in` checks when
+  `returns` is enabled.
 - Add body-size limits, binary hashing, and default redaction for `Cookie`,
   `Authorization`, proxy credentials, and bearer-like strings. Provide an
   explicit raw mode for isolated local repros.
+
+Remaining TODOs:
+
+- Convert native VM logs to JSONL and include browsing context id, user context
+  id, frame URL, and script URL where those are available.
+- Add native-only surface logs for fingerprint-heavy APIs: canvas, fonts, WebGL,
+  AudioContext, WebRTC, screen/window, navigator, timezone/locale, and
+  `Error.stack`. These must be below the page JS layer, not wrappers installed
+  with `add_init_script`.
 - Use a single monotonically increasing event id across manifest, network, VM,
   console, and surface logs so a request can be correlated with the JS reads and
-  calls that produced it.
+  calls that produced it. The Python JSONL files have per-writer event ids
+  today; native VM logs and cross-process coordination do not.
 - Include a one-command repro harness that launches a URL, waits for network
   idle or a selector, writes the dump, and exits cleanly.
 

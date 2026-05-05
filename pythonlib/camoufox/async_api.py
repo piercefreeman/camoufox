@@ -15,6 +15,7 @@ from playwright.async_api import (
 
 from camoufox.virtdisplay import VirtualDisplay
 
+from .debug_dump import attach_debug_metadata, install_async_context_debug_dump
 from .fingerprints import _derive_browser_major_version, generate_context_fingerprint
 from .utils import async_attach_vd, launch_options
 
@@ -98,10 +99,12 @@ async def AsyncNewBrowser(
     # Persistent context
     if persistent_context:
         context = await playwright.firefox.launch_persistent_context("", **from_options)
+        attach_debug_metadata(context, from_options)
         return await async_attach_vd(context, virtual_display)
 
     # Browser
     browser = await playwright.firefox.launch(**from_options)
+    attach_debug_metadata(browser, from_options)
     return await async_attach_vd(browser, virtual_display)
 
 
@@ -203,4 +206,10 @@ async def AsyncNewContext(
 
     context = await browser.new_context(**opts)
     await context.add_init_script(fp['init_script'])
+    await install_async_context_debug_dump(
+        context,
+        browser=browser,
+        fingerprint_payload=fp,
+        context_options=opts,
+    )
     return context
