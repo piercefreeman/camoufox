@@ -646,6 +646,7 @@ def test_launch_options_generates_full_config_payload(
     assert options["executable_path"] == "/tmp/camoufox"
     assert options["headless"] is True
     assert options["env"]["TEST_ENV"] == "1"
+    assert options["firefox_user_prefs"]["javascript.options.asyncstack"] is False
     assert payload["navigator"]["userAgent"].endswith("Firefox/150.0")
     assert payload["navigator"]["language"] == "en-US"
     assert payload["locale"]["language"] == "en"
@@ -659,6 +660,23 @@ def test_launch_options_generates_full_config_payload(
     assert payload["voices"]["items"] == ["Alex", "Samantha", "Moira (Enhanced)", "Karen (Premium)"]
     assert "webGl" not in payload
     assert 1 <= payload["window"]["history"]["length"] <= 5
+
+
+def test_launch_options_allows_explicit_asyncstack_override(
+    modules: tuple[Any, Any, Any],
+    fake_fingerprint: FakeFingerprint,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _, _, utils = modules
+    monkeypatch.setattr(utils, "generate_fingerprint", lambda **_: fake_fingerprint)
+
+    options = utils.launch_options(
+        env={"TEST_ENV": "1"},
+        firefox_user_prefs={"javascript.options.asyncstack": True},
+        headless=True,
+    )
+
+    assert options["firefox_user_prefs"]["javascript.options.asyncstack"] is True
 
 
 def test_launch_options_rejects_webgl_profile_override(

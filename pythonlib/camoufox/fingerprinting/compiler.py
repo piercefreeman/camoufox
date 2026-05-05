@@ -37,6 +37,10 @@ class CompiledScreen:
     width: int | None
     height: int | None
     color_depth: int | None
+    avail_width: int | None = None
+    avail_height: int | None = None
+    avail_left: int | None = None
+    avail_top: int | None = None
     device_pixel_ratio: float | None = None
 
 
@@ -268,6 +272,10 @@ class FirefoxFingerprintCompiler:
             "navigatorPlatform": config.navigator.platform if config.navigator else None,
             "navigatorUserAgent": config.navigator.user_agent if config.navigator else None,
             "screenColorDepth": screen.color_depth,
+            "screenAvailHeight": screen.avail_height,
+            "screenAvailLeft": screen.avail_left,
+            "screenAvailTop": screen.avail_top,
+            "screenAvailWidth": screen.avail_width,
             "screenHeight": screen.height,
             "screenWidth": screen.width,
             "speechVoices": config.voices.items if config.voices else None,
@@ -311,6 +319,16 @@ class FirefoxFingerprintCompiler:
                     f"{window.inner_width}, {window.inner_height}, "
                     f"{max(screen_x, 0)}, {max(screen_y, 0)});"
                 )
+            if values["screenAvailWidth"] and values["screenAvailHeight"]:
+                avail_left = values["screenAvailLeft"]
+                avail_top = values["screenAvailTop"]
+                lines.append(
+                    "  if (typeof w.setScreenAvailableRect === \"function\") "
+                    f"w.setScreenAvailableRect({values['screenAvailWidth']}, "
+                    f"{values['screenAvailHeight']}, "
+                    f"{max(avail_left if isinstance(avail_left, int) else 0, 0)}, "
+                    f"{max(avail_top if isinstance(avail_top, int) else 0, 0)});"
+                )
             lines.append(
                 "  if (typeof w.setScreenDimensions === \"function\") "
                 f"w.setScreenDimensions({values['screenWidth']}, {values['screenHeight']});"
@@ -352,6 +370,7 @@ class FirefoxFingerprintCompiler:
             "setAudioFingerprintSeed",
             "setTimezone",
             "setScreenDimensions",
+            "setScreenAvailableRect",
             "setScreenColorDepth",
             "setWindowDimensions",
             "setNavigatorPlatform",
@@ -581,6 +600,14 @@ def _compiled_screen_from_profile(
         or _as_optional_int(source_screen.get("height")),
         color_depth=(config.screen.color_depth if config.screen else None)
         or _as_optional_int(source_screen.get("colorDepth")),
+        avail_width=(config.screen.avail_width if config.screen else None)
+        or _as_optional_int(source_screen.get("availWidth")),
+        avail_height=(config.screen.avail_height if config.screen else None)
+        or _as_optional_int(source_screen.get("availHeight")),
+        avail_left=(config.screen.avail_left if config.screen else None)
+        or _as_optional_int(source_screen.get("availLeft")),
+        avail_top=(config.screen.avail_top if config.screen else None)
+        or _as_optional_int(source_screen.get("availTop")),
         device_pixel_ratio=(config.window.device_pixel_ratio if config.window else None)
         or _extract_device_pixel_ratio(source_screen),
     )

@@ -85,6 +85,74 @@ After this patch, page JS sees the intended geometry, for example:
 Fingerprint still reports `developer_tools: true`, so geometry propagation was a
 real leak but not the whole detection signal.
 
+The next confirmed inconsistent state was the available-screen rectangle. The
+window path was fixed, but `screen.availTop` and `screen.availHeight` still came
+from the host/default path:
+
+```json
+{
+  "screen": {
+    "height": 900,
+    "availTop": 25,
+    "availHeight": 875
+  },
+  "window": {
+    "screenY": 0,
+    "outerHeight": 900
+  }
+}
+```
+
+That says the desktop available area starts below the macOS menu bar, while the
+browser window starts at y=0 and occupies the full physical screen height. Treat
+`screen.*`, `screen.avail*`, and `window.*` as one coherent geometry tuple; do
+not spoof only part of it.
+
+For macOS fingerprints, normalization should clamp the window to the available
+screen rectangle:
+
+- `screen.availLeft <= window.screenX`
+- `screen.availTop <= window.screenY`
+- `window.outerWidth <= screen.availWidth`
+- `window.outerHeight <= screen.availHeight`
+- `window.screenY + window.outerHeight <= screen.availTop + screen.availHeight`
+
+## Developer Tools Finding
+
+The remaining `developer_tools: true` signal came from Firefox async stack
+capture, not from the classic console-object getter probe.
+
+The Fingerprint agent includes a Firefox/Safari/Chrome devtools probe that
+passes a DOM node with an `id` getter to `console.debug`, but its own collected
+request showed this probe skipped on Firefox:
+
+```json
+{
+  "s163": {
+    "s": -1,
+    "v": null
+  }
+}
+```
+
+The decisive signal was the agent's error-trace source. It throws an exception
+and sends `Error.stack` as a raw device attribute. With Playwright/Juggler
+attached, Firefox treats the page global as a `Debugger` debuggee, so the stack
+contains async parent frames such as `promise callback*...` and `async*...`.
+Fingerprint classifies that as developer tools/debugger state.
+
+The A/B test used the same local executable and same launch path:
+
+```text
+baseline:                         developer_tools: true,  suspect_score: 9
+javascript.options.asyncstack=0:  developer_tools: false, suspect_score: 0
+```
+
+The launcher default should set `javascript.options.asyncstack` to `false`.
+Callers can still override it explicitly through `firefox_user_prefs`, but the
+default should match a normal non-debugged page where async debugger stack
+capture is not visible to page JavaScript.
+
 ## VM Access Logger
 
 The VM logger is controlled by environment variables:
@@ -169,17 +237,23 @@ The playground regularly emits these console errors in our runs:
 These happen alongside successful Fingerprint API responses and are not the
 primary `developer_tools` signal.
 
-## Next Suspects
+## Request Payload Debugging
 
-After fixing outer/inner propagation, the remaining `developer_tools: true`
-signal likely comes from another runtime observable. The next pass should use the
-file-backed VM logger to compare the exact Fingerprint script probes against the
-values exposed by the rebuilt browser.
+To see the pre-encrypted Fingerprint request, fetch the current agent script and
+route the page to a patched copy where the internal logger is forced on:
 
-High-value areas to inspect:
+```sh
+curl -L --compressed -sS \
+  'https://demo.fingerprint.com/DBqbMN7zXxwl4Ei8/web/v4/ahNo3Idb3RiQg69bQglE?ci=jsl/4.0.0' \
+  -o /tmp/fpjs-pro-current.js
+```
 
-- Stack formatting and `Error.stack` behavior.
-- `mozInnerScreenX/Y` versus `screenX/Y` and realistic browser chrome offsets.
-- Any extension/devtool globals or missing globals expected in stock Firefox.
-- Canvas/WebGL/audio calls and argument values.
-- Descriptor shape of spoofed properties after self-destructing init setters.
+Then replace this minified condition before fulfilling the request:
+
+```python
+patched = agent.replace("RT()&&$O()", "$O()")
+```
+
+The page console will include `[Fingerprint] Visitor id request` with the raw
+source keys and values. This was how `s163` was ruled out and the async
+`Error.stack` payload was identified.
