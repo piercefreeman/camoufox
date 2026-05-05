@@ -25,8 +25,8 @@ Notes:
 ### 2. Clone the fork
 
 ```bash
-git clone https://github.com/piercefreeman/camoufox.git
-cd camoufox
+git clone https://github.com/MonkeySee-AI/rotunda.git
+cd rotunda
 ```
 
 ### 3. Pick your target architecture
@@ -54,7 +54,7 @@ Use this before your first `make mozbootstrap` or `make build`.
 This does four things:
 
 1. Downloads the Firefox source tarball for the version declared in [`upstream.sh`](upstream.sh).
-2. Extracts it into `camoufox-<version>-<release>/`.
+2. Extracts it into `rotunda-<version>-<release>/`.
 3. Copies this repo's `additions/` and `settings/` into that tree.
 4. Initializes the extracted source as a local git repo tagged at `unpatched`.
 
@@ -64,9 +64,9 @@ This does four things:
 make mozbootstrap
 ```
 
-This runs `./mach bootstrap` inside the generated `camoufox-*` source tree and sets up the Mozilla toolchain under `~/.mozbuild`.
+This runs `./mach bootstrap` inside the generated `rotunda-*` source tree and sets up the Mozilla toolchain under `~/.mozbuild`.
 
-### 6. Build Camoufox
+### 6. Build Rotunda
 
 ```bash
 make build
@@ -89,8 +89,8 @@ make run
 
 Useful output locations:
 
-- Apple Silicon build: `camoufox-*/obj-aarch64-apple-darwin/dist/Camoufox.app`
-- Intel build: `camoufox-*/obj-x86_64-apple-darwin/dist/Camoufox.app`
+- Apple Silicon build: `rotunda-*/obj-aarch64-apple-darwin/dist/Rotunda.app`
+- Intel build: `rotunda-*/obj-x86_64-apple-darwin/dist/Rotunda.app`
 
 ## When You Need To Rebuild
 
@@ -101,17 +101,17 @@ Rebuild required:
 - `patches/`
 - `additions/`
 - `settings/`
-- anything under the extracted `camoufox-*/` Firefox source tree that affects the browser binary or bundled resources
+- anything under the extracted `rotunda-*/` Firefox source tree that affects the browser binary or bundled resources
 
 Rebuild not required:
 
-- `pythonlib/camoufox/fingerprints.py`
-- `pythonlib/camoufox/utils.py`
-- `pythonlib/camoufox/sync_api.py`
-- `pythonlib/camoufox/async_api.py`
+- `pythonlib/rotunda/fingerprints.py`
+- `pythonlib/rotunda/utils.py`
+- `pythonlib/rotunda/sync_api.py`
+- `pythonlib/rotunda/async_api.py`
 - other Python-only wrapper code
 
-Those Python files run at launch time on the client machine. If you only changed fingerprint generation logic, rerun your Python entrypoint against an existing Camoufox binary.
+Those Python files run at launch time on the client machine. If you only changed fingerprint generation logic, rerun your Python entrypoint against an existing Rotunda binary.
 
 If you changed both sides, the split is simple:
 
@@ -131,8 +131,8 @@ From the repo root:
 ```bash
 uv sync --group dev
 source upstream.sh
-export CAMOUFOX_EXECUTABLE_PATH="$PWD/camoufox-$version-$release/obj-aarch64-apple-darwin/dist/Camoufox.app/Contents/MacOS/camoufox"
-uv run --group dev python -m camoufox test
+export ROTUNDA_EXECUTABLE_PATH="$PWD/rotunda-$version-$release/obj-aarch64-apple-darwin/dist/Rotunda.app/Contents/MacOS/rotunda"
+uv run --group dev python -m rotunda test
 ```
 
 On Intel macOS, replace `obj-aarch64-apple-darwin` with `obj-x86_64-apple-darwin`.
@@ -140,24 +140,24 @@ On Intel macOS, replace `obj-aarch64-apple-darwin` with `obj-x86_64-apple-darwin
 If startup looks stuck, rerun with `--debug` to print browser-launch and fingerprint-generation logs:
 
 ```bash
-uv run --group dev python -m camoufox test --debug
+uv run --group dev python -m rotunda test --debug
 ```
 
-`camoufox test` now opens a controllable Playwright inspector session using the active fingerprint flow:
+`rotunda test` now opens a controllable Playwright inspector session using the active fingerprint flow:
 
 - BrowserForge generates the Firefox skeleton
-- Camoufox constrains it to the real macOS host
+- Rotunda constrains it to the real macOS host
 - `NewContext()` applies the per-context overrides
 
-If you want the Python CLI and default executable resolution path to pick up your local build without passing `executable_path`, package and install it into the local Camoufox cache:
+If you want the Python CLI and default executable resolution path to pick up your local build without passing `executable_path`, package and install it into the local Rotunda cache:
 
 ```bash
 make package-macos arch=arm64
 ./scripts/install-local-build.sh
-uv run --group dev python -m camoufox test
+uv run --group dev python -m rotunda test
 ```
 
-That is only needed if you want the Python package to resolve the browser through its normal installed-browser lookup. For fast iteration on `pythonlib/`, pointing `CAMOUFOX_EXECUTABLE_PATH` at the repo build is simpler.
+That is only needed if you want the Python package to resolve the browser through its normal installed-browser lookup. For fast iteration on `pythonlib/`, pointing `ROTUNDA_EXECUTABLE_PATH` at the repo build is simpler.
 
 ## Persona Stability Check
 
@@ -166,7 +166,7 @@ If you want to verify that saved persona files fully capture the browser identit
 ```bash
 uv sync --group dev
 source upstream.sh
-export CAMOUFOX_EXECUTABLE_PATH="$PWD/camoufox-$version-$release/obj-aarch64-apple-darwin/dist/Camoufox.app/Contents/MacOS/camoufox"
+export ROTUNDA_EXECUTABLE_PATH="$PWD/rotunda-$version-$release/obj-aarch64-apple-darwin/dist/Rotunda.app/Contents/MacOS/rotunda"
 uv run --group dev python example/persona_consistency.py
 ```
 
@@ -190,8 +190,8 @@ If you just want the commands without the explanation:
 ```bash
 xcode-select --install
 brew install aria2 python ccache
-git clone https://github.com/piercefreeman/camoufox.git
-cd camoufox
+git clone https://github.com/MonkeySee-AI/rotunda.git
+cd rotunda
 make setup
 make mozbootstrap
 make build
@@ -218,7 +218,7 @@ For Intel:
 make package-macos arch=x86_64
 ```
 
-That writes a file like `camoufox-<version>-<release>-mac.<arch>.zip` in the repo root.
+That writes a file like `rotunda-<version>-<release>-mac.<arch>.zip` in the repo root.
 
 If you prefer the wrapper that builds and moves artifacts into `dist/`, use:
 
@@ -226,7 +226,7 @@ If you prefer the wrapper that builds and moves artifacts into `dist/`, use:
 python3 multibuild.py --target macos --arch arm64
 ```
 
-After that, [`scripts/install-local-build.sh`](scripts/install-local-build.sh) can install the latest zip from `dist/` into the local Camoufox cache.
+After that, [`scripts/install-local-build.sh`](scripts/install-local-build.sh) can install the latest zip from `dist/` into the local Rotunda cache.
 
 ## Docker Fallback
 
@@ -237,7 +237,7 @@ That path is not a separate implementation: it follows the same cross-build mode
 Build the image:
 
 ```bash
-docker build -t camoufox-builder .
+docker build -t rotunda-builder .
 ```
 
 Build a macOS Apple Silicon artifact into `dist/`:
@@ -246,7 +246,7 @@ Build a macOS Apple Silicon artifact into `dist/`:
 mkdir -p dist
 docker run --rm \
   -v "$(pwd)/dist:/app/dist" \
-  camoufox-builder \
+  rotunda-builder \
   --target macos \
   --arch arm64
 ```
@@ -257,7 +257,7 @@ If you want the container to reuse an existing Mozilla toolchain cache:
 docker run --rm \
   -v "$HOME/.mozbuild:/root/.mozbuild" \
   -v "$(pwd)/dist:/app/dist" \
-  camoufox-builder \
+  rotunda-builder \
   --target macos \
   --arch arm64
 ```
@@ -265,7 +265,7 @@ docker run --rm \
 Notes:
 
 - Docker is a fallback, not the only supported path.
-- The artifact will be written to `dist/` as `camoufox-<version>-<release>-mac.arm64.zip`.
+- The artifact will be written to `dist/` as `rotunda-<version>-<release>-mac.arm64.zip`.
 - If you want to mirror CI more closely, inspect [`.github/workflows/build.yml`](.github/workflows/build.yml).
 
 ## How This Repo Is Organized
@@ -274,9 +274,9 @@ Notes:
 - `additions/` contains files copied directly into the extracted Firefox source tree before patching.
 - `settings/` contains runtime defaults bundled into the build.
 - `__tests__/` contains the Python-side test suites, including Playwright integration, the build tester, and the service tester.
-- `camoufox-<version>-<release>/` is generated by `make setup` and is disposable local build state, not the source of truth for long-term changes.
+- `rotunda-<version>-<release>/` is generated by `make setup` and is disposable local build state, not the source of truth for long-term changes.
 
-If you edit files under `camoufox-*`, expect them to be overwritten by `make dir`, `make clean`, or `make distclean` unless you turn those edits back into a patch.
+If you edit files under `rotunda-*`, expect them to be overwritten by `make dir`, `make clean`, or `make distclean` unless you turn those edits back into a patch.
 
 ## Testing
 

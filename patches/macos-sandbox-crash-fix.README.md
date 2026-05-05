@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Fixes a crash on macOS where Camoufox segfaults during content process launch due to `MOZ_CRASH` being triggered when `GetRepoDir()` or `GetObjDir()` fail in non-packaged builds.
+Fixes a crash on macOS where Rotunda segfaults during content process launch due to `MOZ_CRASH` being triggered when `GetRepoDir()` or `GetObjDir()` fail in non-packaged builds.
 
 ## Problem
 
@@ -60,7 +60,7 @@ Apply after the Playwright patches (0-playwright.patch, 1-leak-fixes.patch) in t
 
 The fix can be verified by:
 
-1. Building Camoufox with the patch via cross-compilation from Ubuntu
+1. Building Rotunda with the patch via cross-compilation from Ubuntu
 2. Running the macOS binary without `MOZ_DISABLE_CONTENT_SANDBOX=1`
 3. Verifying the browser launches without crashing
 4. Checking that content processes spawn correctly via `about:processes`

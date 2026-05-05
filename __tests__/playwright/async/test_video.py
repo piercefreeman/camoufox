@@ -22,7 +22,7 @@ from playwright.async_api import Browser, BrowserType
 from tests.server import Server
 
 short_page_video_materialization_unsupported = pytest.mark.xfail(
-    reason="Short page-level recordings are not currently materialized to disk on context close in Camoufox.",
+    reason="Short page-level recordings are not currently materialized to disk on context close in Rotunda.",
     run=False,
     strict=False,
 )

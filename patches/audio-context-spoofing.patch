@@ -31,7 +31,7 @@ index 21063575d7..9e7c9f3e84 100644
  
  FINAL_LIBRARY = "xul"
 +# DOM Mask
-+LOCAL_INCLUDES += ["/camoucfg"]
++LOCAL_INCLUDES += ["/rotundacfg"]
  
  SPHINX_TREES["/media"] = "docs"
 diff --git a/dom/media/webaudio/AudioContext.cpp b/dom/media/webaudio/AudioContext.cpp
@@ -80,4 +80,4 @@ index 3ee8c0aa76..c0f1df8cf6 100644
  LOCAL_INCLUDES += [".."]
 +
 +# DOM Mask
-+LOCAL_INCLUDES += ["/camoucfg"]
++LOCAL_INCLUDES += ["/rotundacfg"]

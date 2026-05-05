@@ -32,7 +32,7 @@ async def browser(
 
 
 @pytest.mark.xfail(
-    reason="Camoufox context proxy routing only works when optional proxy fields are explicitly populated.",
+    reason="Rotunda context proxy routing only works when optional proxy fields are explicitly populated.",
     strict=False,
 )
 async def test_should_use_proxy(

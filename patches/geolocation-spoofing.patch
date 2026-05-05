@@ -89,8 +89,8 @@ index 2d6b6b5fab..0c7ed74c6d 100644
  MOCHITEST_MANIFESTS += ["test/mochitest/mochitest.toml"]
  XPCSHELL_TESTS_MANIFESTS += ["test/unit/xpcshell.toml"]
 +
-+# Camoufox: include path for MaskConfig.hpp
-+LOCAL_INCLUDES += ["/camoucfg"]
++# Rotunda: include path for MaskConfig.hpp
++LOCAL_INCLUDES += ["/rotundacfg"]
 diff --git a/dom/system/NetworkGeolocationProvider.sys.mjs b/dom/system/NetworkGeolocationProvider.sys.mjs
 index 7edc62b4a6..19b77aa6b6 100644
 --- a/dom/system/NetworkGeolocationProvider.sys.mjs
@@ -103,15 +103,15 @@ index 7edc62b4a6..19b77aa6b6 100644
 +    // Use profile geolocation if configured.
 +    let DEFAULT_DEG = -180;
 +
-+    let latitude = ChromeUtils.camouGetDouble(
++    let latitude = ChromeUtils.rotundaGetDouble(
 +      "geolocation.latitude",
 +      DEFAULT_DEG
 +    );
-+    let longitude = ChromeUtils.camouGetDouble(
++    let longitude = ChromeUtils.rotundaGetDouble(
 +      "geolocation.longitude",
 +      DEFAULT_DEG
 +    );
-+    let accuracy = ChromeUtils.camouGetDouble("geolocation.accuracy", 0);
++    let accuracy = ChromeUtils.rotundaGetDouble("geolocation.accuracy", 0);
 +
 +    let countDecimalPlaces = num => {
 +      if (Math.floor(num) === num) {
@@ -134,8 +134,8 @@ index 7edc62b4a6..19b77aa6b6 100644
 +      let newLocation;
 +      if (latitude != DEFAULT_DEG && longitude != DEFAULT_DEG) {
 +        // Use the latitude and longitude from the profile config.
-+        ChromeUtils.camouDebug(
-+          `Use Camoufox geo: ${latitude}:${longitude} accuracy:${accuracy}`
++        ChromeUtils.rotundaDebug(
++          `Use Rotunda geo: ${latitude}:${longitude} accuracy:${accuracy}`
 +        );
 +        // If accuracy is not set, calculate it using decimal precision.
 +        if (!accuracy) {

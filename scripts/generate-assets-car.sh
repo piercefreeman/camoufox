@@ -1,11 +1,11 @@
 #!/bin/bash
-# Generates Assets.car for macOS builds from the camoufox branding icons
+# Generates Assets.car for macOS builds from the rotunda branding icons
 # This script must be run on macOS (requires actool from Xcode)
 
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-BRANDING_DIR="$SCRIPT_DIR/../additions/browser/branding/camoufox"
+BRANDING_DIR="$SCRIPT_DIR/../additions/browser/branding/rotunda"
 XCASSETS_DIR="$BRANDING_DIR/Assets.xcassets"
 APPICONSET_DIR="$XCASSETS_DIR/AppIcon.appiconset"
 OUTPUT_FILE="$BRANDING_DIR/Assets.car"
@@ -17,7 +17,7 @@ if [[ "$(uname)" != "Darwin" ]]; then
 
     # If Assets.car doesn't exist, try to copy from official branding
     if [[ ! -f "$OUTPUT_FILE" ]]; then
-        OFFICIAL_ASSETS="$SCRIPT_DIR/../camoufox-*/browser/branding/official/Assets.car"
+        OFFICIAL_ASSETS="$SCRIPT_DIR/../rotunda-*/browser/branding/official/Assets.car"
         if ls $OFFICIAL_ASSETS 1>/dev/null 2>&1; then
             cp $(ls $OFFICIAL_ASSETS | head -1) "$OUTPUT_FILE"
             echo "Copied Assets.car from official branding."
@@ -37,7 +37,7 @@ if ! xcrun --find actool &>/dev/null 2>&1; then
         echo "Using existing Assets.car at $OUTPUT_FILE."
         exit 0
     fi
-    OFFICIAL_ASSETS=("$SCRIPT_DIR"/../camoufox-*/browser/branding/official/Assets.car)
+    OFFICIAL_ASSETS=("$SCRIPT_DIR"/../rotunda-*/browser/branding/official/Assets.car)
     if [[ -f "${OFFICIAL_ASSETS[0]}" ]]; then
         cp "${OFFICIAL_ASSETS[0]}" "$OUTPUT_FILE"
         echo "Copied Assets.car from official branding."
@@ -50,7 +50,7 @@ fi
 
 ACTOOL=$(xcrun --find actool)
 
-echo "Generating Assets.car from camoufox branding icons..."
+echo "Generating Assets.car from rotunda branding icons..."
 
 # Create xcassets structure
 mkdir -p "$APPICONSET_DIR"

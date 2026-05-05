@@ -8,7 +8,7 @@ uses those saved persona files for both verification rounds. That keeps the
 persona JSON files as the source of truth for browser identity over time.
 
 Example:
-    export CAMOUFOX_EXECUTABLE_PATH="$PWD/camoufox-150.0.1-beta.25/obj-aarch64-apple-darwin/dist/Camoufox.app/Contents/MacOS/camoufox"
+    export ROTUNDA_EXECUTABLE_PATH="$PWD/rotunda-150.0.1-beta.25/obj-aarch64-apple-darwin/dist/Rotunda.app/Contents/MacOS/rotunda"
     uv run --group dev python example/persona_consistency.py
 """
 
@@ -26,14 +26,14 @@ from typing import Any, Dict, List, Sequence
 
 from playwright.sync_api import Browser, BrowserContext, Page, Playwright, sync_playwright
 
-from camoufox.fingerprints import generate_context_fingerprint, generate_fingerprint
-from camoufox.pkgman import launch_path
-from camoufox.utils import get_env_vars, launch_options, validate_config
+from rotunda.fingerprints import generate_context_fingerprint, generate_fingerprint
+from rotunda.pkgman import launch_path
+from rotunda.utils import get_env_vars, launch_options, validate_config
 
 DEFAULT_PERSONA_COUNT = 5
 DEFAULT_TIMEOUT_MS = 120_000
 DEFAULT_URL = "https://abrahamjuliot.github.io/creepjs/"
-CAMOU_CONFIG_PATH = "CAMOU_CONFIG_PATH"
+ROTUNDA_CONFIG_PATH = "ROTUNDA_CONFIG_PATH"
 FINGERPRINT_ID_PATTERN = re.compile(r"FP ID:\s*([a-f0-9]{16,})\b", re.IGNORECASE)
 
 
@@ -126,7 +126,7 @@ def parse_args() -> argparse.Namespace:
         "--executable-path",
         type=Path,
         default=None,
-        help="path to a Camoufox executable; defaults to CAMOUFOX_EXECUTABLE_PATH or the active install",
+        help="path to a Rotunda executable; defaults to ROTUNDA_EXECUTABLE_PATH or the active install",
     )
     parser.add_argument(
         "--headful",
@@ -143,14 +143,14 @@ def resolve_executable_path(explicit_path: Path | None) -> Path:
     if explicit_path is not None:
         path = explicit_path.expanduser().resolve()
     else:
-        env_path = os.environ.get("CAMOUFOX_EXECUTABLE_PATH")
+        env_path = os.environ.get("ROTUNDA_EXECUTABLE_PATH")
         if env_path:
             path = Path(env_path).expanduser().resolve()
         else:
             path = Path(launch_path()).resolve()
 
     if not path.exists():
-        raise FileNotFoundError(f"Camoufox executable not found: {path}")
+        raise FileNotFoundError(f"Rotunda executable not found: {path}")
     return path
 
 
@@ -197,7 +197,7 @@ def create_persona_files(
             "ff_version": ff_version,
             "fingerprint": serialize_fingerprint(fingerprint),
             "launch_args": list(launch_payload.get("args", [])),
-            "launch_config": decode_camou_config(launch_payload["env"]),
+            "launch_config": decode_rotunda_config(launch_payload["env"]),
             "firefox_user_prefs": dict(launch_payload.get("firefox_user_prefs", {})),
             "context_config": serialize_profile(context_payload["config"]),
             "context_options": dict(context_payload["context_options"]),
@@ -341,8 +341,8 @@ def parse_fp_id(text: str) -> str | None:
     return None
 
 
-def decode_camou_config(env: Dict[str, Any]) -> Dict[str, Any]:
-    with open(env[CAMOU_CONFIG_PATH], encoding="utf-8") as handle:
+def decode_rotunda_config(env: Dict[str, Any]) -> Dict[str, Any]:
+    with open(env[ROTUNDA_CONFIG_PATH], encoding="utf-8") as handle:
         return json.load(handle)
 
 

@@ -1,7 +1,7 @@
 build:
-	podman build -t camoufox-benchmark .
+	podman build -t rotunda-benchmark .
 
 run:
-	podman run camoufox-benchmark --mode headless --browser firefox
-	podman run camoufox-benchmark --mode headless --browser camoufox
-	podman run camoufox-benchmark --mode headless --browser camoufox-ubo
+	podman run rotunda-benchmark --mode headless --browser firefox
+	podman run rotunda-benchmark --mode headless --browser rotunda
+	podman run rotunda-benchmark --mode headless --browser rotunda-ubo

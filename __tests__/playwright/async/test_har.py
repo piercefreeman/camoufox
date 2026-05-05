@@ -436,7 +436,7 @@ async def test_should_change_document_url_after_redirected_navigation_on_click(
 
 
 @pytest.mark.xfail(
-    reason="HAR-backed redirected entries do not currently participate in history navigation correctly in Camoufox.",
+    reason="HAR-backed redirected entries do not currently participate in history navigation correctly in Rotunda.",
     strict=False,
 )
 async def test_should_go_back_to_redirected_navigation(
@@ -458,7 +458,7 @@ async def test_should_go_back_to_redirected_navigation(
 
 
 @pytest.mark.xfail(
-    reason="HAR-backed redirected entries do not currently participate in history navigation correctly in Camoufox.",
+    reason="HAR-backed redirected entries do not currently participate in history navigation correctly in Rotunda.",
     strict=False,
 )
 async def test_should_go_forward_to_redirected_navigation(

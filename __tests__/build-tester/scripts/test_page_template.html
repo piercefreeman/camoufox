@@ -2,14 +2,14 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>Camoufox Check</title>
+  <title>Rotunda Check</title>
 </head>
 <body>
 <script src="/checks-bundle.js"></script>
 <script>
 (async function () {
   try {
-    var results = await CamoufoxChecks.runAllChecks();
+    var results = await RotundaChecks.runAllChecks();
     window.__testResults__ = results;
     window.__testComplete__ = true;
   } catch (e) {

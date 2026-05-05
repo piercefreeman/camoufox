@@ -32,7 +32,7 @@ run 'cp -v ../patches/librewolf/pack_vs.py build/vs/'
 # Apply most recent `settings` repository files
 run 'mkdir -p lw'
 pushd lw > /dev/null
-run 'cp -v ../../settings/camoufox.cfg .'
+run 'cp -v ../../settings/rotunda.cfg .'
 run 'cp -v ../../settings/distribution/policies.json .'
 run 'cp -v ../../settings/defaults/pref/local-settings.js .'
 run 'cp -v ../../settings/chrome.css .'
@@ -40,7 +40,7 @@ run 'touch moz.build'
 popd > /dev/null
 
 # Generate Assets.car for macOS builds (if on macOS) or ensure it exists
-if [[ ! -f ../additions/browser/branding/camoufox/Assets.car ]]; then
+if [[ ! -f ../additions/browser/branding/rotunda/Assets.car ]]; then
     echo "Generating Assets.car..."
     bash ../scripts/generate-assets-car.sh
 fi

@@ -1,6 +1,6 @@
 # Per-Context Fingerprint Patches
 
-Camoufox spoofs fingerprints globally via the runtime profile — every browser context shares the same identity. These patches add **per-context isolation**, so each Playwright context can have a unique, deterministic fingerprint. This lets you run multiple concurrent sessions from a single Camoufox process without cross-context correlation.
+Rotunda spoofs fingerprints globally via the runtime profile — every browser context shares the same identity. These patches add **per-context isolation**, so each Playwright context can have a unique, deterministic fingerprint. This lets you run multiple concurrent sessions from a single Rotunda process without cross-context correlation.
 
 ### What's New
 
@@ -51,7 +51,7 @@ The recommended pattern is `context.addInitScript()`, which runs before any page
 const { firefox } = require('playwright');
 
 const browser = await firefox.launch({
-  executablePath: '/path/to/camoufox',
+  executablePath: '/path/to/rotunda',
 });
 
 const context = await browser.newContext({
@@ -123,9 +123,9 @@ await page.goto('https://example.com');
 // Fingerprints are already applied. Functions are already self-destructed.
 ```
 
-**Why `addInitScript`?** Each `window.setXxx()` function self-destructs after the first call. On new tabs or navigations, Camoufox recreates the functions, and the init script calls them again before any page scripts can run. This ensures fingerprints are always applied and functions are never visible to website code.
+**Why `addInitScript`?** Each `window.setXxx()` function self-destructs after the first call. On new tabs or navigations, Rotunda recreates the functions, and the init script calls them again before any page scripts can run. This ensures fingerprints are always applied and functions are never visible to website code.
 
-**Why `typeof` guards?** The init script runs on every page load. If Camoufox is ever used without these patches (e.g. vanilla build), the guards prevent `ReferenceError`. They also handle the case where the function was already called and self-destructed.
+**Why `typeof` guards?** The init script runs on every page load. If Rotunda is ever used without these patches (e.g. vanilla build), the guards prevent `ReferenceError`. They also handle the case where the function was already called and self-destructed.
 
 ### Running Multiple Isolated Contexts
 
@@ -211,9 +211,9 @@ if (BrowsingContext* bc = win->GetBrowsingContext()) {
 
 Workers resolve `userContextId` via `WorkerPrivate::GetOriginAttributes()`, which inherits from the creating context's BrowsingContext.
 
-### Configuration (`settings/camoufox.cfg`)
+### Configuration (`settings/rotunda.cfg`)
 
-The `camoufox.cfg` file sets Firefox preferences at startup (before `prefs.js` is loaded). Key settings:
+The `rotunda.cfg` file sets Firefox preferences at startup (before `prefs.js` is loaded). Key settings:
 
 - `fission.autostart = true` — keeps Fission (site isolation) enabled. Some WAFs can detect disabled Fission. With the cross-process storage patch, Fission works correctly because values are synced across all content processes.
 - `fission.webContentIsolationStrategy = 1` — standard isolation strategy.
@@ -265,7 +265,7 @@ Covering all 6 is critical — Brave was bypassed in 2024 because they only prot
 
 **Worker support:** The 4 AnalyserNode hooks include an explicit `WorkerPrivate` fallback for resolving `userContextId` when running in Web Worker contexts. The 2 AudioBuffer hooks (`getChannelData`, `copyFromChannel`) rely on the ucid=0 global fallback instead — `SetAudioFingerprintSeed()` stores the seed under both the real `userContextId` AND ucid=0, so workers without a window reference still find the correct seed.
 
-**MaskConfig fallback:** If no per-context seed is set, checks the `audio.seed` value from the `CAMOU_CONFIG_PATH` runtime profile. This enables the Camoufox Python package to set a global audio seed without per-context JavaScript.
+**MaskConfig fallback:** If no per-context seed is set, checks the `audio.seed` value from the `ROTUNDA_CONFIG_PATH` runtime profile. This enables the Rotunda Python package to set a global audio seed without per-context JavaScript.
 
 **API:**
 ```javascript
@@ -391,7 +391,7 @@ window.setNavigatorUserAgent('Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:1
 
 ### 7. WebGL Native Hardware Policy
 
-**Status:** Synthetic WebGL profile input has been removed. Camoufox keeps WebGL vendor/renderer, limits, extensions, shader precision, and rendering output native so GPU identity matches the host rendering stack.
+**Status:** Synthetic WebGL profile input has been removed. Rotunda keeps WebGL vendor/renderer, limits, extensions, shader precision, and rendering output native so GPU identity matches the host rendering stack.
 
 **Why:** Hardware-class signals are acceptable when they describe a large, truthful cohort. A Mac M1 WebGL profile generally identifies the OS/browser/GPU family, not an individual device. A false GPU claim is worse: sites can verify it by comparing renderer/vendor strings against WebGL limits, supported extensions, shader precision, canvas pixels, WebGPU limits, and rendering timing.
 
@@ -419,7 +419,7 @@ The noise algorithm is **format-agnostic**: for each selected pixel, it iterates
 
 **Worker support:** Includes a `WorkerPrivate` fallback for resolving `userContextId` when canvas operations happen in a Web Worker via OffscreenCanvas.
 
-**MaskConfig fallback:** If no per-context seed is set, checks the `canvas.seed` value from the `CAMOU_CONFIG_PATH` runtime profile.
+**MaskConfig fallback:** If no per-context seed is set, checks the `canvas.seed` value from the `ROTUNDA_CONFIG_PATH` runtime profile.
 
 **API:**
 ```javascript
@@ -512,7 +512,7 @@ When `window.setXxx()` stores a value, `RoverfoxStorageManager` writes it locall
 
 ## Global-Only Patches (No JavaScript API)
 
-These patches read from the nested `CAMOU_CONFIG_PATH` runtime profile at startup and apply to all contexts equally. They don't expose any `window.setXxx()` functions.
+These patches read from the nested `ROTUNDA_CONFIG_PATH` runtime profile at startup and apply to all contexts equally. They don't expose any `window.setXxx()` functions.
 
 ### geolocation-spoofing.patch
 
@@ -554,13 +554,13 @@ For per-context geolocation, use Playwright's built-in `context.setGeolocation()
 
 **Patch independence:** All patches apply independently to vanilla Firefox. Context lines in hunks reference unpatched source files. Patches apply alphabetically and use fuzzy matching for line shifts caused by other patches.
 
-**camoufox.cfg:** The `settings/camoufox.cfg` file sets `fission.autostart=true`, `fission.webContentIsolationStrategy=1`, and `dom.ipc.processPrelaunch.enabled=false`. No `dom.ipc.processCount` override is needed — the cross-process storage patch enables all per-context values to sync across Firefox's default multi-process architecture.
+**rotunda.cfg:** The `settings/rotunda.cfg` file sets `fission.autostart=true`, `fission.webContentIsolationStrategy=1`, and `dom.ipc.processPrelaunch.enabled=false`. No `dom.ipc.processCount` override is needed — the cross-process storage patch enables all per-context values to sync across Firefox's default multi-process architecture.
 
 ---
 
 ## Bundled Fontconfig & Fonts
 
-Camoufox bundles OS-specific fontconfig configurations and font files so that font rendering and font detection produce OS-consistent results, regardless of the host system's installed fonts.
+Rotunda bundles OS-specific fontconfig configurations and font files so that font rendering and font detection produce OS-consistent results, regardless of the host system's installed fonts.
 
 **Directory structure** (in `bundle/`, packaged via Makefile `--includes`):
 
@@ -584,13 +584,13 @@ bundle/
 
 **Runtime path rewriting:** At launch time, `createRuntimeFontconfig()` reads the bundled `fonts.conf` and rewrites font directory paths to absolute paths pointing at the correct OS-specific font subdirectory (e.g. `fonts/macos/` for macOS profiles). This prevents cross-OS font leakage (e.g. Linux font Arimo appearing in a macOS profile) and avoids CWD-dependent path issues.
 
-**Linux fontconfig wiring:** When launching through the Python package on Linux, Camoufox generates a runtime `fonts.conf` and sets `FONTCONFIG_FILE` automatically. If you launch the browser directly, you need to point fontconfig at the generated config yourself.
+**Linux fontconfig wiring:** When launching through the Python package on Linux, Rotunda generates a runtime `fonts.conf` and sets `FONTCONFIG_FILE` automatically. If you launch the browser directly, you need to point fontconfig at the generated config yourself.
 
 ---
 
 ## Python Library Changes
 
-The Camoufox Python package (`pythonlib/`) generates fingerprints for both `NewBrowser` (global runtime profile) and `NewContext` (per-context init script). **BrowserForge is still the default skeleton generator for both paths.** Camoufox now combines that with a real macOS host profile so GPU-facing values stay real and the advertised font/voice inventories are filtered to what the host actually supports.
+The Rotunda Python package (`pythonlib/`) generates fingerprints for both `NewBrowser` (global runtime profile) and `NewContext` (per-context init script). **BrowserForge is still the default skeleton generator for both paths.** Rotunda now combines that with a real macOS host profile so GPU-facing values stay real and the advertised font/voice inventories are filtered to what the host actually supports.
 
 ### Fingerprint Source Priority
 
@@ -603,7 +603,7 @@ The Camoufox Python package (`pythonlib/`) generates fingerprints for both `NewB
 
 | Property | Source | Notes |
 |----------|--------|-------|
-| UA, platform, oscpu | BrowserForge or preset | Narrow host-compatible subset only; UA version patched to match Camoufox Firefox version |
+| UA, platform, oscpu | BrowserForge or preset | Narrow host-compatible subset only; UA version patched to match Rotunda Firefox version |
 | Screen dims, colorDepth | BrowserForge or preset | Viewport adjusted by -28px for browser chrome |
 | WebGL/WebGPU | Real host hardware/browser stack | Runtime profile schema does not accept synthetic GPU fields. |
 | Font list | macOS bundled baseline + host extras | Advertises the installed macOS-bundled font set, plus a random `0-50` extra locally installed fonts. |
@@ -619,22 +619,22 @@ The Camoufox Python package (`pythonlib/`) generates fingerprints for both `NewB
 
 **`fingerprints.py`** — Per-context fingerprint generation:
 - `generate_context_fingerprint()` — main API. Returns `{init_script, context_options, config, preset}`
-- `from_preset()` — compiles an explicit caller-supplied preset dict into the same host-compatible `CamoufoxProfile`
-- `from_browserforge()` — converts a BrowserForge Fingerprint into the generated nested `CamoufoxProfile` model
+- `from_preset()` — compiles an explicit caller-supplied preset dict into the same host-compatible `RotundaProfile`
+- `from_browserforge()` — converts a BrowserForge Fingerprint into the generated nested `RotundaProfile` model
 - `_build_init_script()` — generates the JavaScript IIFE for the remaining per-context overrides (`setWebRTCIPv6` is not included — IPv6 is optional and rarely set)
 - `_MacOSHostProfile` — probes the real macOS host for GPU family, installed fonts, and installed voices
 - `_sample_extras()` — adds a small random sample of extra installed fonts or voices on top of the bundled baseline
 
 **`utils.py`** — Global browser launch configuration:
-- `launch_options()` — builds the `CAMOU_CONFIG_PATH` profile file, Playwright args, and Firefox prefs
+- `launch_options()` — builds the `ROTUNDA_CONFIG_PATH` profile file, Playwright args, and Firefox prefs
 - Font inventory generated from the real host inventory
 - Voice inventory generated from the real host inventory
 - WebGL/WebGPU use the real host hardware/browser stack; synthetic GPU fields are not part of the profile schema
 - Config validated against the generated Pydantic profile model before serialization
 
-**`camoufox-profile.openapi.yaml`** — Canonical schema for the nested runtime profile. Python and C++ profile models are generated from this schema.
+**`rotunda-profile.openapi.yaml`** — Canonical schema for the nested runtime profile. Python and C++ profile models are generated from this schema.
 
-**`camoufox.cfg`** — Sets `fission.autostart=true` and `dom.ipc.processPrelaunch.enabled=false`. No `dom.ipc.processCount` override needed with cross-process storage.
+**`rotunda.cfg`** — Sets `fission.autostart=true` and `dom.ipc.processPrelaunch.enabled=false`. No `dom.ipc.processCount` override needed with cross-process storage.
 
 ---
 
@@ -652,4 +652,4 @@ These patches control what JavaScript APIs report, but they cannot change how th
 
 Advanced fingerprinting services (reCAPTCHA, hCaptcha, Kasada, etc.) cross-reference these signals against what `navigator.platform` and the User-Agent claim. A mismatch is a strong bot signal.
 
-**Recommendation:** Always run Camoufox on the OS that matches the fingerprint profile. Use macOS fingerprints on macOS workers, Linux fingerprints on Linux workers. The per-context patches are designed to make each context look like a *different person on the same OS*, not to impersonate a different OS entirely.
+**Recommendation:** Always run Rotunda on the OS that matches the fingerprint profile. Use macOS fingerprints on macOS workers, Linux fingerprints on Linux workers. The per-context patches are designed to make each context look like a *different person on the same OS*, not to impersonate a different OS entirely.

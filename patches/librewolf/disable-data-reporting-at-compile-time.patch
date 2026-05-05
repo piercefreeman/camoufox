@@ -17,8 +17,8 @@ index e8b401a7df..7b63573c17 100644
  
  
 -imply_option("MOZ_APP_VENDOR", "Mozilla")
-+imply_option("MOZ_APP_VENDOR", "Camoufox")
-+imply_option("MOZ_APP_PROFILE", "camoufox")
++imply_option("MOZ_APP_VENDOR", "Rotunda")
++imply_option("MOZ_APP_PROFILE", "rotunda")
  imply_option("MOZ_APP_ID", "{ec8030f7-c20a-464f-9b0e-13a3a9e97384}")
  # Include the DevTools client, not just the server (which is the default)
  imply_option("MOZ_DEVTOOLS", "all")

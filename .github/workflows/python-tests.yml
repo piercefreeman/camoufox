@@ -38,7 +38,7 @@ jobs:
       - name: Cache Firefox source tarball
         uses: actions/cache@v4
         with:
-          path: ~/.cache/camoufox/firefox-source
+          path: ~/.cache/rotunda/firefox-source
           key: firefox-source-${{ runner.os }}-${{ hashFiles('upstream.sh') }}
 
       - name: Install verifier dependencies
@@ -74,7 +74,7 @@ jobs:
         run: uv sync --group dev --locked
 
       - name: Run Ruff
-        run: uv run --group dev ruff check pythonlib/camoufox
+        run: uv run --group dev ruff check pythonlib/rotunda
 
   fingerprint-example:
     runs-on: ubuntu-24.04
@@ -128,7 +128,7 @@ jobs:
         run: uv sync --group dev --locked
 
       - name: Run ty
-        run: uv run --group dev ty check pythonlib/camoufox
+        run: uv run --group dev ty check pythonlib/rotunda
 
   pytest:
     runs-on: ubuntu-24.04

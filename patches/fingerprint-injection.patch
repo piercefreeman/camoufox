@@ -8,7 +8,7 @@ index a23bb7812a..58942ccb13 100644
  
 +
 +# DOM Mask
-+LOCAL_INCLUDES += ["/camoucfg"]
++LOCAL_INCLUDES += ["/rotundacfg"]
  if CONFIG["MOZ_ASAN"] or CONFIG["MOZ_DEBUG"]:
      WINCONSOLE = True
  else:
@@ -52,7 +52,7 @@ index cd9090cda3..37a053579e 100644
  )
 +
 +# DOM Mask
-+LOCAL_INCLUDES += ["/camoucfg"]
++LOCAL_INCLUDES += ["/rotundacfg"]
 \ No newline at end of file
 diff --git a/dom/base/nsGlobalWindowInner.cpp b/dom/base/nsGlobalWindowInner.cpp
 index 330a707789..241f87780b 100644
@@ -338,7 +338,7 @@ index 3a90c93c01..91d673039b 100644
  MOCHITEST_MANIFESTS += ["test/mochitest.toml"]
 +
 +# DOM Mask
-+LOCAL_INCLUDES += ["/camoucfg"]
++LOCAL_INCLUDES += ["/rotundacfg"]
 \ No newline at end of file
 diff --git a/dom/workers/WorkerNavigator.cpp b/dom/workers/WorkerNavigator.cpp
 index 622724b529..c9a65ff013 100644
@@ -422,5 +422,5 @@ index 2f2948a729..b8ad10403f 100644
  BROWSER_CHROME_MANIFESTS += ["test/browser.toml"]
 +
 +# DOM Mask
-+LOCAL_INCLUDES += ["/camoucfg"]
++LOCAL_INCLUDES += ["/rotundacfg"]
 \ No newline at end of file

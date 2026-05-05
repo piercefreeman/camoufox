@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Camoufox Build Tester — Python CLI
+Rotunda Build Tester — Python CLI
 
 Runs the same antibot-detection checks as the Next.js web app,
 but as a standalone CLI with ASCII art certificate output.
@@ -25,16 +25,16 @@ from runner import run_tests
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Camoufox Build Tester — runs antibot-detection checks via Playwright",
+        description="Rotunda Build Tester — runs antibot-detection checks via Playwright",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    parser.add_argument("binary_path", help="Path to the Camoufox (Firefox) binary")
+    parser.add_argument("binary_path", help="Path to the Rotunda (Firefox) binary")
     parser.add_argument(
         "--profile-count", type=int, default=8, metavar="N",
         help="Number of profiles to test, 1-8 (default: 8)",
     )
     parser.add_argument(
-        "--secret", default="camoufox-tester-dev-secret", metavar="KEY",
+        "--secret", default="rotunda-tester-dev-secret", metavar="KEY",
         help="HMAC signing key for the certificate (default: dev secret)",
     )
     parser.add_argument(
@@ -52,7 +52,7 @@ def main():
     binary_path = args.binary_path
     # Resolve macOS .app bundle to internal binary
     if sys.platform == "darwin" and binary_path.endswith(".app"):
-        candidate = os.path.join(binary_path, "Contents", "MacOS", "camoufox")
+        candidate = os.path.join(binary_path, "Contents", "MacOS", "rotunda")
         if os.path.isfile(candidate):
             binary_path = candidate
         else:
@@ -64,7 +64,7 @@ def main():
         print(f"ERROR: Binary not found: {binary_path}", file=sys.stderr)
         sys.exit(1)
 
-    print(f"Camoufox Build Tester")
+    print(f"Rotunda Build Tester")
     print(f"Binary:   {binary_path}")
     print(f"Profiles: {profile_count}")
 

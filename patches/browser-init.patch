@@ -32,19 +32,19 @@ index 1cfa4b8497..bdf8d7202e 100644
      // Update UI if browser is under remote control.
      gRemoteControl.updateVisualCue();
  
-+    // Camoufox: print URL changes to console
-+    if (ChromeUtils.isCamouDebug()) {
-+      ChromeUtils.camouDebug("Debug mode ON.");
++    // Rotunda: print URL changes to console
++    if (ChromeUtils.isRotundaDebug()) {
++      ChromeUtils.rotundaDebug("Debug mode ON.");
 +      gBrowser.addTabsProgressListener({
 +        onLocationChange(aBrowser, aWebProgress, aRequest, aLocation, aFlags) {
 +          if (aBrowser === gBrowser.selectedBrowser) {
-+            ChromeUtils.camouDebug("URL changed to: " + aLocation.spec);
++            ChromeUtils.rotundaDebug("URL changed to: " + aLocation.spec);
 +          }
 +        }
 +      });
 +      
 +      gURLBar.addEventListener("change", () => {
-+        ChromeUtils.camouDebug("URL bar value changed to: " + gURLBar.value);
++        ChromeUtils.rotundaDebug("URL bar value changed to: " + gURLBar.value);
 +      });
 +    }
 +
@@ -55,7 +55,7 @@ index 1cfa4b8497..bdf8d7202e 100644
        }
      }
  
-+    if (ChromeUtils.camouGetBool("showcursor", true)) {
++    if (ChromeUtils.rotundaGetBool("showcursor", true)) {
 +      let cursorFollower = document.createElement("div");
 +      cursorFollower.id = "cursor-highlighter";
 +      cursorFollower.style.cssText = `
@@ -92,12 +92,12 @@ index 1cfa4b8497..bdf8d7202e 100644
 +
 +    // Hijack the outer window size
 +    let outerWidth, outerHeight;
-+    if ((outerWidth = ChromeUtils.camouGetInt("window.outerWidth"))) {
++    if ((outerWidth = ChromeUtils.rotundaGetInt("window.outerWidth"))) {
 +      document.documentElement.style.setProperty('width', outerWidth + 'px');
 +      browser.style.setProperty('width', outerWidth + 'px');
 +      window.resizeTo(outerWidth, window.outerHeight);
 +    }
-+    if ((outerHeight = ChromeUtils.camouGetInt("window.outerHeight"))) {
++    if ((outerHeight = ChromeUtils.rotundaGetInt("window.outerHeight"))) {
 +      document.documentElement.style.setProperty('height', outerHeight + 'px');
 +      browser.style.setProperty('height', outerHeight + 'px');
 +      window.resizeTo(window.outerWidth, outerHeight);
@@ -105,8 +105,8 @@ index 1cfa4b8497..bdf8d7202e 100644
 +    browser.style.setProperty('box-sizing', 'content-box');
 +
 +    // Hijack the inner window size
-+    let innerWidth = ChromeUtils.camouGetInt("window.innerWidth") || ChromeUtils.camouGetInt("document.body.clientWidth");
-+    let innerHeight = ChromeUtils.camouGetInt("window.innerHeight") || ChromeUtils.camouGetInt("document.body.clientHeight");
++    let innerWidth = ChromeUtils.rotundaGetInt("window.innerWidth") || ChromeUtils.rotundaGetInt("document.body.clientWidth");
++    let innerHeight = ChromeUtils.rotundaGetInt("window.innerHeight") || ChromeUtils.rotundaGetInt("document.body.clientHeight");
 +
 +    if (innerWidth || innerHeight) {
 +      let win_inner_style = document.createElement('style');
@@ -130,19 +130,19 @@ index 1cfa4b8497..bdf8d7202e 100644
 +    }
 +
 +    // Install addons if specified
-+    let addonPaths = ChromeUtils.camouGetStringList("addons");
++    let addonPaths = ChromeUtils.rotundaGetStringList("addons");
 +    if (addonPaths?.length) {
 +      Promise.all(addonPaths.map(path => this.installTemporaryAddon(path)))
-+        .then(addons => ChromeUtils.camouDebug("Installed " + addons.length + " addon(s)"))
-+        .catch(e => ChromeUtils.camouDebug("Failed to install addons: " + e));
++        .then(addons => ChromeUtils.rotundaDebug("Installed " + addons.length + " addon(s)"))
++        .catch(e => ChromeUtils.rotundaDebug("Failed to install addons: " + e));
 +    }
 +
 +    // Certificate handling
-+    let certsPaths = ChromeUtils.camouGetStringList("certificatePaths");
-+    let certsRaw = ChromeUtils.camouGetStringList("certificates");
++    let certsPaths = ChromeUtils.rotundaGetStringList("certificatePaths");
++    let certsRaw = ChromeUtils.rotundaGetStringList("certificates");
 +    
 +    if (certsPaths?.length || certsRaw?.length) {
-+      ChromeUtils.camouDebug("Found certificates to import");
++      ChromeUtils.rotundaDebug("Found certificates to import");
 +      // Set up certificate database
 +      var certdb = Cc["@mozilla.org/security/x509certdb;1"].getService(Ci.nsIX509CertDB);
 +      var certdb2 = certdb;
@@ -152,7 +152,7 @@ index 1cfa4b8497..bdf8d7202e 100644
 +      
 +      // Handle certificate files if any
 +      if (certsPaths?.length) {
-+        ChromeUtils.camouDebug("Processing " + certsPaths.length + " certificate files");
++        ChromeUtils.rotundaDebug("Processing " + certsPaths.length + " certificate files");
 +        Promise.all(certsPaths.map(path => this.readCertFile(path)))
 +          .then(certDataArray => {
 +            // Import each certificate using map
@@ -160,20 +160,20 @@ index 1cfa4b8497..bdf8d7202e 100644
 +              this.importCertificate(certdb2, certData, "from file")
 +            );
 +          })
-+          .catch(e => ChromeUtils.camouDebug("Failed to read certificate files: " + e));
++          .catch(e => ChromeUtils.rotundaDebug("Failed to read certificate files: " + e));
 +      }
 +      
 +      // Handle raw certificate strings if any
 +      if (certsRaw?.length) {
-+        ChromeUtils.camouDebug("Processing " + certsRaw.length + " raw certificates");
++        ChromeUtils.rotundaDebug("Processing " + certsRaw.length + " raw certificates");
 +        // Process all raw certificates using map
 +        certsRaw.map(rawCert => {
 +          try {
 +            let certData = this.processRawCertificate(rawCert);
-+            ChromeUtils.camouDebug("Importing raw certificate: " + certData);
++            ChromeUtils.rotundaDebug("Importing raw certificate: " + certData);
 +            this.importCertificate(certdb2, certData, "raw");
 +          } catch (e) {
-+            ChromeUtils.camouDebug("Failed to process raw certificate: " + e);
++            ChromeUtils.rotundaDebug("Failed to process raw certificate: " + e);
 +          }
 +        });
 +      }
@@ -185,9 +185,9 @@ index 1cfa4b8497..bdf8d7202e 100644
 +  importCertificate(certdb, certData, source) {
 +    try {
 +      certdb.addCertFromBase64(certData, "C,C,C", "");
-+      ChromeUtils.camouDebug("Successfully imported " + source + " certificate");
++      ChromeUtils.rotundaDebug("Successfully imported " + source + " certificate");
 +    } catch (e) {
-+      ChromeUtils.camouDebug("Failed to import " + source + " certificate: " + e);
++      ChromeUtils.rotundaDebug("Failed to import " + source + " certificate: " + e);
 +    }
 +  },
 +
@@ -198,7 +198,7 @@ index 1cfa4b8497..bdf8d7202e 100644
 +
 +  async readCertFile(path) {
 +    try {
-+      ChromeUtils.camouDebug("Reading certificate file: " + path);
++      ChromeUtils.rotundaDebug("Reading certificate file: " + path);
 +      const file = new FileUtils.File(path);
 +      const ioService = Cc["@mozilla.org/network/io-service;1"].getService(Ci.nsIIOService);
 +      const channel = ioService.newChannelFromURI(
@@ -221,7 +221,7 @@ index 1cfa4b8497..bdf8d7202e 100644
 +      
 +      return this.processRawCertificate(content);
 +    } catch (e) {
-+      ChromeUtils.camouDebug("Error reading certificate file: " + e);
++      ChromeUtils.rotundaDebug("Error reading certificate file: " + e);
 +      throw e;
 +    }
 +  },

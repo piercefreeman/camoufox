@@ -30,7 +30,7 @@ from playwright.async_api import (
 )
 
 non_network_reload_unsupported = pytest.mark.xfail(
-    reason="Reload semantics for non-network pages do not currently match upstream Playwright in Camoufox.",
+    reason="Reload semantics for non-network pages do not currently match upstream Playwright in Rotunda.",
     run=False,
     strict=False,
 )

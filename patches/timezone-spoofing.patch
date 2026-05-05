@@ -227,7 +227,7 @@ index 98d5b1176e..89c2942a68 100644
  extern JS_PUBLIC_API void ResetTimeZone();
  
  extern JS_PUBLIC_API bool SetTimeZoneOverride(const char* timezoneId);
-+// Camoufox: per-context timezone override
++// Rotunda: per-context timezone override
 +extern JS_PUBLIC_API bool SetRealmTimeZoneOverride(JSContext* cx, const char* timezoneId);
 +
  
@@ -307,7 +307,7 @@ index a1b2c3d4e5..f6g7h8i9j0 100644
      MOZ_ALWAYS_SUCCEEDS(bc->SetCurrentInnerWindowId(mInnerWindow->WindowID()));
    }
 +
-+  // Camoufox: Auto-apply stored timezone when navigating to new document
++  // Rotunda: Auto-apply stored timezone when navigating to new document
 +  // This ensures timezone persists across page navigations within same context
 +  {
 +    uint32_t userContextId = 0;
@@ -337,7 +337,7 @@ index 81b4d13cdb..ca04167603 100644
 -  // global timezone overrides via JS::SetTimeZoneOverride().
 -  // The DateTimeInfo class was refactored to use std::string instead of
 -  // RefPtr<TimeZoneString>, and no longer supports per-realm timezones.
-+  // Camoufox: restore per-context timezone support
++  // Rotunda: restore per-context timezone support
 +#if JS_HAS_INTL_API
 +  RefPtr<JS::TimeZoneString> tzOverride = behaviors_.timeZoneOverride();
 +  if (tzOverride) {
@@ -366,7 +366,7 @@ index c8e44687b7..9a2bae61e7 100644
      data->mScope->DisconnectGlobalTeardownObservers();
    }
  
-+  // Camoufox: Apply per-context timezone override to this worker's JS realm.
++  // Rotunda: Apply per-context timezone override to this worker's JS realm.
 +  // All worker types (dedicated, shared, service) inherit userContextId from
 +  // the parent BrowserContext via OriginAttributes. Firefox creates separate
 +  // worker instances per userContextId, so per-context lookup always works.

@@ -70,27 +70,27 @@ def add_includes_to_package(package_file, includes, fonts, new_file, target):
             )
 
         if target == 'macos':
-            # Move Camoufox/Camoufox.app -> Camoufox.app
-            nightly_dir = os.path.join(temp_dir, 'Camoufox')
+            # Move Rotunda/Rotunda.app -> Rotunda.app
+            nightly_dir = os.path.join(temp_dir, 'Rotunda')
             shutil.move(
-                os.path.join(nightly_dir, 'Camoufox.app'), os.path.join(temp_dir, 'Camoufox.app')
+                os.path.join(nightly_dir, 'Rotunda.app'), os.path.join(temp_dir, 'Rotunda.app')
             )
             # Remove old app dir and all content in it
             shutil.rmtree(nightly_dir)
         else:
-            # Move contents out of camoufox folder if it exists
-            old_camoufox_dir = os.path.join(temp_dir, 'camoufox')
-            camoufox_dir = os.path.join(temp_dir, 'camoufox-folder')
-            if os.path.exists(old_camoufox_dir):
-                # Rename camoufox_dir
-                os.rename(old_camoufox_dir, camoufox_dir)
-                for item in os.listdir(camoufox_dir):
-                    shutil.move(os.path.join(camoufox_dir, item), temp_dir)
-                os.rmdir(camoufox_dir)
+            # Move contents out of rotunda folder if it exists
+            old_rotunda_dir = os.path.join(temp_dir, 'rotunda')
+            rotunda_dir = os.path.join(temp_dir, 'rotunda-folder')
+            if os.path.exists(old_rotunda_dir):
+                # Rename rotunda_dir
+                os.rename(old_rotunda_dir, rotunda_dir)
+                for item in os.listdir(rotunda_dir):
+                    shutil.move(os.path.join(rotunda_dir, item), temp_dir)
+                os.rmdir(rotunda_dir)
 
         # Create target_dir
         if target == 'macos':
-            target_dir = os.path.join(temp_dir, 'Camoufox.app', 'Contents', 'Resources')
+            target_dir = os.path.join(temp_dir, 'Rotunda.app', 'Contents', 'Resources')
         else:
             target_dir = temp_dir
 
@@ -141,14 +141,14 @@ def add_includes_to_package(package_file, includes, fonts, new_file, target):
 def get_args():
     """Get CLI parameters"""
     parser = argparse.ArgumentParser(
-        description='Package Camoufox for different operating systems.'
+        description='Package Rotunda for different operating systems.'
     )
     parser.add_argument('os', choices=['linux', 'macos', 'windows'], help='Target operating system')
     parser.add_argument(
         '--includes', nargs='+', help='List of files or directories to include in the package'
     )
-    parser.add_argument('--version', required=True, help='Camoufox version')
-    parser.add_argument('--release', required=True, help='Camoufox release number')
+    parser.add_argument('--version', required=True, help='Rotunda version')
+    parser.add_argument('--release', required=True, help='Rotunda release number')
     parser.add_argument(
         '--arch', choices=['x86_64', 'arm64'], help='Target architecture'
     )
@@ -172,7 +172,7 @@ def main():
         run('./mach package')
         # Find package files
         search_path = os.path.abspath(
-            f'obj-{moz_target}/dist/camoufox-{args.version}-{args.release}.*.{file_ext}'
+            f'obj-{moz_target}/dist/rotunda-{args.version}-{args.release}.*.{file_ext}'
         )
 
     # Copy package files
@@ -189,7 +189,7 @@ def main():
         sys.exit(1)
 
     # Find the package file
-    package_pattern = f'camoufox-{args.version}-{args.release}.en-US.*.{file_ext}'
+    package_pattern = f'rotunda-{args.version}-{args.release}.en-US.*.{file_ext}'
     package_files = glob.glob(package_pattern)
     if not package_files:
         print(f"Error: No package file found matching pattern: {package_pattern}")
@@ -197,7 +197,7 @@ def main():
     package_file = package_files[0]
 
     # Add includes to the package
-    new_name = f'camoufox-{args.version}-{args.release}-{args.os[:3]}.{args.arch}.zip'
+    new_name = f'rotunda-{args.version}-{args.release}-{args.os[:3]}.{args.arch}.zip'
     add_includes_to_package(
         package_file=package_file,
         includes=args.includes,

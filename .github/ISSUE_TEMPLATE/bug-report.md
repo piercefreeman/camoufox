@@ -1,6 +1,6 @@
 ---
 name: Bug report
-about: Report an issue in Camoufox
+about: Report an issue in Rotunda
 title: ''
 labels: bug
 assignees: ''
@@ -21,4 +21,4 @@ Provide steps or a code snippet that reproduces the bug.
 
 ### Version:
 
-Run `python -m camoufox version` in your terminal and paste the output here.
+Run `python -m rotunda version` in your terminal and paste the output here.

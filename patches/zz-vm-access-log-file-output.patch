@@ -1,7 +1,7 @@
-diff --git a/js/src/vm/CamoufoxVMAccessLog.cpp b/js/src/vm/CamoufoxVMAccessLog.cpp
+diff --git a/js/src/vm/RotundaVMAccessLog.cpp b/js/src/vm/RotundaVMAccessLog.cpp
 index 66329eb025..cf562f9e99 100644
---- a/js/src/vm/CamoufoxVMAccessLog.cpp
-+++ b/js/src/vm/CamoufoxVMAccessLog.cpp
+--- a/js/src/vm/RotundaVMAccessLog.cpp
++++ b/js/src/vm/RotundaVMAccessLog.cpp
 @@ -36,6 +36,7 @@ const char* gObjectFilter = nullptr;
  bool gLogSymbols = false;
  unsigned gMaxCallArgs = 8;
@@ -11,11 +11,11 @@ index 66329eb025..cf562f9e99 100644
  thread_local bool gIsLogging = false;
  
 @@ -80,12 +81,25 @@ static bool Enabled() {
-         EnvUnsigned(getenv("CAMOUFOX_VM_ACCESS_MAX_ARGS"), 8, 32);
+         EnvUnsigned(getenv("ROTUNDA_VM_ACCESS_MAX_ARGS"), 8, 32);
      gMaxStringBytes =
-         EnvUnsigned(getenv("CAMOUFOX_VM_ACCESS_MAX_STRING"), 160, 1024);
+         EnvUnsigned(getenv("ROTUNDA_VM_ACCESS_MAX_STRING"), 160, 1024);
 +
-+    const char* logFile = getenv("CAMOUFOX_VM_ACCESS_LOG_FILE");
++    const char* logFile = getenv("ROTUNDA_VM_ACCESS_LOG_FILE");
 +    if (logFile && logFile[0]) {
 +      gLogFile = fopen(logFile, "a");
 +      if (gLogFile) {
@@ -144,14 +144,14 @@ index 66329eb025..cf562f9e99 100644
  }
  
  }  // namespace
-@@ -299,11 +315,12 @@ void js::MaybeLogCamoufoxVMAccess(JSContext* cx, JS::Handle<JSObject*> obj,
+@@ -299,11 +315,12 @@ void js::MaybeLogRotundaVMAccess(JSContext* cx, JS::Handle<JSObject*> obj,
    JS::UniqueChars ownedProp;
    FormatId(cx, id, propFallback, sizeof(propFallback), &ownedProp, &prop);
  
 -  fprintf(stderr,
 +  FILE* stream = LogStream();
 +  fprintf(stream,
-           "[camoufox-vm-access] op=%s class=%s prop=%s script=%s:%u:%u\n", op,
+           "[rotunda-vm-access] op=%s class=%s prop=%s script=%s:%u:%u\n", op,
            className ? className : "<null>", prop ? prop : "<null>",
            filename ? filename : "<unknown>", line, column);
 -  fflush(stderr);
@@ -159,17 +159,17 @@ index 66329eb025..cf562f9e99 100644
  
    gIsLogging = false;
  }
-@@ -339,7 +356,8 @@ void js::MaybeLogCamoufoxVMCall(JSContext* cx, const JS::CallArgs& args,
+@@ -339,7 +356,8 @@ void js::MaybeLogRotundaVMCall(JSContext* cx, const JS::CallArgs& args,
  
    gIsLogging = true;
  
 -  fprintf(stderr,
 +  FILE* stream = LogStream();
 +  fprintf(stream,
-           "[camoufox-vm-access] op=%s kind=%s calleeClass=%s callee=%s "
+           "[rotunda-vm-access] op=%s kind=%s calleeClass=%s callee=%s "
            "thisClass=%s argc=%u args=(",
            op, kind ? kind : "<unknown>", calleeClass,
-@@ -349,21 +367,21 @@ void js::MaybeLogCamoufoxVMCall(JSContext* cx, const JS::CallArgs& args,
+@@ -349,21 +367,21 @@ void js::MaybeLogRotundaVMCall(JSContext* cx, const JS::CallArgs& args,
    unsigned maxArgs = args.length() < gMaxCallArgs ? args.length() : gMaxCallArgs;
    for (unsigned i = 0; i < maxArgs; i++) {
      if (i) {
@@ -196,14 +196,14 @@ index 66329eb025..cf562f9e99 100644
  
    gIsLogging = false;
  }
-@@ -385,11 +403,12 @@ void js::MaybeLogCamoufoxVMOwnKeys(JSContext* cx, JS::Handle<JSObject*> obj,
+@@ -385,11 +403,12 @@ void js::MaybeLogRotundaVMOwnKeys(JSContext* cx, JS::Handle<JSObject*> obj,
  
    gIsLogging = true;
  
 -  fprintf(stderr,
 +  FILE* stream = LogStream();
 +  fprintf(stream,
-           "[camoufox-vm-access] op=ownKeys class=%s flags=0x%x script=%s:%u:%u\n",
+           "[rotunda-vm-access] op=ownKeys class=%s flags=0x%x script=%s:%u:%u\n",
            className ? className : "<null>", flags,
            filename ? filename : "<unknown>", line, column);
 -  fflush(stderr);

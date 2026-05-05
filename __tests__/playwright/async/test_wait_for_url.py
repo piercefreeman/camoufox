@@ -20,7 +20,7 @@ from playwright.async_api import Error, Page
 from tests.server import Server
 
 history_navigation_unsupported = pytest.mark.xfail(
-    reason="History-backed navigation does not currently behave like upstream Playwright in Camoufox.",
+    reason="History-backed navigation does not currently behave like upstream Playwright in Rotunda.",
     run=False,
     strict=False,
 )

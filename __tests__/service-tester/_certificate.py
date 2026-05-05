@@ -190,7 +190,7 @@ def generate_certificate(full_result: dict, secret: str) -> dict:
             ua = pr["results"].get("fingerprints", {}).get("navigator", {}).get("userAgent", "")
             break
     fx_match = re.search(r"Firefox/(\d+\.\d+)", ua)
-    camoufox_version_str = f"Firefox {fx_match.group(1)}" if fx_match else ua[:60]
+    rotunda_version_str = f"Firefox {fx_match.group(1)}" if fx_match else ua[:60]
 
     proxy_info = []
     for pr in full_result["profiles"]:
@@ -209,7 +209,7 @@ def generate_certificate(full_result: dict, secret: str) -> dict:
         "resultsHash": results_hash,
         "timestamp": full_result["timestamp"],
         "platform": "Multi-OS (Service)",
-        "camoufoxVersion": camoufox_version_str,
+        "rotundaVersion": rotunda_version_str,
         "passCount": full_result["totalPassed"],
         "totalTests": full_result["totalChecks"],
         "overallPass": full_result["totalPassed"] == full_result["totalChecks"],
@@ -229,7 +229,7 @@ def print_certificate(cert: dict, cross_profile: dict, overall_grade: str) -> No
     print()
     print(BOLD + box_top() + RESET)
 
-    title = "CAMOUFOX SERVICE VERIFICATION CERTIFICATE"
+    title = "ROTUNDA SERVICE VERIFICATION CERTIFICATE"
     print(BOLD + box_line(f"{title:^{w}}") + RESET)
     print(BOLD + box_sep() + RESET)
 

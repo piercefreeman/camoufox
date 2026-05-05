@@ -5,7 +5,7 @@ index xxxxxxxxxx..yyyyyyyyyy 100644
 @@ -72,6 +72,7 @@ if not CONFIG["JS_STANDALONE"]:
  
  LOCAL_INCLUDES += [
-+    "/camoucfg",
++    "/rotundacfg",
      "/intl/icu_capi/bindings/cpp",
  ]
  
@@ -19,20 +19,20 @@ index 2456c5b4c6..826404b1b7 100644
      TabsInTitlebar.init();
  
 +    // If a list of languages were passed, use them.
-+    let camouLocale = ChromeUtils.camouGetString("locale.all")
-+      || ChromeUtils.camouGetString("navigator.language");
++    let rotundaLocale = ChromeUtils.rotundaGetString("locale.all")
++      || ChromeUtils.rotundaGetString("navigator.language");
 +    // If locale.all was NOT passed, but locale.language and locale.region was,
 +    // fall back to it instead.
-+    if (!camouLocale) {
-+      let language = ChromeUtils.camouGetString("locale.language");
-+      let region = ChromeUtils.camouGetString("locale.region");
++    if (!rotundaLocale) {
++      let language = ChromeUtils.rotundaGetString("locale.language");
++      let region = ChromeUtils.rotundaGetString("locale.region");
 +      if (language && region) {
-+        camouLocale = language + "-" + region + ", " + language;
++        rotundaLocale = language + "-" + region + ", " + language;
 +      }
 +    }
 +    // Set the locale if it was found.
-+    if (camouLocale)
-+      Services.prefs.setCharPref("intl.accept_languages", camouLocale);
++    if (rotundaLocale)
++      Services.prefs.setCharPref("intl.accept_languages", rotundaLocale);
 +
      new LightweightThemeConsumer(document);
  
@@ -54,7 +54,7 @@ index 9a043518cf..a8d3733212 100644
 +
 +// Helper methods for header file
 +
-+const char* Locale::GetCamouLanguage() {
++const char* Locale::GetRotundaLanguage() {
 +  static std::string language;
 +  if (auto locale = MaskConfig::Profile().getLocale()) {
 +    if (auto value = locale->getLanguage()) {
@@ -65,7 +65,7 @@ index 9a043518cf..a8d3733212 100644
 +  return nullptr;
 +}
 +
-+const char* Locale::GetCamouRegion() {
++const char* Locale::GetRotundaRegion() {
 +  static std::string region;
 +  if (auto locale = MaskConfig::Profile().getLocale()) {
 +    if (auto value = locale->getRegion()) {
@@ -76,7 +76,7 @@ index 9a043518cf..a8d3733212 100644
 +  return nullptr;
 +}
 +
-+const char* Locale::GetCamouScript() {
++const char* Locale::GetRotundaScript() {
 +  static std::string script;
 +  if (auto locale = MaskConfig::Profile().getLocale()) {
 +    if (auto value = locale->getScript()) {
@@ -89,7 +89,7 @@ index 9a043518cf..a8d3733212 100644
 +
 +// Publicly exposed methods
 +
-+const char* Locale::GetCamouLocale() {
++const char* Locale::GetRotundaLocale() {
 +  static std::string locale;
 +
 +  if (auto localeProfile = MaskConfig::Profile().getLocale()) {
@@ -110,9 +110,9 @@ index 9a043518cf..a8d3733212 100644
 +}
 +
 +const char* Locale::GetDefaultLocale() {
-+  // In Camoufox, GetDefaultLocale is defined outside the header
++  // In Rotunda, GetDefaultLocale is defined outside the header
 +  // to access MaskConfig.
-+  if (auto value = GetCamouLocale())
++  if (auto value = GetRotundaLocale())
 +    return value;
 +  return uloc_getDefault();
 +}
@@ -128,11 +128,11 @@ index 1f4e06f543..448486a479 100644
   */
  class MOZ_STACK_CLASS Locale final {
    LanguageSubtag mLanguage = {};
-+  mutable LanguageSubtag mCamouLanguage = {};
++  mutable LanguageSubtag mRotundaLanguage = {};
    ScriptSubtag mScript = {};
-+  mutable ScriptSubtag mCamouScript = {};
++  mutable ScriptSubtag mRotundaScript = {};
    RegionSubtag mRegion = {};
-+  mutable RegionSubtag mCamouRegion = {};
++  mutable RegionSubtag mRotundaRegion = {};
  
    using VariantsVector = Vector<UniqueChars, 2>;
    using ExtensionsVector = Vector<UniqueChars, 2>;
@@ -144,23 +144,23 @@ index 1f4e06f543..448486a479 100644
 -  const ScriptSubtag& Script() const { return mScript; }
 -  const RegionSubtag& Region() const { return mRegion; }
 +  const LanguageSubtag& Language() const {
-+    if (const char* lang = GetCamouLanguage()) {
-+      mCamouLanguage.Set(mozilla::Span<const char>(lang, strlen(lang)));
-+      return mCamouLanguage;
++    if (const char* lang = GetRotundaLanguage()) {
++      mRotundaLanguage.Set(mozilla::Span<const char>(lang, strlen(lang)));
++      return mRotundaLanguage;
 +    }
 +    return mLanguage;
 +  }
 +  const ScriptSubtag& Script() const {
-+    if (const char* script = GetCamouScript()) {
-+      mCamouScript.Set(mozilla::Span<const char>(script, strlen(script)));
-+      return mCamouScript;
++    if (const char* script = GetRotundaScript()) {
++      mRotundaScript.Set(mozilla::Span<const char>(script, strlen(script)));
++      return mRotundaScript;
 +    }
 +    return mScript;
 +  }
 +  const RegionSubtag& Region() const {
-+    if (const char* region = GetCamouRegion()) {
-+      mCamouRegion.Set(mozilla::Span<const char>(region, strlen(region)));
-+      return mCamouRegion;
++    if (const char* region = GetRotundaRegion()) {
++      mRotundaRegion.Set(mozilla::Span<const char>(region, strlen(region)));
++      return mRotundaRegion;
 +    }
 +    return mRegion;
 +  }
@@ -175,13 +175,13 @@ index 1f4e06f543..448486a479 100644
 -  static const char* GetDefaultLocale() { return uloc_getDefault(); }
 +  static const char* GetDefaultLocale();
 +
-+  static const char* GetCamouLocale();
++  static const char* GetRotundaLocale();
 +
-+  static const char* GetCamouLanguage();
++  static const char* GetRotundaLanguage();
 +
-+  static const char* GetCamouRegion();
++  static const char* GetRotundaRegion();
 +
-+  static const char* GetCamouScript();
++  static const char* GetRotundaScript();
  
    /**
     * Returns an iterator over all supported locales.
@@ -193,8 +193,8 @@ index b87924b61a..2eaa960c04 100644
   */
  NS_IMETHODIMP
  OSPreferences::GetSystemLocales(nsTArray<nsCString>& aRetVal) {
-+  if (const char* camouLocale = mozilla::intl::Locale::GetCamouLocale()) {
-+    aRetVal.AppendElement(camouLocale);
++  if (const char* rotundaLocale = mozilla::intl::Locale::GetRotundaLocale()) {
++    aRetVal.AppendElement(rotundaLocale);
 +    return NS_OK;
 +  }
    if (!mSystemLocales.IsEmpty()) {
@@ -205,8 +205,8 @@ index b87924b61a..2eaa960c04 100644
  NS_IMETHODIMP
  OSPreferences::GetSystemLocale(nsACString& aRetVal) {
 -  if (!mSystemLocales.IsEmpty()) {
-+  if (const char* camouLocale = mozilla::intl::Locale::GetCamouLocale()) {
-+    aRetVal = camouLocale;
++  if (const char* rotundaLocale = mozilla::intl::Locale::GetRotundaLocale()) {
++    aRetVal = rotundaLocale;
 +    return NS_OK;
 +  } else if (!mSystemLocales.IsEmpty()) {
      aRetVal = mSystemLocales[0];
@@ -216,8 +216,8 @@ index b87924b61a..2eaa960c04 100644
  
  NS_IMETHODIMP
  OSPreferences::GetRegionalPrefsLocales(nsTArray<nsCString>& aRetVal) {
-+  if (const char* camouLocale = mozilla::intl::Locale::GetCamouLocale()) {
-+    aRetVal.AppendElement(camouLocale);
++  if (const char* rotundaLocale = mozilla::intl::Locale::GetRotundaLocale()) {
++    aRetVal.AppendElement(rotundaLocale);
 +    return NS_OK;
 +  }
    if (!mRegionalPrefsLocales.IsEmpty()) {

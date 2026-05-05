@@ -1,16 +1,16 @@
 include upstream.sh
 
-ifneq ($(strip $(CAMOUFOX_RELEASE)),)
-release := $(CAMOUFOX_RELEASE)
+ifneq ($(strip $(ROTUNDA_RELEASE)),)
+release := $(ROTUNDA_RELEASE)
 endif
 
-ifneq ($(strip $(CAMOUFOX_FIREFOX_VERSION)),)
-version := $(CAMOUFOX_FIREFOX_VERSION)
+ifneq ($(strip $(ROTUNDA_FIREFOX_VERSION)),)
+version := $(ROTUNDA_FIREFOX_VERSION)
 endif
 
 export
 
-cf_source_dir := camoufox-$(version)-$(release)
+cf_source_dir := rotunda-$(version)-$(release)
 ff_source_tarball := firefox-$(version).source.tar.xz
 
 debs := python3 python3-dev python3-pip p7zip-full msitools wget aria2 libsqlite3-dev
@@ -24,9 +24,9 @@ pacman := python python-pip p7zip msitools wget aria2 sqlite
         generate-openapi generate-openapi-python generate-openapi-cpp \
         validate-fingerprint-example verify-patches
 
-OPENAPI_SCHEMA := schemas/camoufox-profile.openapi.yaml
-PY_OPENAPI_MODELS := pythonlib/camoufox/_generated_profile.py
-CPP_OPENAPI_OUT := additions/camoucfg/generated/profile
+OPENAPI_SCHEMA := schemas/rotunda-profile.openapi.yaml
+PY_OPENAPI_MODELS := pythonlib/rotunda/_generated_profile.py
+CPP_OPENAPI_OUT := additions/rotundacfg/generated/profile
 CPP_OPENAPI_TEMPLATES := schemas/openapi-templates/cpp-nlohmann
 OPENAPI_GENERATOR_IMAGE ?= openapitools/openapi-generator-cli:v7.22.0
 OPENAPI_GENERATOR ?= docker run --rm -v $(CURDIR):/local $(OPENAPI_GENERATOR_IMAGE)
@@ -36,22 +36,22 @@ CPP_OPENAPI_OUT_ARG ?= /local/$(CPP_OPENAPI_OUT)
 help:
 	@echo "Available targets:"
 	@echo "  fetch           - Fetch the Firefox source code"
-	@echo "  setup           - Setup Camoufox & local git repo for development"
+	@echo "  setup           - Setup Rotunda & local git repo for development"
 	@echo "  bootstrap       - Set up build environment"
 	@echo "  mozbootstrap    - Sets up mach"
-	@echo "  dir             - Prepare Camoufox source directory with BUILD_TARGET"
+	@echo "  dir             - Prepare Rotunda source directory with BUILD_TARGET"
 	@echo "  revert          - Kill all working changes"
-	@echo "  edits           - Camoufox developer UI"
+	@echo "  edits           - Rotunda developer UI"
 	@echo "  clean           - Remove build artifacts"
 	@echo "  distclean       - Remove everything including downloads"
-	@echo "  build           - Build Camoufox"
+	@echo "  build           - Build Rotunda"
 	@echo "  set-target      - Change the build target with BUILD_TARGET"
-	@echo "  package-linux   - Package Camoufox for Linux"
-	@echo "  package-macos   - Package Camoufox for macOS"
-	@echo "  package-windows - Package Camoufox for Windows"
-	@echo "  run             - Run Camoufox"
+	@echo "  package-linux   - Package Rotunda for Linux"
+	@echo "  package-macos   - Package Rotunda for macOS"
+	@echo "  package-windows - Package Rotunda for Windows"
+	@echo "  run             - Run Rotunda"
 	@echo "  lint            - Run Python static analysis"
-	@echo "  edit-cfg        - Edit camoufox.cfg"
+	@echo "  edit-cfg        - Edit rotunda.cfg"
 	@echo "  ff-dbg          - Setup vanilla Firefox with minimal patches"
 	@echo "  patch           - Apply a patch"
 	@echo "  unpatch         - Remove a patch"
@@ -94,7 +94,7 @@ ff-dbg: setup
 	# Only apply patches to help debug vanilla Firefox
 	make patch ./patches/chromeutil.patch
 	make patch ./patches/browser-init.patch
-	echo "LOCAL_INCLUDES += ['/camoucfg']" >> $(cf_source_dir)/dom/base/moz.build
+	echo "LOCAL_INCLUDES += ['/rotundacfg']" >> $(cf_source_dir)/dom/base/moz.build
 	touch $(cf_source_dir)/_READY
 	make checkpoint
 	make build
@@ -180,16 +180,16 @@ package-windows:
 
 run:
 	cd $(cf_source_dir) \
-	&& rm -rf ~/.camoufox obj-x86_64-pc-linux-gnu/tmp/profile-default \
-	&& printf '{"debug":true}\n' > /tmp/camoufox-debug-profile.json \
-	&& CAMOU_CONFIG_PATH=/tmp/camoufox-debug-profile.json ./mach run $(args)
+	&& rm -rf ~/.rotunda obj-x86_64-pc-linux-gnu/tmp/profile-default \
+	&& printf '{"debug":true}\n' > /tmp/rotunda-debug-profile.json \
+	&& ROTUNDA_CONFIG_PATH=/tmp/rotunda-debug-profile.json ./mach run $(args)
 
 edit-cfg:
-	@if [ ! -f $(cf_source_dir)/obj-x86_64-pc-linux-gnu/dist/bin/camoufox.cfg ]; then \
-		echo "Error: camoufox.cfg not found. Apply config.patch first."; \
+	@if [ ! -f $(cf_source_dir)/obj-x86_64-pc-linux-gnu/dist/bin/rotunda.cfg ]; then \
+		echo "Error: rotunda.cfg not found. Apply config.patch first."; \
 		exit 1; \
 	fi
-	$(EDITOR) $(cf_source_dir)/obj-x86_64-pc-linux-gnu/dist/bin/camoufox.cfg
+	$(EDITOR) $(cf_source_dir)/obj-x86_64-pc-linux-gnu/dist/bin/rotunda.cfg
 
 check-arg:
 	@if [ -z "$(_ARGS)" ]; then \
@@ -220,11 +220,11 @@ workspace:
 	make patch $(_ARGS)
 
 lint:
-	uv run --group dev --locked ruff check pythonlib/camoufox
-	uv run --group dev --locked ty check pythonlib/camoufox
+	uv run --group dev --locked ruff check pythonlib/rotunda
+	uv run --group dev --locked ty check pythonlib/rotunda
 
 tests:
-	CAMOUFOX_EXECUTABLE_PATH=$(CURDIR)/$(cf_source_dir)/obj-x86_64-pc-linux-gnu/dist/bin/camoufox-bin \
+	ROTUNDA_EXECUTABLE_PATH=$(CURDIR)/$(cf_source_dir)/obj-x86_64-pc-linux-gnu/dist/bin/rotunda-bin \
 		uv run --group dev --group playwright-tests --locked pytest \
 			--integration \
 			-vv \
@@ -234,11 +234,11 @@ tests:
 			__tests__/service-tester/
 
 unbusy:
-	rm -rf $(cf_source_dir)/obj-x86_64-pc-linux-gnu/dist/bin/camoufox-bin \
-		$(cf_source_dir)/obj-x86_64-pc-linux-gnu/dist/bin/camoufox
+	rm -rf $(cf_source_dir)/obj-x86_64-pc-linux-gnu/dist/bin/rotunda-bin \
+		$(cf_source_dir)/obj-x86_64-pc-linux-gnu/dist/bin/rotunda
 
 path:
-	@realpath $(cf_source_dir)/obj-x86_64-pc-linux-gnu/dist/bin/camoufox-bin
+	@realpath $(cf_source_dir)/obj-x86_64-pc-linux-gnu/dist/bin/rotunda-bin
 
 update-ubo-assets:
 	bash ./scripts/update-ubo-assets.sh
@@ -271,7 +271,7 @@ generate-openapi-cpp:
 		-t /local/$(CPP_OPENAPI_TEMPLATES) \
 		--global-property models,modelTests=false \
 		--type-mappings number=double \
-		--additional-properties hideGenerationTimestamp=true,modelPackage=camoucfg
+		--additional-properties hideGenerationTimestamp=true,modelPackage=rotundacfg
 
 validate-fingerprint-example:
 	uv run python scripts/validate_fingerprint_example.py
