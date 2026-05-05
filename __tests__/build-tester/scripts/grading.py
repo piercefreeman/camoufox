@@ -92,7 +92,6 @@ def compute_match_results(profile: dict, results: dict) -> list:
     nav = fp.get("navigator", {})
     tz = fp.get("timezone", {})
     screen = fp.get("screen", {})
-    webgl = fp.get("webgl", {})
 
     if profile["mode"] == "per-context":
         matches.append({"name": "navigator.userAgent", "passed": nav.get("userAgent") == profile["userAgent"], "expected": profile["userAgent"], "actual": nav.get("userAgent", "")})
@@ -102,10 +101,6 @@ def compute_match_results(profile: dict, results: dict) -> list:
         matches.append({"name": "timezone", "passed": tz.get("timezone") == profile["timezone"], "expected": profile["timezone"], "actual": tz.get("timezone", "")})
         matches.append({"name": "screen.width", "passed": screen.get("width") == profile["screenWidth"], "expected": str(profile["screenWidth"]), "actual": str(screen.get("width", ""))})
         matches.append({"name": "screen.height", "passed": screen.get("height") == profile["screenHeight"], "expected": str(profile["screenHeight"]), "actual": str(screen.get("height", ""))})
-        if profile.get("webglVendor") and webgl:
-            matches.append({"name": "webgl.vendor", "passed": webgl.get("unmaskedVendor") == profile["webglVendor"], "expected": profile["webglVendor"], "actual": webgl.get("unmaskedVendor", "(unavailable)")})
-        if profile.get("webglRenderer") and webgl:
-            matches.append({"name": "webgl.renderer", "passed": webgl.get("unmaskedRenderer") == profile["webglRenderer"], "expected": profile["webglRenderer"], "actual": webgl.get("unmaskedRenderer", "(unavailable)")})
     else:
         matches.append({"name": "navigator.userAgent (global)", "passed": nav.get("userAgent") == profile["userAgent"], "expected": profile["userAgent"], "actual": nav.get("userAgent", "")})
         matches.append({"name": "navigator.platform (global)", "passed": nav.get("platform") == profile["platform"], "expected": profile["platform"], "actual": nav.get("platform", "")})

@@ -180,7 +180,7 @@ package-linux:
 		--version $(version) \
 		--release $(release) \
 		--arch $(arch) \
-		--fonts windows macos linux
+		--fonts linux
 
 package-macos:
 	python3 scripts/package.py macos \
@@ -189,7 +189,7 @@ package-macos:
 		--version $(version) \
 		--release $(release) \
 		--arch $(arch) \
-		--fonts windows linux
+		--fonts macos
 
 package-windows:
 	python3 scripts/package.py windows \
@@ -199,7 +199,7 @@ package-windows:
 		--version $(version) \
 		--release $(release) \
 		--arch $(arch) \
-		--fonts macos linux
+		--fonts windows
 
 run:
 	cd $(cf_source_dir) \

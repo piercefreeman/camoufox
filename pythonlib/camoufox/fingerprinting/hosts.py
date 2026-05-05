@@ -15,13 +15,12 @@ from typing_extensions import Self
 from .._generated_profile import (
     AudioProfile,
     CamoufoxProfile,
-    CanvasProfile,
     FontsProfile,
     SpeechVoice,
     VoicesProfile,
 )
 from .common import LINUX, MACOS, WINDOWS, HostTargetOS
-from .fonts import Font, blocked_families_for_target_os, marker_families_for_target_os
+from .fonts import Font, is_blocked_family_for_target_os, marker_families_for_target_os
 from .voices import (
     Voice,
     blocked_voice_names_for_target_os,
@@ -127,8 +126,11 @@ class HostFingerprintAdapter(ABC):
 
     def sample_fonts(self) -> list[str]:
         fonts = list(self.bundled_fonts)
-        blocked = blocked_families_for_target_os(self.target_os)
-        filtered_extras = [family for family in self.extra_fonts if family not in blocked]
+        filtered_extras = [
+            family
+            for family in self.extra_fonts
+            if not is_blocked_family_for_target_os(family, self.target_os)
+        ]
         fonts.extend(_sample_extras(filtered_extras))
 
         installed = set(self.bundled_fonts) | set(self.extra_fonts)
@@ -333,13 +335,10 @@ def match_installed_voices(voices: list[Voice], discovered_voices: Sequence[Voic
 def _merge_seed_values(config: CamoufoxProfile) -> None:
     config.fonts = config.fonts or FontsProfile()
     config.audio = config.audio or AudioProfile()
-    config.canvas = config.canvas or CanvasProfile()
     if config.fonts.spacing_seed is None:
         config.fonts.spacing_seed = randint(1, 4_294_967_295)  # nosec
     if config.audio.seed is None:
         config.audio.seed = randint(1, 4_294_967_295)  # nosec
-    if config.canvas.seed is None:
-        config.canvas.seed = randint(1, 4_294_967_295)  # nosec
 
 
 def _merge_host_inventories(config: CamoufoxProfile, host: HostFingerprintAdapter) -> None:

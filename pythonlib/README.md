@@ -21,7 +21,8 @@ The active default flow is intentionally narrow:
 
 - BrowserForge supplies the Firefox user agent, navigator, and screen skeleton
 - Camoufox keeps GPU-facing values real
-- fonts and speech voices are filtered to what is actually present on the macOS host
+- fonts and speech voices are filtered through host-owned platform policy:
+  default fonts for the claimed OS plus sampled local extras
 - each `NewContext()` call gets its own fingerprint identity
 
 In addition, it can also calculate your target geolocation, timezone, and locale to avoid proxy protection ([see demo](https://i.imgur.com/UhSHfaV.png)).

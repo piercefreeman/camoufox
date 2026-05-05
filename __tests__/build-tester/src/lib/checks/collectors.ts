@@ -21,6 +21,281 @@ function canvasHash(operations: (ctx: CanvasRenderingContext2D) => void): string
   return canvas.toDataURL().substring(0, 100);
 }
 
+const GPU_LIMIT_NAMES = [
+  "maxTextureDimension1D",
+  "maxTextureDimension2D",
+  "maxTextureDimension3D",
+  "maxTextureArrayLayers",
+  "maxBindGroups",
+  "maxBindGroupsPlusVertexBuffers",
+  "maxBindingsPerBindGroup",
+  "maxDynamicUniformBuffersPerPipelineLayout",
+  "maxDynamicStorageBuffersPerPipelineLayout",
+  "maxSampledTexturesPerShaderStage",
+  "maxSamplersPerShaderStage",
+  "maxStorageBuffersPerShaderStage",
+  "maxStorageTexturesPerShaderStage",
+  "maxUniformBuffersPerShaderStage",
+  "maxUniformBufferBindingSize",
+  "maxStorageBufferBindingSize",
+  "minUniformBufferOffsetAlignment",
+  "minStorageBufferOffsetAlignment",
+  "maxVertexBuffers",
+  "maxBufferSize",
+  "maxVertexAttributes",
+  "maxVertexBufferArrayStride",
+  "maxInterStageShaderVariables",
+  "maxColorAttachments",
+  "maxColorAttachmentBytesPerSample",
+  "maxComputeWorkgroupStorageSize",
+  "maxComputeInvocationsPerWorkgroup",
+  "maxComputeWorkgroupSizeX",
+  "maxComputeWorkgroupSizeY",
+  "maxComputeWorkgroupSizeZ",
+  "maxComputeWorkgroupsPerDimension",
+];
+
+async function withTimeout<T>(
+  promise: Promise<T>,
+  ms: number,
+  timeoutMessage: string
+): Promise<T> {
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<T>((_, reject) => {
+        timeout = setTimeout(() => reject(new Error(timeoutMessage)), ms);
+      }),
+    ]);
+  } finally {
+    if (timeout) clearTimeout(timeout);
+  }
+}
+
+async function collectWebGPU(): Promise<FingerprintData["firefox150"]["webgpu"]> {
+  const result: FingerprintData["firefox150"]["webgpu"] = {
+    present: false,
+    requestAdapter: "not-present",
+    features: [],
+    limits: {},
+    wgslLanguageFeatures: [],
+    adapterInfo: {
+      vendor: "",
+      architecture: "",
+      device: "",
+      description: "",
+      subgroupMinSize: null,
+      subgroupMaxSize: null,
+      isFallbackAdapter: null,
+    },
+    error: "",
+  };
+
+  try {
+    const gpu = (navigator as any).gpu;
+    if (!gpu) return result;
+
+    result.present = true;
+
+    try {
+      const languageFeatures = gpu.wgslLanguageFeatures;
+      if (languageFeatures && typeof languageFeatures.forEach === "function") {
+        languageFeatures.forEach((name: unknown) => {
+          result.wgslLanguageFeatures.push(String(name));
+        });
+      }
+    } catch {}
+
+    let adapter: any = null;
+    try {
+      adapter = await withTimeout(
+        gpu.requestAdapter(),
+        3000,
+        "requestAdapter timeout"
+      );
+      result.requestAdapter = adapter ? "resolved" : "null";
+    } catch (e: any) {
+      result.requestAdapter = "rejected";
+      result.error = e?.message || String(e);
+      return result;
+    }
+
+    if (!adapter) return result;
+
+    const features = adapter.features;
+    if (features && typeof features.forEach === "function") {
+      features.forEach((name: unknown) => {
+        result.features.push(String(name));
+      });
+      result.features.sort();
+    }
+
+    const limits = adapter.limits || {};
+    for (const name of GPU_LIMIT_NAMES) {
+      const value = Number(limits[name]);
+      if (Number.isFinite(value)) {
+        result.limits[name] = value;
+      }
+    }
+
+    const info = adapter.info || {};
+    result.adapterInfo = {
+      vendor: String(info.vendor || ""),
+      architecture: String(info.architecture || ""),
+      device: String(info.device || ""),
+      description: String(info.description || ""),
+      subgroupMinSize:
+        typeof info.subgroupMinSize === "number" ? info.subgroupMinSize : null,
+      subgroupMaxSize:
+        typeof info.subgroupMaxSize === "number" ? info.subgroupMaxSize : null,
+      isFallbackAdapter:
+        typeof info.isFallbackAdapter === "boolean" ? info.isFallbackAdapter : null,
+    };
+  } catch (e: any) {
+    result.error = e?.message || String(e);
+  }
+
+  return result;
+}
+
+function createSilentWavBlob(): Blob {
+  const sampleRate = 8000;
+  const samples = 80;
+  const buffer = new ArrayBuffer(44 + samples * 2);
+  const view = new DataView(buffer);
+  const writeString = (offset: number, value: string) => {
+    for (let i = 0; i < value.length; i++) {
+      view.setUint8(offset + i, value.charCodeAt(i));
+    }
+  };
+
+  writeString(0, "RIFF");
+  view.setUint32(4, 36 + samples * 2, true);
+  writeString(8, "WAVE");
+  writeString(12, "fmt ");
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true);
+  view.setUint16(22, 1, true);
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, sampleRate * 2, true);
+  view.setUint16(32, 2, true);
+  view.setUint16(34, 16, true);
+  writeString(36, "data");
+  view.setUint32(40, samples * 2, true);
+  for (let i = 0; i < samples; i++) {
+    view.setInt16(44 + i * 2, 0, true);
+  }
+
+  return new Blob([buffer], { type: "audio/wav" });
+}
+
+async function collectMediaCapture(): Promise<
+  FingerprintData["firefox150"]["mediaCapture"]
+> {
+  const proto = (window as any).HTMLMediaElement?.prototype;
+  const result: FingerprintData["firefox150"]["mediaCapture"] = {
+    captureStreamPresent: typeof proto?.captureStream === "function",
+    mozCaptureStreamPresent: typeof proto?.mozCaptureStream === "function",
+    streamId: "",
+    trackIds: [],
+    trackCount: 0,
+    error: "",
+  };
+
+  if (!result.captureStreamPresent) return result;
+
+  const audio = document.createElement("audio");
+  const url = URL.createObjectURL(createSilentWavBlob());
+  try {
+    audio.muted = true;
+    audio.preload = "auto";
+    audio.src = url;
+    audio.style.display = "none";
+    document.body.appendChild(audio);
+    audio.load();
+
+    await new Promise<void>((resolve, reject) => {
+      const timeout = setTimeout(() => reject(new Error("metadata timeout")), 2000);
+      audio.onloadedmetadata = () => {
+        clearTimeout(timeout);
+        resolve();
+      };
+      audio.onerror = () => {
+        clearTimeout(timeout);
+        reject(new Error("media load failed"));
+      };
+    });
+
+    const stream = (audio as any).captureStream() as MediaStream;
+    result.streamId = stream.id || "";
+    result.trackIds = stream.getTracks().map((track) => track.id || "");
+    result.trackCount = result.trackIds.length;
+    stream.getTracks().forEach((track) => track.stop());
+  } catch (e: any) {
+    result.error = e?.message || String(e);
+  } finally {
+    if (audio.parentNode) {
+      audio.parentNode.removeChild(audio);
+    }
+    URL.revokeObjectURL(url);
+  }
+
+  return result;
+}
+
+async function collectFirefox150Surfaces(): Promise<FingerprintData["firefox150"]> {
+  const match = (query: string) => {
+    try {
+      return matchMedia(query).matches;
+    } catch {
+      return false;
+    }
+  };
+
+  const ancestorOrigins = (window.location as any).ancestorOrigins;
+
+  return {
+    webgpu: await collectWebGPU(),
+    mediaCapture: await collectMediaCapture(),
+    location: {
+      ancestorOriginsPresent: typeof ancestorOrigins !== "undefined",
+      ancestorOriginsLength:
+        typeof ancestorOrigins?.length === "number" ? ancestorOrigins.length : null,
+      ancestorOrigins:
+        ancestorOrigins && typeof ancestorOrigins.length === "number"
+          ? Array.from({ length: ancestorOrigins.length }, (_, i) =>
+              String(ancestorOrigins[i] || "")
+            )
+          : [],
+    },
+    reporting: {
+      reportingObserverPresent: typeof (window as any).ReportingObserver !== "undefined",
+      reportPresent: typeof (window as any).Report !== "undefined",
+    },
+    credentials: {
+      digitalCredentialPresent: typeof (window as any).DigitalCredential !== "undefined",
+      publicKeyCredentialPresent:
+        typeof (window as any).PublicKeyCredential !== "undefined",
+    },
+    localAi: {
+      modelContextPresent: typeof (navigator as any).modelContext !== "undefined",
+    },
+    documentPictureInPicture: {
+      present: typeof (window as any).documentPictureInPicture !== "undefined",
+    },
+    displayMediaQueries: {
+      colorGamutSRGB: match("(color-gamut: srgb)"),
+      colorGamutP3: match("(color-gamut: p3)"),
+      colorGamutRec2020: match("(color-gamut: rec2020)"),
+      dynamicRangeStandard: match("(dynamic-range: standard)"),
+      dynamicRangeHigh: match("(dynamic-range: high)"),
+      videoDynamicRangeStandard: match("(video-dynamic-range: standard)"),
+      videoDynamicRangeHigh: match("(video-dynamic-range: high)"),
+    },
+  };
+}
+
 export async function collectFingerprints(): Promise<FingerprintData> {
   // Navigator
   const nav = {
@@ -288,6 +563,8 @@ export async function collectFingerprints(): Promise<FingerprintData> {
     }
   })();
 
+  const firefox150Data = await collectFirefox150Surfaces();
+
   return {
     navigator: nav,
     screen: scr,
@@ -300,6 +577,7 @@ export async function collectFingerprints(): Promise<FingerprintData> {
     emojiCanvas: emojiData,
     fontAvailability: fontAvailData,
     speechVoices: speechVoicesData,
+    firefox150: firefox150Data,
   };
 }
 

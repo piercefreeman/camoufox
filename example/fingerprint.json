@@ -1,6 +1,6 @@
 {
   "navigator": {
-    "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:146.0) Gecko/20100101 Firefox/146.0",
+    "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:150.0) Gecko/20100101 Firefox/150.0",
     "doNotTrack": "unspecified",
     "appCodeName": "Mozilla",
     "appName": "Netscape",
@@ -30,6 +30,9 @@
     "width": 1512,
     "colorDepth": 24,
     "pixelDepth": 24,
+    "colorGamut": "p3",
+    "dynamicRange": "standard",
+    "videoDynamicRange": "standard",
     "pageXOffset": 0,
     "pageYOffset": 0
   },
@@ -58,7 +61,7 @@
     }
   },
   "headers": {
-    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:146.0) Gecko/20100101 Firefox/146.0",
+    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:150.0) Gecko/20100101 Firefox/150.0",
     "Accept-Language": "en-US,en;q=0.9",
     "Accept-Encoding": "gzip, deflate, br, zstd"
   },
@@ -86,11 +89,6 @@
   "audio": {
     "seed": 234567
   },
-  "canvas": {
-    "seed": 345678,
-    "aaOffset": 1,
-    "aaCapOffset": true
-  },
   "geolocation": {
     "latitude": 37.7749,
     "longitude": -122.4194,
@@ -113,93 +111,6 @@
     "sampleRate": 48000,
     "outputLatency": 0.01,
     "maxChannelCount": 2
-  },
-  "webGl": {
-    "renderer": "Apple M1",
-    "vendor": "Apple Inc.",
-    "supportedExtensions": [
-      "EXT_blend_minmax",
-      "OES_element_index_uint",
-      "WEBGL_debug_renderer_info"
-    ],
-    "parameters": {
-      "3379": 16384,
-      "33901": [
-        1.0,
-        8191.0
-      ],
-      "35977": true,
-      "37445": "Apple Inc.",
-      "32873": null
-    },
-    "parametersBlockIfNotDefined": false,
-    "shaderPrecisionFormats": {
-      "35632,36338": {
-        "rangeMin": 127,
-        "rangeMax": 127,
-        "precision": 23
-      },
-      "35633,36338": {
-        "rangeMin": 127,
-        "rangeMax": 127,
-        "precision": 23
-      }
-    },
-    "shaderPrecisionFormatsBlockIfNotDefined": false,
-    "contextAttributes": {
-      "alpha": true,
-      "antialias": true,
-      "depth": true,
-      "failIfMajorPerformanceCaveat": false,
-      "powerPreference": "default",
-      "premultipliedAlpha": true,
-      "preserveDrawingBuffer": false,
-      "stencil": true
-    }
-  },
-  "webGl2": {
-    "renderer": "Apple M1",
-    "vendor": "Apple Inc.",
-    "supportedExtensions": [
-      "EXT_color_buffer_float",
-      "OES_draw_buffers_indexed",
-      "WEBGL_debug_renderer_info"
-    ],
-    "parameters": {
-      "3379": 16384,
-      "33902": [
-        1.0,
-        16384.0
-      ],
-      "37137": 1.5,
-      "37441": false,
-      "37446": "Apple M1",
-      "38449": null
-    },
-    "parametersBlockIfNotDefined": false,
-    "shaderPrecisionFormats": {
-      "35632,36338": {
-        "rangeMin": 127,
-        "rangeMax": 127,
-        "precision": 23
-      },
-      "35633,36338": {
-        "rangeMin": 127,
-        "rangeMax": 127,
-        "precision": 23
-      }
-    },
-    "shaderPrecisionFormatsBlockIfNotDefined": false,
-    "contextAttributes": {
-      "alpha": true,
-      "antialias": true,
-      "depth": true,
-      "failIfMajorPerformanceCaveat": false,
-      "powerPreference": "default",
-      "premultipliedAlpha": true,
-      "preserveDrawingBuffer": false,
-      "stencil": true
-    }
   },
   "voices": {
     "items": [
