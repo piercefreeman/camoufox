@@ -4,20 +4,18 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "rotunda"
-version = "0.5.0"
-description = "Wrapper around Playwright to help launch Rotunda"
+version = "0.1.0"
+description = "A browser built for agents."
 readme = "pythonlib/README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
 authors = [
-    { name = "daijro", email = "daijro.dev@gmail.com" },
+    { name = "Pierce Freeman", email = "pierce@freeman.vc" },
 ]
 keywords = [
-    "client",
+    "agents",
     "fingerprint",
     "browser",
-    "scraping",
-    "injector",
     "firefox",
     "playwright",
 ]
@@ -47,7 +45,7 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://rotunda.com/python"
+Homepage = "https://rotunda.sh"
 Repository = "https://github.com/MonkeySee-AI/rotunda"
 
 [project.optional-dependencies]

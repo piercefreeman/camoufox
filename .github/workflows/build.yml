@@ -467,3 +467,53 @@ jobs:
         timeout-minutes: 60
         with:
           limit-access-to-actor: true
+
+  publish-python-package:
+    needs: integration
+    name: Publish Python package
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-24.04
+    environment:
+      name: pypi
+      url: https://pypi.org/p/rotunda
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: |
+            pyproject.toml
+            uv.lock
+
+      - name: Update Python package version
+        id: python-version
+        run: uv run .github/scripts/update-python-version.py "${{ github.ref_name }}"
+
+      - name: Build Python package
+        run: uv build
+
+      - name: Check Python package metadata
+        run: uvx twine check dist/*
+
+      - name: Upload Python package artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: PythonPackage-${{ steps.python-version.outputs.python_version }}
+          path: dist/*
+          if-no-files-found: error
+
+      - name: Publish package distributions to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
