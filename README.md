@@ -4,8 +4,32 @@ Giving your Agents the power to browse the web is like giving them superpowers. 
 
 ## Getting Started
 
+Install Rotunda into your Python project with `uv`, then fetch the latest Rotunda browser build:
+
+```bash
+uv add rotunda
+uv run rotunda fetch
+```
+
+`rotunda fetch` syncs the available browser releases and installs the latest build for the active channel.
+
+Then use Rotunda from Playwright by swapping in the Rotunda launch helper and creating contexts with `NewContext`:
+
 ```python
-TODO
+from playwright.sync_api import sync_playwright
+from rotunda import NewBrowser, NewContext
+
+
+with sync_playwright() as playwright:
+    browser = NewBrowser(playwright, headless=False)
+    context = NewContext(browser)
+    page = context.new_page()
+
+    page.goto("https://pierce.dev", wait_until="domcontentloaded")
+    first_article_text = page.locator("main article article").first.inner_text()
+    print(first_article_text)
+
+    browser.close()
 ```
 
 ## On stealth browsing
