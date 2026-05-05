@@ -244,6 +244,70 @@ The logger records:
 - `ownKeys`.
 - Native and scripted calls, including callee name, `this` class, and arguments.
 
+## TODO: Debug Dump Mode
+
+This debugging session would have been much shorter with one reproducible dump
+directory containing the browser identity, network traffic, VM accesses, and
+selected high-value API outputs. The goal should be a small env-flag surface:
+
+```sh
+CAMOUFOX_DEBUG_DUMP_DIR=/tmp/camoufox-debug
+CAMOUFOX_DEBUG_DUMP=manifest,network,console,vm,returns,surfaces
+CAMOUFOX_DEBUG_DUMP_MAX_BODY=1048576
+```
+
+The dump should be JSONL-first so normal shell tools work:
+
+- `manifest.json`: executable path, `browser.version`, generated UA, context UA,
+  Firefox prefs, config payload, profile path, source revision, patch revision,
+  `dist/bin/XUL` hash, app-bundle `XUL` hash, and mtimes. This would have caught
+  the stale `.app` `XUL` problem immediately.
+- `network.jsonl`: request id, frame URL, method, URL, request headers, posted
+  body, status, response headers, response body, timing, and redirect chain.
+  PixelScan's `/s/api/co` response explicitly exposed `osFontsStatus:false`, so
+  response-body capture is as important as request capture.
+- `console.jsonl`: console method, arguments, stack/script URL when available,
+  page errors, and uncaught exceptions. This should capture debug output from
+  patched third-party agents without relying on browser stderr.
+- `vm-access.jsonl`: existing VM property/call records, with stable timestamps,
+  browsing context id, user context id, frame URL, script URL, and object class.
+- `vm-returns.jsonl`: return previews for property gets and function calls. Log
+  primitive values directly; for objects log class, length/size, own-key summary,
+  and a stable hash. Avoid serializers that invoke getters, proxy traps, or page
+  code while logging.
+- `surfaces.jsonl`: targeted high-signal API output summaries for canvas, fonts,
+  WebGL, audio, screen/window, navigator, storage, cookies, timezone, locale,
+  WebRTC candidates, and `Error.stack`. Include arguments and return hashes for
+  large values like `canvas.toDataURL()`, `getImageData()`, and audio buffers.
+
+Network logging and return logging solve different problems and both are needed:
+
+- Network dumps show the server verdict and often name the failed check directly
+  (`developer_tools`, `osFontsStatus`, `result:false`).
+- VM return dumps show what page JavaScript actually observed before it built or
+  encrypted a payload, such as `Error.stack`, `navigator.userAgent`,
+  `screen.availHeight`, canvas hashes, or font probe measurements.
+- Surface-specific summaries keep the log grepable when generic VM logging would
+  produce too much data or enormous binary strings.
+
+Implementation TODOs:
+
+- Add a Python-side network dump hook for all `NewContext`/`AsyncNewContext`
+  contexts when `CAMOUFOX_DEBUG_DUMP` includes `network`.
+- Extend the C++ VM logger to optionally record return previews for native calls,
+  scripted calls, and property gets under `CAMOUFOX_VM_ACCESS_RETURNS=1`.
+- Add targeted native logging for fingerprint-heavy APIs where return values are
+  too large for raw VM logs: canvas, WebGL, AudioContext, font metrics, WebRTC,
+  and `Error.stack`.
+- Add body-size limits, binary hashing, and default redaction for `Cookie`,
+  `Authorization`, proxy credentials, and bearer-like strings. Provide an
+  explicit raw mode for isolated local repros.
+- Use a single monotonically increasing event id across manifest, network, VM,
+  console, and surface logs so a request can be correlated with the JS reads and
+  calls that produced it.
+- Include a one-command repro harness that launches a URL, waits for network
+  idle or a selector, writes the dump, and exits cleanly.
+
 ## Repro Harness
 
 Use a shared BrowserForge fingerprint for browser launch and context creation.
