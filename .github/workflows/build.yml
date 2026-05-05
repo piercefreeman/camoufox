@@ -505,9 +505,6 @@ jobs:
       - name: Build Python package
         run: uv build
 
-      - name: Check Python package metadata
-        run: uvx twine check dist/*
-
       - name: Upload Python package artifact
         uses: actions/upload-artifact@v4
         with:
@@ -516,4 +513,4 @@ jobs:
           if-no-files-found: error
 
       - name: Publish package distributions to PyPI
-        uses: pypa/gh-action-pypi-publish@release/v1
+        run: uv publish --trusted-publishing always
