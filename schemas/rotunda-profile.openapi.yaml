@@ -1,0 +1,391 @@
+openapi: 3.1.0
+info:
+  title: Rotunda Profile
+  version: 1.0.0
+  description: Runtime profile payload consumed by Rotunda at browser startup.
+paths: {}
+components:
+  schemas:
+    RotundaProfile:
+      type: object
+      additionalProperties: false
+      properties:
+        navigator:
+          $ref: "#/components/schemas/NavigatorProfile"
+        screen:
+          $ref: "#/components/schemas/ScreenProfile"
+        window:
+          $ref: "#/components/schemas/WindowProfile"
+        document:
+          $ref: "#/components/schemas/DocumentProfile"
+        headers:
+          $ref: "#/components/schemas/HeaderProfile"
+        webrtc:
+          $ref: "#/components/schemas/WebRtcProfile"
+        pdfViewerEnabled:
+          type: boolean
+        battery:
+          $ref: "#/components/schemas/BatteryProfile"
+        fonts:
+          $ref: "#/components/schemas/FontsProfile"
+        audio:
+          $ref: "#/components/schemas/AudioProfile"
+        geolocation:
+          $ref: "#/components/schemas/GeolocationProfile"
+        timezone:
+          type: string
+        locale:
+          $ref: "#/components/schemas/LocaleProfile"
+        humanize:
+          $ref: "#/components/schemas/HumanizeProfile"
+        showcursor:
+          type: boolean
+        audioContext:
+          $ref: "#/components/schemas/AudioContextProfile"
+        voices:
+          $ref: "#/components/schemas/VoicesProfile"
+        mediaDevices:
+          $ref: "#/components/schemas/MediaDevicesProfile"
+        allowMainWorld:
+          type: boolean
+        forceScopeAccess:
+          type: boolean
+        disableTheming:
+          type: boolean
+        memorysaver:
+          type: boolean
+        addons:
+          type: array
+          items:
+            type: string
+        certificatePaths:
+          type: array
+          items:
+            type: string
+        certificates:
+          type: array
+          items:
+            type: string
+        debug:
+          type: boolean
+
+    NavigatorProfile:
+      type: object
+      additionalProperties: false
+      properties:
+        userAgent:
+          type: string
+        doNotTrack:
+          type: string
+          enum: ["0", "1", "unspecified"]
+        appCodeName:
+          type: string
+        appName:
+          type: string
+        appVersion:
+          type: string
+        oscpu:
+          type: string
+        language:
+          type: string
+        languages:
+          type: array
+          items:
+            type: string
+        platform:
+          type: string
+        hardwareConcurrency:
+          type: integer
+          minimum: 0
+        product:
+          type: string
+        productSub:
+          type: string
+        maxTouchPoints:
+          type: integer
+          minimum: 0
+        cookieEnabled:
+          type: boolean
+        globalPrivacyControl:
+          type: boolean
+        buildID:
+          type: string
+        onLine:
+          type: boolean
+
+    ScreenProfile:
+      type: object
+      additionalProperties: false
+      properties:
+        availHeight:
+          type: integer
+          minimum: 0
+        availWidth:
+          type: integer
+          minimum: 0
+        availTop:
+          type: integer
+          minimum: 0
+        availLeft:
+          type: integer
+          minimum: 0
+        height:
+          type: integer
+          minimum: 0
+        width:
+          type: integer
+          minimum: 0
+        colorDepth:
+          type: integer
+          minimum: 0
+        pixelDepth:
+          type: integer
+          minimum: 0
+        colorGamut:
+          type: string
+          enum: [srgb, p3, rec2020]
+        dynamicRange:
+          type: string
+          enum: [standard, high]
+        videoDynamicRange:
+          type: string
+          enum: [standard, high]
+        pageXOffset:
+          type: number
+        pageYOffset:
+          type: number
+
+    WindowProfile:
+      type: object
+      additionalProperties: false
+      properties:
+        scrollMinX:
+          type: integer
+        scrollMinY:
+          type: integer
+        scrollMaxX:
+          type: integer
+        scrollMaxY:
+          type: integer
+        outerHeight:
+          type: integer
+          minimum: 0
+        outerWidth:
+          type: integer
+          minimum: 0
+        innerHeight:
+          type: integer
+          minimum: 0
+        innerWidth:
+          type: integer
+          minimum: 0
+        screenX:
+          type: integer
+        screenY:
+          type: integer
+        history:
+          $ref: "#/components/schemas/HistoryProfile"
+        devicePixelRatio:
+          type: number
+          exclusiveMinimum: 0
+
+    HistoryProfile:
+      type: object
+      additionalProperties: false
+      properties:
+        length:
+          type: integer
+          minimum: 0
+
+    DocumentProfile:
+      type: object
+      additionalProperties: false
+      properties:
+        body:
+          $ref: "#/components/schemas/DocumentBodyProfile"
+
+    DocumentBodyProfile:
+      type: object
+      additionalProperties: false
+      properties:
+        clientWidth:
+          type: integer
+          minimum: 0
+        clientHeight:
+          type: integer
+          minimum: 0
+        clientTop:
+          type: integer
+        clientLeft:
+          type: integer
+
+    HeaderProfile:
+      type: object
+      additionalProperties: false
+      properties:
+        User-Agent:
+          type: string
+        Accept-Language:
+          type: string
+        Accept-Encoding:
+          type: string
+
+    WebRtcProfile:
+      type: object
+      additionalProperties: false
+      properties:
+        ipv4:
+          type: string
+        ipv6:
+          type: string
+        localipv4:
+          type: string
+        localipv6:
+          type: string
+
+    BatteryProfile:
+      type: object
+      additionalProperties: false
+      properties:
+        charging:
+          type: boolean
+        chargingTime:
+          type: number
+          minimum: 0
+        dischargingTime:
+          type: number
+          minimum: 0
+        level:
+          type: number
+          minimum: 0
+
+    FontsProfile:
+      type: object
+      additionalProperties: false
+      properties:
+        families:
+          type: array
+          items:
+            type: string
+        spacingSeed:
+          type: integer
+          minimum: 0
+
+    AudioProfile:
+      type: object
+      additionalProperties: false
+      properties:
+        seed:
+          type: integer
+          minimum: 0
+
+    GeolocationProfile:
+      type: object
+      additionalProperties: false
+      properties:
+        latitude:
+          type: number
+          minimum: -90
+          maximum: 90
+        longitude:
+          type: number
+          minimum: -180
+          maximum: 180
+        accuracy:
+          type: number
+          minimum: 0
+
+    LocaleProfile:
+      type: object
+      additionalProperties: false
+      properties:
+        language:
+          type: string
+        region:
+          type: string
+        script:
+          type: string
+        all:
+          type: string
+
+    HumanizeProfile:
+      type: object
+      additionalProperties: false
+      properties:
+        enabled:
+          type: boolean
+        maxTime:
+          type: number
+          minimum: 0
+        minTime:
+          type: number
+          minimum: 0
+
+    AudioContextProfile:
+      type: object
+      additionalProperties: false
+      properties:
+        sampleRate:
+          type: integer
+          minimum: 0
+        outputLatency:
+          type: number
+          minimum: 0
+        maxChannelCount:
+          type: integer
+          minimum: 0
+
+    VoicesProfile:
+      type: object
+      additionalProperties: false
+      properties:
+        items:
+          type: array
+          items:
+            oneOf:
+              - type: string
+              - $ref: "#/components/schemas/SpeechVoice"
+        blockIfNotDefined:
+          type: boolean
+        fakeCompletion:
+          type: boolean
+        fakeCompletionCharsPerSecond:
+          type: number
+          exclusiveMinimum: 0
+
+    SpeechVoice:
+      type: object
+      additionalProperties: false
+      required:
+        - isLocalService
+        - isDefault
+        - voiceUri
+        - name
+        - lang
+      properties:
+        isLocalService:
+          type: boolean
+        isDefault:
+          type: boolean
+        voiceUri:
+          type: string
+        name:
+          type: string
+        lang:
+          type: string
+
+    MediaDevicesProfile:
+      type: object
+      additionalProperties: false
+      properties:
+        micros:
+          type: integer
+          minimum: 0
+        webcams:
+          type: integer
+          minimum: 0
+        speakers:
+          type: integer
+          minimum: 0
+        enabled:
+          type: boolean

@@ -31,7 +31,7 @@ async def test_should_throw_for_bad_server_value(
 
 
 @pytest.mark.xfail(
-    reason="Camoufox browser-level proxy routing is currently unresolved in the Playwright integration.",
+    reason="Rotunda browser-level proxy routing is currently unresolved in the Playwright integration.",
     strict=False,
 )
 async def test_should_use_proxy(
@@ -51,7 +51,7 @@ async def test_should_use_proxy(
 
 
 @pytest.mark.xfail(
-    reason="Camoufox browser-level proxy routing is currently unresolved in the Playwright integration.",
+    reason="Rotunda browser-level proxy routing is currently unresolved in the Playwright integration.",
     strict=False,
 )
 async def test_proxy_should_allow_none_for_optional_settings(
@@ -78,7 +78,7 @@ async def test_proxy_should_allow_none_for_optional_settings(
 
 
 @pytest.mark.xfail(
-    reason="Camoufox browser-level proxy routing is currently unresolved in the Playwright integration.",
+    reason="Rotunda browser-level proxy routing is currently unresolved in the Playwright integration.",
     strict=False,
 )
 async def test_should_use_proxy_for_second_page(
@@ -103,7 +103,7 @@ async def test_should_use_proxy_for_second_page(
 
 
 @pytest.mark.xfail(
-    reason="Camoufox browser-level proxy routing is currently unresolved in the Playwright integration.",
+    reason="Rotunda browser-level proxy routing is currently unresolved in the Playwright integration.",
     strict=False,
 )
 async def test_should_work_with_ip_port_notion(
@@ -123,7 +123,7 @@ async def test_should_work_with_ip_port_notion(
 
 
 @pytest.mark.xfail(
-    reason="Camoufox browser-level proxy routing is currently unresolved in the Playwright integration.",
+    reason="Rotunda browser-level proxy routing is currently unresolved in the Playwright integration.",
     strict=False,
 )
 async def test_should_authenticate(
@@ -157,7 +157,7 @@ async def test_should_authenticate(
 
 
 @pytest.mark.xfail(
-    reason="Camoufox browser-level proxy routing is currently unresolved in the Playwright integration.",
+    reason="Rotunda browser-level proxy routing is currently unresolved in the Playwright integration.",
     strict=False,
 )
 async def test_should_authenticate_with_empty_password(

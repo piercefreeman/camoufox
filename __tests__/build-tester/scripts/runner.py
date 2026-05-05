@@ -1,5 +1,5 @@
 """
-Playwright test runner — launches Camoufox, runs per-context and global profiles,
+Playwright test runner — launches Rotunda, runs per-context and global profiles,
 collects results, and returns the full result dict.
 """
 
@@ -192,7 +192,7 @@ async def run_tests(
     ensure_bundle(project_dir)
 
     # 2. Generate fingerprint presets
-    print("\nGenerating fingerprint presets via Camoufox Python API...")
+    print("\nGenerating fingerprint presets via Rotunda Python API...")
     presets = generate_presets()
     print("Presets generated.")
 
@@ -286,7 +286,7 @@ async def run_tests(
                     timeout=60,
                 )
             except Exception as e:
-                print(f"{RED}ERROR: Failed to launch Camoufox: {e}{RESET}", file=sys.stderr)
+                print(f"{RED}ERROR: Failed to launch Rotunda: {e}{RESET}", file=sys.stderr)
                 return 1
 
             try:
@@ -307,12 +307,12 @@ async def run_tests(
 
             browser = None
             try:
-                from camoufox.utils import get_env_vars
+                from rotunda.utils import get_env_vars
 
                 env = {
                     **dict(os.environ),
                     **get_env_vars(
-                        preset["camouConfig"],
+                        preset["rotundaConfig"],
                         _user_agent_os(profile["userAgent"]),
                     ),
                 }
@@ -335,7 +335,7 @@ async def run_tests(
                     ),
                 )
 
-                # Inject only WebRTC IP for global profiles (CAMOU_CONFIG handles everything else)
+                # Inject only WebRTC IP for global profiles (ROTUNDA_CONFIG handles everything else)
                 await context.add_init_script(
                     f"try {{ if (typeof window.setWebRTCIPv4 === 'function') window.setWebRTCIPv4({json.dumps(WEBRTC_TEST_IP)}); }} catch(e) {{}}"
                 )

@@ -30,7 +30,7 @@ from tests.utils import chromium_version_less_than, must
 _dirname = get_file_dirname()
 FILE_TO_UPLOAD = _dirname / ".." / "assets/file-to-upload.txt"
 filechooser_interception_unsupported = pytest.mark.skip(
-    reason="Playwright filechooser interception is not supported by Camoufox."
+    reason="Playwright filechooser interception is not supported by Rotunda."
 )
 
 

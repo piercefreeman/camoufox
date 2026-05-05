@@ -1,0 +1,43 @@
+# -*- Mode: python; indent-tabs-mode: nil; tab-width: 40 -*-
+# vim: set filetype=python:
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
+with Files("**"):
+    BUG_COMPONENT = ("Core", "DOM: UI Events & Focus Handling")
+
+EXPORTS += [
+    "MaskConfig.hpp",
+    "MouseTrajectories.hpp",
+]
+
+LOCAL_INCLUDES += [
+    "/rotundacfg",
+    "/rotundacfg/generated/profile/rotundacfg",
+]
+
+UNIFIED_SOURCES += [
+    "generated/profile/rotundacfg/AudioContextProfile.cpp",
+    "generated/profile/rotundacfg/AudioProfile.cpp",
+    "generated/profile/rotundacfg/BatteryProfile.cpp",
+    "generated/profile/rotundacfg/RotundaProfile.cpp",
+    "generated/profile/rotundacfg/DocumentBodyProfile.cpp",
+    "generated/profile/rotundacfg/DocumentProfile.cpp",
+    "generated/profile/rotundacfg/FontsProfile.cpp",
+    "generated/profile/rotundacfg/GeolocationProfile.cpp",
+    "generated/profile/rotundacfg/HeaderProfile.cpp",
+    "generated/profile/rotundacfg/HistoryProfile.cpp",
+    "generated/profile/rotundacfg/HumanizeProfile.cpp",
+    "generated/profile/rotundacfg/LocaleProfile.cpp",
+    "generated/profile/rotundacfg/MediaDevicesProfile.cpp",
+    "generated/profile/rotundacfg/NavigatorProfile.cpp",
+    "generated/profile/rotundacfg/ScreenProfile.cpp",
+    "generated/profile/rotundacfg/SpeechVoice.cpp",
+    "generated/profile/rotundacfg/VoicesProfile.cpp",
+    "generated/profile/rotundacfg/VoicesProfileItemsInner.cpp",
+    "generated/profile/rotundacfg/WebRtcProfile.cpp",
+    "generated/profile/rotundacfg/WindowProfile.cpp",
+]
+
+FINAL_LIBRARY = "xul"

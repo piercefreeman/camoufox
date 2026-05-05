@@ -718,7 +718,7 @@ export async function runCoreChecks(): Promise<
             "px (taskbar present)"
           : "availHeight === height (" +
             screen.height +
-            ") (Camoufox screen spoofing -- expected)",
+            ") (Rotunda screen spoofing -- expected)",
     };
   })();
 

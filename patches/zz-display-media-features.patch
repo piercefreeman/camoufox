@@ -16,7 +16,7 @@ index 5362dd77d4..8d0f150c01 100644
  using mozilla::dom::DisplayMode;
  using mozilla::dom::Document;
  
-+static StyleColorGamut CamoufoxColorGamutFromProfileValue(
++static StyleColorGamut RotundaColorGamutFromProfileValue(
 +    const std::string& aValue) {
 +  if (aValue == "rec2020") {
 +    return StyleColorGamut::Rec2020;
@@ -27,7 +27,7 @@ index 5362dd77d4..8d0f150c01 100644
 +  return StyleColorGamut::Srgb;
 +}
 +
-+static StyleDynamicRange CamoufoxDynamicRangeFromProfileValue(
++static StyleDynamicRange RotundaDynamicRangeFromProfileValue(
 +    const std::string& aValue) {
 +  return aValue == "high" ? StyleDynamicRange::High
 +                           : StyleDynamicRange::Standard;
@@ -42,7 +42,7 @@ index 5362dd77d4..8d0f150c01 100644
  StyleColorGamut Gecko_MediaFeatures_ColorGamut(const Document* aDocument) {
 +  if (auto screen = MaskConfig::Profile().getScreen()) {
 +    if (auto value = screen->getColorGamut()) {
-+      return CamoufoxColorGamutFromProfileValue(*value);
++      return RotundaColorGamutFromProfileValue(*value);
 +    }
 +  }
 +
@@ -73,7 +73,7 @@ index 5362dd77d4..8d0f150c01 100644
  StyleDynamicRange Gecko_MediaFeatures_DynamicRange(const Document* aDocument) {
 +  if (auto screen = MaskConfig::Profile().getScreen()) {
 +    if (auto value = screen->getDynamicRange()) {
-+      return CamoufoxDynamicRangeFromProfileValue(*value);
++      return RotundaDynamicRangeFromProfileValue(*value);
 +    }
 +  }
 +
@@ -86,7 +86,7 @@ index 5362dd77d4..8d0f150c01 100644
      const Document* aDocument) {
 +  if (auto screen = MaskConfig::Profile().getScreen()) {
 +    if (auto value = screen->getVideoDynamicRange()) {
-+      return CamoufoxDynamicRangeFromProfileValue(*value);
++      return RotundaDynamicRangeFromProfileValue(*value);
 +    }
 +  }
 +

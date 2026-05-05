@@ -11,7 +11,7 @@ RUN apt-get update && apt-get install -y \
     build-essential make msitools wget unzip rustc \
     # Python
     python3 python3-dev python3-pip \
-    # Camoufox build system tools
+    # Rotunda build system tools
     git p7zip-full aria2 curl rsync \
     # Platform-specific libraries for Linux builds
     libsqlite3-dev \

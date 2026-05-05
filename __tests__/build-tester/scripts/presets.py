@@ -34,8 +34,8 @@ def convert_preset(ctx: dict[str, Any]) -> dict[str, Any]:
     """
     Convert generate_context_fingerprint() output into the build-tester shape.
 
-    The current Camoufox helper returns:
-    - `config` as a typed CamoufoxProfile model
+    The current Rotunda helper returns:
+    - `config` as a typed RotundaProfile model
     - `preset` as `None` when the identity was generated from BrowserForge
     Older build-tester code assumed both were plain dicts.
     """
@@ -56,7 +56,7 @@ def convert_preset(ctx: dict[str, Any]) -> dict[str, Any]:
             "locale": ctx["context_options"].get("locale"),
             "timezoneId": ctx["context_options"].get("timezone_id"),
         },
-        "camouConfig": config_dict,
+        "rotundaConfig": config_dict,
         "profileConfig": {
             "fontSpacingSeed": getattr(fonts, "spacing_seed", None) or 0,
             "audioSeed": getattr(audio, "seed", None) or 0,
@@ -76,11 +76,11 @@ def convert_preset(ctx: dict[str, Any]) -> dict[str, Any]:
 
 def generate_presets() -> dict[str, Any]:
     try:
-        from camoufox.fingerprints import generate_context_fingerprint
-        from camoufox.fingerprinting import current_host_target_os
+        from rotunda.fingerprints import generate_context_fingerprint
+        from rotunda.fingerprinting import current_host_target_os
     except ImportError:
         print(
-            "ERROR: camoufox Python package not installed.\n"
+            "ERROR: rotunda Python package not installed.\n"
             "  Run from the repo root with uv, for example:\n"
             "  uv run --group dev --group playwright-tests --locked python __tests__/build-tester/scripts/run_tests.py <binary_path>",
             file=sys.stderr,
@@ -110,7 +110,7 @@ def inject_timezone(preset: dict, timezone: str) -> None:
     )
     preset["contextOptions"]["timezoneId"] = timezone
     preset["profileConfig"]["timezone"] = timezone
-    preset["camouConfig"]["timezone"] = timezone
+    preset["rotundaConfig"]["timezone"] = timezone
 
 
 def inject_webrtc_ip(preset: dict) -> None:

@@ -756,7 +756,7 @@ export async function runExtendedChecks(
         suspicious = true;
         reason = "Direct3D renderer on Mac platform";
       }
-      // Check for "or similar" suffix from Camoufox global config (expected behavior)
+      // Check for "or similar" suffix from Rotunda global config (expected behavior)
       const hasSimilarSuffix = rendererLower.indexOf(", or similar") !== -1;
       return {
         passed: !suspicious,
@@ -765,7 +765,7 @@ export async function runExtendedChecks(
             renderer +
             '" plausible for ' +
             plat +
-            (hasSimilarSuffix ? " (Camoufox global)" : "")
+            (hasSimilarSuffix ? " (Rotunda global)" : "")
           : "MISMATCH: " + reason,
       };
     } catch (e: any) {
@@ -809,7 +809,7 @@ export async function runExtendedChecks(
   }
 
   // Audio noise trap -- write known values to a buffer, read back, check if modified
-  // Note: Camoufox applies per-profile audio transformations via getChannelData() hook,
+  // Note: Rotunda applies per-profile audio transformations via getChannelData() hook,
   // so user-written data IS modified. This is expected -- report as informational, not failure.
   try {
     const trapCtx = new AudioContext();
@@ -836,7 +836,7 @@ export async function runExtendedChecks(
       detail: trapModified
         ? "Audio buffer modified on read-back (max delta: " +
           maxDiff.toExponential(2) +
-          ") - Camoufox audio transform active"
+          ") - Rotunda audio transform active"
         : "Audio buffer unchanged after write-back (no audio transform applied)",
     };
   } catch (e: any) {
@@ -1057,7 +1057,7 @@ export async function runExtendedChecks(
       const wDiff = screen.width - screen.availWidth;
       const hDiff = screen.height - screen.availHeight;
       // Both being 0 is suspicious (no taskbar/dock) but not definitive
-      // Camoufox screen spoofing may set avail === screen
+      // Rotunda screen spoofing may set avail === screen
       const noTaskbar = wDiff === 0 && hDiff === 0;
       return {
         passed: true,
@@ -1546,7 +1546,7 @@ export async function runExtendedChecks(
           highestVersion = ver;
         }
       }
-      // Threshold of 3: Camoufox bundles a subset of macOS fonts, not a full install.
+      // Threshold of 3: Rotunda bundles a subset of macOS fonts, not a full install.
       // Real macOS machines also vary -- not all have every version font.
       result.fontEnvironment.macOSVersionDepth = {
         passed: versionFound >= 3,

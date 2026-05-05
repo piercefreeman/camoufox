@@ -1,6 +1,6 @@
-# Camoufox Build Tester
+# Rotunda Build Tester
 
-Tests a raw Camoufox binary (Firefox) directly against the same antibot-detection checks used in the service tests. Use this to validate a binary before packaging/releasing — it bypasses the Python package entirely.
+Tests a raw Rotunda binary (Firefox) directly against the same antibot-detection checks used in the service tests. Use this to validate a binary before packaging/releasing — it bypasses the Python package entirely.
 
 ## Prerequisites
 
@@ -10,8 +10,8 @@ Tests a raw Camoufox binary (Firefox) directly against the same antibot-detectio
 ## Quick Start
 
 ```bash
-# Point the test at a Camoufox binary
-export CAMOUFOX_EXECUTABLE_PATH=/path/to/camoufox-bin
+# Point the test at a Rotunda binary
+export ROTUNDA_EXECUTABLE_PATH=/path/to/rotunda-bin
 
 # Run the pytest-gated integration test
 uv run --group dev --group playwright-tests --locked pytest \
@@ -31,13 +31,13 @@ uv run --group dev --group playwright-tests --locked python \
 **Example:**
 ```bash
 uv run --group dev --group playwright-tests --locked python \
-  __tests__/build-tester/scripts/run_tests.py /path/to/camoufox-bin/camoufox
+  __tests__/build-tester/scripts/run_tests.py /path/to/rotunda-bin/rotunda
 ```
 
 ## Options
 
 ```
-  binary_path           Path to the Camoufox (Firefox) binary
+  binary_path           Path to the Rotunda (Firefox) binary
   --profile-count N     Number of profiles to test (1-8, default: 8)
   --secret KEY          HMAC signing key for certificate
   --save-cert PATH      Save certificate text to a file
@@ -76,9 +76,9 @@ Each profile is scored across:
 
 | | Build Tester | Service Tests |
 |---|---|---|
-| Entry point | Raw binary path | `pip install camoufox` |
+| Entry point | Raw binary path | `pip install rotunda` |
 | Fingerprint injection | Manual (`generate_context_fingerprint` + init script) | Via `AsyncNewContext` API |
-| Global mode | Yes (`CAMOU_CONFIG` env var) | No |
+| Global mode | Yes (`ROTUNDA_CONFIG` env var) | No |
 | Match validation | Yes (checks injected values match page) | No |
 | Proxy support | No | Yes |
 | Profile count | 8 (per-context only) | 6 (per-context only) |

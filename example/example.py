@@ -1,24 +1,24 @@
 """
-Quick example to test Camoufox.
+Quick example to test Rotunda.
 
 Install deps:
-    pip install camoufox
-    python -m camoufox fetch
+    pip install rotunda
+    python -m rotunda fetch
 
 Local repo development:
-    export CAMOUFOX_EXECUTABLE_PATH=/path/to/Camoufox.app/Contents/MacOS/camoufox
+    export ROTUNDA_EXECUTABLE_PATH=/path/to/Rotunda.app/Contents/MacOS/rotunda
     uv run --group dev python example/example.py
 """
 
 import os
 
-from camoufox import Camoufox, NewContext
+from rotunda import Rotunda, NewContext
 
 LAUNCH_OPTIONS = {"headless": False}
-if os.getenv("CAMOUFOX_EXECUTABLE_PATH"):
-    LAUNCH_OPTIONS["executable_path"] = os.environ["CAMOUFOX_EXECUTABLE_PATH"]
+if os.getenv("ROTUNDA_EXECUTABLE_PATH"):
+    LAUNCH_OPTIONS["executable_path"] = os.environ["ROTUNDA_EXECUTABLE_PATH"]
 
-with Camoufox(**LAUNCH_OPTIONS) as browser:
+with Rotunda(**LAUNCH_OPTIONS) as browser:
     context = NewContext(browser)
     page = context.new_page()
 

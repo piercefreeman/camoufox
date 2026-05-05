@@ -1,10 +1,10 @@
 # Playwright Maintenance Guide
 
-This document describes how to maintain Playwright integration in Camoufox.
+This document describes how to maintain Playwright integration in Rotunda.
 
 ## Overview
 
-Camoufox integrates Playwright's browser automation capabilities through patches and additional files. These need to be kept in sync with upstream Playwright development.
+Rotunda integrates Playwright's browser automation capabilities through patches and additional files. These need to be kept in sync with upstream Playwright development.
 
 ## Patch Files
 
@@ -104,11 +104,11 @@ After updating from upstream, ensure the ESM wrapper remains functional:
 
 ```bash
 # Clean build to verify component registration
-cd camoufox-146.0.1-beta.25
+cd rotunda-146.0.1-beta.25
 make clean
 cd ..
 make dir
-cd camoufox-146.0.1-beta.25
+cd rotunda-146.0.1-beta.25
 ./mach build
 ```
 

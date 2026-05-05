@@ -32,17 +32,17 @@ from playwright.async_api import (
 from tests.server import Server, TestServerRequest
 
 history_navigation_unsupported = pytest.mark.xfail(
-    reason="History-backed navigation does not currently behave like upstream Playwright in Camoufox.",
+    reason="History-backed navigation does not currently behave like upstream Playwright in Rotunda.",
     run=False,
     strict=False,
 )
 non_network_reload_unsupported = pytest.mark.xfail(
-    reason="Reload semantics for non-network pages do not currently match upstream Playwright in Camoufox.",
+    reason="Reload semantics for non-network pages do not currently match upstream Playwright in Rotunda.",
     run=False,
     strict=False,
 )
 networkidle_client_redirect_unsupported = pytest.mark.xfail(
-    reason="Client redirects do not currently preserve upstream networkidle timeout semantics in Camoufox.",
+    reason="Client redirects do not currently preserve upstream networkidle timeout semantics in Rotunda.",
     run=False,
     strict=False,
 )

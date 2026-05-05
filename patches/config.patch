@@ -6,10 +6,10 @@ index 6bb2e64906..fbdb0b26ea 100644
  #endif
  #endif
  
-+; Camoufox specific files
++; Rotunda specific files
 +@RESPATH@/defaults/pref/local-settings.js
 +@RESPATH@/distribution/policies.json
-+@RESPATH@/camoufox.cfg
++@RESPATH@/rotunda.cfg
 +
  ; [Default Preferences]
  ; All the pref files must be part of base to prevent migration bugs
@@ -20,7 +20,7 @@ index e69de29bb2..5459e4ac36 100644
 +++ b/lw/moz.build
 @@ -0,0 +1,13 @@
 +FINAL_TARGET_FILES += [
-+  "camoufox.cfg",
++  "rotunda.cfg",
 +  "chrome.css"
 +]
 +

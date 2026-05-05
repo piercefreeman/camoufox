@@ -23,7 +23,7 @@ const helper = new Helper();
 const HUMANIZED_TEXT_INTERVAL_MS = 10;
 
 function isHumanizeEnabled() {
-  return ChromeUtils.camouGetBool('humanize.enabled', false);
+  return ChromeUtils.rotundaGetBool('humanize.enabled', false);
 }
 
 function textInputUnits(text) {

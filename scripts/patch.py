@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 """
-The script that patches the Firefox source into the Camoufox source.
+The script that patches the Firefox source into the Rotunda source.
 Based on LibreWolf's patch script:
 https://gitlab.com/librewolf-community/browser/source/-/blob/main/scripts/librewolf-patches.py
 
@@ -36,7 +36,7 @@ Main patcher functions
 
 @dataclass
 class Patcher:
-    """Patch and prepare the Camoufox source"""
+    """Patch and prepare the Rotunda source"""
 
     moz_target: str
     target: str
@@ -66,7 +66,7 @@ class Patcher:
         )
         return result.returncode == 0
 
-    def camoufox_patches(self):
+    def rotunda_patches(self):
         """
         Apply all patches
         """
@@ -239,7 +239,7 @@ Preparation
 def extract_args():
     """Get version and release from args"""
     if len(args) != 2:
-        sys.stderr.write('error: please specify version and release of camoufox source')
+        sys.stderr.write('error: please specify version and release of rotunda source')
         sys.exit(1)
     return args[0], args[1]
 
@@ -273,12 +273,12 @@ if __name__ == "__main__":
     _update_rustup(TARGET)
 
     # Check if the folder exists
-    if not os.path.exists(f'camoufox-{VERSION}-{RELEASE}/configure.py'):
+    if not os.path.exists(f'rotunda-{VERSION}-{RELEASE}/configure.py'):
         sys.stderr.write('error: folder doesn\'t look like a Firefox folder.')
         sys.exit(1)
 
     # Apply the patches
     patcher = Patcher(MOZ_TARGET, TARGET)
-    patcher.camoufox_patches()
+    patcher.rotunda_patches()
 
     sys.exit(0)  # ensure 0 exit code

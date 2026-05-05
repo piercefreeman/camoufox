@@ -1,8 +1,8 @@
-diff --git a/js/src/vm/CamoufoxVMAccessLog.cpp b/js/src/vm/CamoufoxVMAccessLog.cpp
+diff --git a/js/src/vm/RotundaVMAccessLog.cpp b/js/src/vm/RotundaVMAccessLog.cpp
 new file mode 100644
 index 0000000..a7a38e6
 --- /dev/null
-+++ b/js/src/vm/CamoufoxVMAccessLog.cpp
++++ b/js/src/vm/RotundaVMAccessLog.cpp
 @@ -0,0 +1,397 @@
 +/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*-
 + * vim: set ts=8 sts=2 et sw=2 tw=80:
@@ -11,7 +11,7 @@ index 0000000..a7a38e6
 + * file, You can obtain one at http://mozilla.org/MPL/2.0/.
 + */
 +
-+#include "vm/CamoufoxVMAccessLog.h"
++#include "vm/RotundaVMAccessLog.h"
 +
 +#include <stdio.h>
 +#include <stdlib.h>
@@ -66,26 +66,26 @@ index 0000000..a7a38e6
 +
 +static bool Enabled() {
 +  if (gState == AccessLogState::Uninitialized) {
-+    if (!EnvFlagEnabled(getenv("CAMOUFOX_VM_ACCESS_LOG"))) {
++    if (!EnvFlagEnabled(getenv("ROTUNDA_VM_ACCESS_LOG"))) {
 +      gState = AccessLogState::Disabled;
 +      return false;
 +    }
 +
-+    gScriptFilter = getenv("CAMOUFOX_VM_ACCESS_FILTER");
++    gScriptFilter = getenv("ROTUNDA_VM_ACCESS_FILTER");
 +    if (gScriptFilter && !gScriptFilter[0]) {
 +      gScriptFilter = nullptr;
 +    }
 +
-+    gObjectFilter = getenv("CAMOUFOX_VM_ACCESS_OBJECT_FILTER");
++    gObjectFilter = getenv("ROTUNDA_VM_ACCESS_OBJECT_FILTER");
 +    if (gObjectFilter && !gObjectFilter[0]) {
 +      gObjectFilter = nullptr;
 +    }
 +
-+    gLogSymbols = EnvFlagEnabled(getenv("CAMOUFOX_VM_ACCESS_SYMBOLS"));
++    gLogSymbols = EnvFlagEnabled(getenv("ROTUNDA_VM_ACCESS_SYMBOLS"));
 +    gMaxCallArgs =
-+        EnvUnsigned(getenv("CAMOUFOX_VM_ACCESS_MAX_ARGS"), 8, 32);
++        EnvUnsigned(getenv("ROTUNDA_VM_ACCESS_MAX_ARGS"), 8, 32);
 +    gMaxStringBytes =
-+        EnvUnsigned(getenv("CAMOUFOX_VM_ACCESS_MAX_STRING"), 160, 1024);
++        EnvUnsigned(getenv("ROTUNDA_VM_ACCESS_MAX_STRING"), 160, 1024);
 +    gState = AccessLogState::Enabled;
 +  }
 +
@@ -280,7 +280,7 @@ index 0000000..a7a38e6
 +
 +}  // namespace
 +
-+void js::MaybeLogCamoufoxVMAccess(JSContext* cx, JS::Handle<JSObject*> obj,
++void js::MaybeLogRotundaVMAccess(JSContext* cx, JS::Handle<JSObject*> obj,
 +                                  JS::Handle<jsid> id, const char* op) {
 +  if (!Enabled() || gIsLogging) {
 +    return;
@@ -306,7 +306,7 @@ index 0000000..a7a38e6
 +  FormatId(cx, id, propFallback, sizeof(propFallback), &ownedProp, &prop);
 +
 +  fprintf(stderr,
-+          "[camoufox-vm-access] op=%s class=%s prop=%s script=%s:%u:%u\n", op,
++          "[rotunda-vm-access] op=%s class=%s prop=%s script=%s:%u:%u\n", op,
 +          className ? className : "<null>", prop ? prop : "<null>",
 +          filename ? filename : "<unknown>", line, column);
 +  fflush(stderr);
@@ -314,7 +314,7 @@ index 0000000..a7a38e6
 +  gIsLogging = false;
 +}
 +
-+void js::MaybeLogCamoufoxVMCall(JSContext* cx, const JS::CallArgs& args,
++void js::MaybeLogRotundaVMCall(JSContext* cx, const JS::CallArgs& args,
 +                                const char* op, const char* kind) {
 +  if (!Enabled() || gIsLogging) {
 +    return;
@@ -346,7 +346,7 @@ index 0000000..a7a38e6
 +  gIsLogging = true;
 +
 +  fprintf(stderr,
-+          "[camoufox-vm-access] op=%s kind=%s calleeClass=%s callee=%s "
++          "[rotunda-vm-access] op=%s kind=%s calleeClass=%s callee=%s "
 +          "thisClass=%s argc=%u args=(",
 +          op, kind ? kind : "<unknown>", calleeClass,
 +          functionName ? functionName : "<anonymous>", thisClass,
@@ -374,7 +374,7 @@ index 0000000..a7a38e6
 +  gIsLogging = false;
 +}
 +
-+void js::MaybeLogCamoufoxVMOwnKeys(JSContext* cx, JS::Handle<JSObject*> obj,
++void js::MaybeLogRotundaVMOwnKeys(JSContext* cx, JS::Handle<JSObject*> obj,
 +                                   unsigned flags) {
 +  if (!Enabled() || gIsLogging) {
 +    return;
@@ -392,7 +392,7 @@ index 0000000..a7a38e6
 +  gIsLogging = true;
 +
 +  fprintf(stderr,
-+          "[camoufox-vm-access] op=ownKeys class=%s flags=0x%x script=%s:%u:%u\n",
++          "[rotunda-vm-access] op=ownKeys class=%s flags=0x%x script=%s:%u:%u\n",
 +          className ? className : "<null>", flags,
 +          filename ? filename : "<unknown>", line, column);
 +  fflush(stderr);
@@ -400,12 +400,12 @@ index 0000000..a7a38e6
 +  gIsLogging = false;
 +}
 +
-+bool js::IsCamoufoxVMAccessLogEnabled() { return Enabled(); }
-diff --git a/js/src/vm/CamoufoxVMAccessLog.h b/js/src/vm/CamoufoxVMAccessLog.h
++bool js::IsRotundaVMAccessLogEnabled() { return Enabled(); }
+diff --git a/js/src/vm/RotundaVMAccessLog.h b/js/src/vm/RotundaVMAccessLog.h
 new file mode 100644
 index 0000000..6d262f7
 --- /dev/null
-+++ b/js/src/vm/CamoufoxVMAccessLog.h
++++ b/js/src/vm/RotundaVMAccessLog.h
 @@ -0,0 +1,33 @@
 +/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*-
 + * vim: set ts=8 sts=2 et sw=2 tw=80:
@@ -414,8 +414,8 @@ index 0000000..6d262f7
 + * file, You can obtain one at http://mozilla.org/MPL/2.0/.
 + */
 +
-+#ifndef vm_CamoufoxVMAccessLog_h
-+#define vm_CamoufoxVMAccessLog_h
++#ifndef vm_RotundaVMAccessLog_h
++#define vm_RotundaVMAccessLog_h
 +
 +#include "js/CallArgs.h"     // JS::CallArgs
 +#include "js/Id.h"           // jsid
@@ -426,20 +426,20 @@ index 0000000..6d262f7
 +
 +namespace js {
 +
-+void MaybeLogCamoufoxVMAccess(JSContext* cx, JS::Handle<JSObject*> obj,
++void MaybeLogRotundaVMAccess(JSContext* cx, JS::Handle<JSObject*> obj,
 +                              JS::Handle<jsid> id, const char* op);
 +
-+void MaybeLogCamoufoxVMOwnKeys(JSContext* cx, JS::Handle<JSObject*> obj,
++void MaybeLogRotundaVMOwnKeys(JSContext* cx, JS::Handle<JSObject*> obj,
 +                               unsigned flags);
 +
-+void MaybeLogCamoufoxVMCall(JSContext* cx, const JS::CallArgs& args,
++void MaybeLogRotundaVMCall(JSContext* cx, const JS::CallArgs& args,
 +                            const char* op, const char* kind);
 +
-+bool IsCamoufoxVMAccessLogEnabled();
++bool IsRotundaVMAccessLogEnabled();
 +
 +}  // namespace js
 +
-+#endif  // vm_CamoufoxVMAccessLog_h
++#endif  // vm_RotundaVMAccessLog_h
 diff --git a/js/src/vm/Interpreter.cpp b/js/src/vm/Interpreter.cpp
 index 98fabae..4d58b63 100644
 --- a/js/src/vm/Interpreter.cpp
@@ -448,7 +448,7 @@ index 98fabae..4d58b63 100644
  #include "vm/AsyncIteration.h"
  #include "vm/BigIntType.h"
  #include "vm/BytecodeUtil.h"  // JSDVG_SEARCH_STACK
-+#include "vm/CamoufoxVMAccessLog.h"
++#include "vm/RotundaVMAccessLog.h"
  #include "vm/ConstantCompareOperand.h"
  #ifdef ENABLE_EXPLICIT_RESOURCE_MANAGEMENT
  #  include "vm/ErrorObject.h"
@@ -464,7 +464,7 @@ index 98fabae..4d58b63 100644
 -      return true;
 -    case jit::EnterJitStatus::NotEntered:
 -      break;
-+  if (!IsCamoufoxVMAccessLogEnabled()) {
++  if (!IsRotundaVMAccessLogEnabled()) {
 +    jit::EnterJitStatus status = jit::MaybeEnterJit(cx, state);
 +    switch (status) {
 +      case jit::EnterJitStatus::Error:
@@ -481,7 +481,7 @@ index 98fabae..4d58b63 100644
      return false;
    }
  
-+  MaybeLogCamoufoxVMCall(cx, args, args.isConstructing() ? "construct" : "call",
++  MaybeLogRotundaVMCall(cx, args, args.isConstructing() ? "construct" : "call",
 +                         "native");
 +
    NativeResumeMode resumeMode = DebugAPI::onNativeCall(cx, args, reason);
@@ -491,7 +491,7 @@ index 98fabae..4d58b63 100644
      }
  
      if (args.callee().is<ProxyObject>()) {
-+      MaybeLogCamoufoxVMCall(cx, args, "call", "proxy");
++      MaybeLogRotundaVMCall(cx, args, "call", "proxy");
        RootedObject proxy(cx, &args.callee());
        return Proxy::call(cx, proxy, args);
      }
@@ -499,7 +499,7 @@ index 98fabae..4d58b63 100644
      return false;
    }
  
-+  MaybeLogCamoufoxVMCall(cx, args, construct == CONSTRUCT ? "construct" : "call",
++  MaybeLogRotundaVMCall(cx, args, construct == CONSTRUCT ? "construct" : "call",
 +                         fun->isSelfHostedBuiltin() ? "self-hosted"
 +                                                    : "scripted");
 +
@@ -510,7 +510,7 @@ index 98fabae..4d58b63 100644
    }
  
    if (callee.is<ProxyObject>()) {
-+    MaybeLogCamoufoxVMCall(cx, args, "construct", "proxy");
++    MaybeLogRotundaVMCall(cx, args, "construct", "proxy");
      RootedObject proxy(cx, &callee);
      return Proxy::construct(cx, proxy, args);
    }
@@ -522,7 +522,7 @@ index d23b896..59d2ae9 100644
  #include "js/PropertySpec.h"
  #include "util/DifferentialTesting.h"
  #include "util/Poison.h"
-+#include "vm/CamoufoxVMAccessLog.h"
++#include "vm/RotundaVMAccessLog.h"
  #include "vm/GlobalObject.h"
  #include "vm/Interpreter.h"
  #include "vm/JSContext.h"
@@ -530,7 +530,7 @@ index d23b896..59d2ae9 100644
  JS_PUBLIC_API bool js::GetPropertyKeys(JSContext* cx, HandleObject obj,
                                         unsigned flags,
                                         MutableHandleIdVector props) {
-+  MaybeLogCamoufoxVMOwnKeys(cx, obj, flags);
++  MaybeLogRotundaVMOwnKeys(cx, obj, flags);
 +
    uint32_t validFlags =
        flags & (JSITER_OWNONLY | JSITER_HIDDEN | JSITER_SYMBOLS |
@@ -543,7 +543,7 @@ index ce09973..09728cb 100644
  #include "vm/ArrayBufferObject.h"
  #include "vm/ArrayBufferViewObject.h"
  #include "vm/BytecodeUtil.h"
-+#include "vm/CamoufoxVMAccessLog.h"
++#include "vm/RotundaVMAccessLog.h"
  #include "vm/Compartment.h"
  #include "vm/DateObject.h"
  #include "vm/ErrorObject.h"
@@ -551,7 +551,7 @@ index ce09973..09728cb 100644
  bool js::GetOwnPropertyDescriptor(
      JSContext* cx, HandleObject obj, HandleId id,
      MutableHandle<Maybe<PropertyDescriptor>> desc) {
-+  MaybeLogCamoufoxVMAccess(cx, obj, id, "getOwnPropertyDescriptor");
++  MaybeLogRotundaVMAccess(cx, obj, id, "getOwnPropertyDescriptor");
 +
    if (GetOwnPropertyOp op = obj->getOpsGetOwnPropertyDescriptor()) {
      bool ok = op(cx, obj, id, desc);
@@ -564,7 +564,7 @@ index e9095c3..642bdc7 100644
  #include "proxy/Proxy.h"      // js::Proxy
  #include "vm/JSContext.h"     // JSContext
  #include "vm/JSObject.h"      // JSObject
-+#include "vm/CamoufoxVMAccessLog.h"  // js::MaybeLogCamoufoxVMAccess
++#include "vm/RotundaVMAccessLog.h"  // js::MaybeLogRotundaVMAccess
  #include "vm/NativeObject.h"  // js::NativeObject, js::Native{Get,Has,Set}Property, js::NativeGetPropertyNoGC, js::Qualified
  #include "vm/ProxyObject.h"   // js::ProxyObject
  #include "vm/StringType.h"    // js::NameToId
@@ -572,7 +572,7 @@ index e9095c3..642bdc7 100644
   */
  inline bool HasProperty(JSContext* cx, JS::Handle<JSObject*> obj,
                          JS::Handle<jsid> id, bool* foundp) {
-+  MaybeLogCamoufoxVMAccess(cx, obj, id, "has");
++  MaybeLogRotundaVMAccess(cx, obj, id, "has");
 +
    if (HasPropertyOp op = obj->getOpsHasProperty()) {
      return op(cx, obj, id, foundp);
@@ -581,7 +581,7 @@ index e9095c3..642bdc7 100644
  inline bool GetProperty(JSContext* cx, JS::Handle<JSObject*> obj,
                          JS::Handle<JS::Value> receiver, JS::Handle<jsid> id,
                          JS::MutableHandle<JS::Value> vp) {
-+  MaybeLogCamoufoxVMAccess(cx, obj, id, "get");
++  MaybeLogRotundaVMAccess(cx, obj, id, "get");
 +
    if (GetPropertyOp op = obj->getOpsGetProperty()) {
      return op(cx, obj, receiver, id, vp);
@@ -594,7 +594,7 @@ index d14128d..ae3a4c5 100644
  # Interpreter.cpp is gigantic and destroys incremental build times for any files
  # unlucky enough to be unified with it.
  SOURCES += [
-+    "CamoufoxVMAccessLog.cpp",
++    "RotundaVMAccessLog.cpp",
      "Interpreter.cpp",
      "ProfilingStack.cpp",
  ]

@@ -1,4 +1,4 @@
-# Camoufox Tests
+# Rotunda Tests
 
 Ensures that Playwright functionality is not broken.
 
@@ -8,7 +8,7 @@ This directory is based on the original Playwright-Python [tests](https://github
 
 It has been modified to skip tests that use the following features:
 
-- Injecting JavaScript into the page or writing to DOM. Camoufox's `page.evaluate` only supports reading values, not executing within the page context.
+- Injecting JavaScript into the page or writing to DOM. Rotunda's `page.evaluate` only supports reading values, not executing within the page context.
 - Overriding the User-Agent.
 - Any tests specific to Chromium or Webkit.
 
@@ -30,7 +30,7 @@ uv run --group dev --group playwright-tests python -m playwright install firefox
 Run the Playwright async suite directly through `uv`:
 
 ```bash
-CAMOUFOX_EXECUTABLE_PATH=/path/to/camoufox-bin \
+ROTUNDA_EXECUTABLE_PATH=/path/to/rotunda-bin \
   uv run --group dev --group playwright-tests \
   pytest --integration --headless __tests__/playwright/async/
 ```
@@ -38,7 +38,7 @@ CAMOUFOX_EXECUTABLE_PATH=/path/to/camoufox-bin \
 For a headful run:
 
 ```bash
-CAMOUFOX_EXECUTABLE_PATH=/path/to/camoufox-bin \
+ROTUNDA_EXECUTABLE_PATH=/path/to/rotunda-bin \
   uv run --group dev --group playwright-tests \
   pytest --integration __tests__/playwright/async/
 ```

@@ -15,23 +15,23 @@ def test_build_tester_integration(pytestconfig: pytest.Config) -> None:
     if not pytestconfig.getoption("--integration"):
         pytest.skip("Build integration tests are disabled; pass --integration to run them.")
 
-    executable_path = os.getenv("CAMOUFOX_EXECUTABLE_PATH")
+    executable_path = os.getenv("ROTUNDA_EXECUTABLE_PATH")
     if not executable_path:
-        pytest.skip("Build tester requires CAMOUFOX_EXECUTABLE_PATH.")
+        pytest.skip("Build tester requires ROTUNDA_EXECUTABLE_PATH.")
 
     command = [
         sys.executable,
         str(RUNNER),
         executable_path,
         "--profile-count",
-        os.getenv("CAMOUFOX_BUILD_TESTER_PROFILE_COUNT", "8"),
+        os.getenv("ROTUNDA_BUILD_TESTER_PROFILE_COUNT", "8"),
         "--secret",
-        os.getenv("CAMOUFOX_BUILD_TESTER_SECRET", "camoufox-tester-dev-secret"),
+        os.getenv("ROTUNDA_BUILD_TESTER_SECRET", "rotunda-tester-dev-secret"),
     ]
 
-    if save_cert := os.getenv("CAMOUFOX_BUILD_TESTER_SAVE_CERT"):
+    if save_cert := os.getenv("ROTUNDA_BUILD_TESTER_SAVE_CERT"):
         command.extend(["--save-cert", save_cert])
-    if os.getenv("CAMOUFOX_BUILD_TESTER_NO_CERT", "").strip().lower() in {"1", "true", "yes", "on"}:
+    if os.getenv("ROTUNDA_BUILD_TESTER_NO_CERT", "").strip().lower() in {"1", "true", "yes", "on"}:
         command.append("--no-cert")
 
     result = subprocess.run(

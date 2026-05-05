@@ -1,16 +1,16 @@
 #!/usr/bin/env python3
 """
-Camoufox Service Tester — Python CLI
+Rotunda Service Tester — Python CLI
 
-Tests an official Camoufox release (installed via pip) using the same
+Tests an official Rotunda release (installed via pip) using the same
 antibot-detection checks as the build-tester, but launched via the
-camoufox Python API instead of a raw binary path.
+rotunda Python API instead of a raw binary path.
 
 Usage:
   python run_tests.py [options]
 
 Options:
-  --browser-version VER   Camoufox version specifier (default: official/stable)
+  --browser-version VER   Rotunda version specifier (default: official/stable)
                           e.g. official/prerelease/146.0.1-beta.50
   --profile-count N       Number of profiles to test (1-6, default: 6)
   --headful               Run with visible browser window
@@ -62,16 +62,16 @@ async def run_tests(
     timestamp = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
     try:
-        from camoufox.async_api import AsyncCamoufox, AsyncNewContext
-        from camoufox.fingerprinting import current_host_target_os
+        from rotunda.async_api import AsyncRotunda, AsyncNewContext
+        from rotunda.fingerprinting import current_host_target_os
     except ImportError:
-        print("ERROR: camoufox package not installed.", file=sys.stderr)
+        print("ERROR: rotunda package not installed.", file=sys.stderr)
         return 1
 
     host_os = current_host_target_os()
     label = "macOS" if host_os == "macos" else "Linux"
 
-    # 3. Build profile specs — fingerprints and timezone resolved by camoufox per-context
+    # 3. Build profile specs — fingerprints and timezone resolved by rotunda per-context
     all_specs = [{"os": host_os, "name": f"{label} Per-Context {chr(65 + i)}"} for i in range(6)]
     entries = all_specs[:max(1, min(profile_count, len(all_specs)))]
 
@@ -111,8 +111,8 @@ async def run_tests(
         launch_kwargs["executable_path"] = str(Path(executable_path).expanduser().resolve())
 
     try:
-        async with AsyncCamoufox(**launch_kwargs) as browser:
-            # Create all contexts simultaneously — camoufox handles all fingerprint injection
+        async with AsyncRotunda(**launch_kwargs) as browser:
+            # Create all contexts simultaneously — rotunda handles all fingerprint injection
             open_contexts = []
             for entry in entries:
                 profile = {"name": entry["name"], "os": entry["os"], "proxy_geo": entry.get("proxy_geo", {})}
@@ -180,7 +180,7 @@ async def run_tests(
                         pass
 
     except Exception as e:
-        print(f"{RED}ERROR: Failed to launch Camoufox: {e}{RESET}", file=sys.stderr)
+        print(f"{RED}ERROR: Failed to launch Rotunda: {e}{RESET}", file=sys.stderr)
         return 1
 
     # ── Final summary ──────────────────────────────────────────────────────────
@@ -222,16 +222,16 @@ async def run_tests(
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Camoufox Service Tester")
+    parser = argparse.ArgumentParser(description="Rotunda Service Tester")
     parser.add_argument("--browser-version", default="official/stable",
-                        help="Camoufox version specifier (default: official/stable)")
+                        help="Rotunda version specifier (default: official/stable)")
     parser.add_argument("--profile-count", type=int, default=6,
                         help="Number of profiles to test (1-6, default: 6)")
     parser.add_argument("--headful", action="store_true",
                         help="Run with visible browser window")
     parser.add_argument("--proxies", default=str(PROXIES_FILE),
                         help=f"Path to proxies file (default: {PROXIES_FILE.name} next to this script)")
-    parser.add_argument("--secret", default="camoufox-service-test",
+    parser.add_argument("--secret", default="rotunda-service-test",
                         help="HMAC signing key for certificate")
     parser.add_argument("--save-cert", default=None,
                         help="Save certificate to this file path")
@@ -239,8 +239,8 @@ def main():
                         help="Skip certificate generation")
     parser.add_argument(
         "--executable-path",
-        default=os.environ.get("CAMOUFOX_EXECUTABLE_PATH"),
-        help="Optional path to a Camoufox executable. Defaults to CAMOUFOX_EXECUTABLE_PATH.",
+        default=os.environ.get("ROTUNDA_EXECUTABLE_PATH"),
+        help="Optional path to a Rotunda executable. Defaults to ROTUNDA_EXECUTABLE_PATH.",
     )
     args = parser.parse_args()
 

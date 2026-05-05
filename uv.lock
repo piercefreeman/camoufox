@@ -242,7 +242,7 @@ wheels = [
 ]
 
 [[package]]
-name = "camoufox"
+name = "rotunda"
 version = "0.5.0"
 source = { editable = "." }
 dependencies = [

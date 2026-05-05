@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 """
-Common functions used across the Camoufox build system.
+Common functions used across the Rotunda build system.
 Not meant to be called directly.
 """
 
@@ -43,14 +43,14 @@ def get_options():
 def find_src_dir(root_dir='.', version=None, release=None):
     """Get the source directory"""
     if version and release:
-        name = os.path.join(root_dir, f'camoufox-{version}-{release}')
+        name = os.path.join(root_dir, f'rotunda-{version}-{release}')
         assert os.path.exists(name), f'{name} does not exist.'
         return name
     folders = os.listdir(root_dir)
     for folder in folders:
-        if os.path.isdir(folder) and folder.startswith('camoufox-'):
+        if os.path.isdir(folder) and folder.startswith('rotunda-'):
             return os.path.join(root_dir, folder)
-    raise FileNotFoundError('No camoufox-* folder found')
+    raise FileNotFoundError('No rotunda-* folder found')
 
 
 def get_moz_target(target, arch):

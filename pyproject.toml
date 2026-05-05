@@ -3,9 +3,9 @@ requires = ["setuptools>=69", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "camoufox"
+name = "rotunda"
 version = "0.5.0"
-description = "Wrapper around Playwright to help launch Camoufox"
+description = "Wrapper around Playwright to help launch Rotunda"
 readme = "pythonlib/README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
@@ -47,15 +47,15 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://camoufox.com/python"
-Repository = "https://github.com/daijro/camoufox"
+Homepage = "https://rotunda.com/python"
+Repository = "https://github.com/piercefreeman/rotunda"
 
 [project.optional-dependencies]
 geoip = ["geoip2"]
 gui = ["PySide6"]
 
 [project.scripts]
-camoufox = "camoufox.__main__:cli"
+rotunda = "rotunda.__main__:cli"
 
 [dependency-groups]
 dev = [
@@ -99,19 +99,19 @@ include-package-data = true
 
 [tool.setuptools.packages.find]
 where = ["pythonlib"]
-include = ["camoufox*"]
+include = ["rotunda*"]
 
 [tool.setuptools.package-data]
-camoufox = [
+rotunda = [
     "*.cfg",
     "py.typed",
 ]
-"camoufox.assets" = [
+"rotunda.assets" = [
     "*.js",
     "*.xml",
     "*.yml",
 ]
-"camoufox.gui" = [
+"rotunda.gui" = [
     "assets/*",
     "qml/*",
 ]
@@ -145,7 +145,7 @@ python = ".venv"
 python-version = "3.10"
 
 [tool.ty.src]
-exclude = ["pythonlib/camoufox/gui/**"]
+exclude = ["pythonlib/rotunda/gui/**"]
 
 [tool.ty.terminal]
 output-format = "concise"

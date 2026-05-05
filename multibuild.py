@@ -1,5 +1,5 @@
 """
-Easy build CLI for Camoufox
+Easy build CLI for Rotunda
 
 options:
   -h, --help            show this help message and exit
@@ -13,7 +13,7 @@ options:
 Example:
 $ python3 multibuild.py --target linux windows macos --arch x86_64 arm64
 
-Since Camoufox is NOT meant to be used as a daily driver, no installers are provided.
+Since Rotunda is NOT meant to be used as a daily driver, no installers are provided.
 """
 
 import argparse
@@ -76,12 +76,12 @@ class BSYS:
         run('make generate-assets-car')
 
     def build(self):
-        """Build the Camoufox source code"""
+        """Build the Rotunda source code"""
         os.environ['BUILD_TARGET'] = f'{self.target},{self.arch}'
         run('make build')
 
     def package(self):
-        """Package the Camoufox source code"""
+        """Package the Rotunda source code"""
         run(f'make package-{self.target} arch={self.arch}')
 
     def update_target(self):
@@ -92,12 +92,12 @@ class BSYS:
     @property
     def assets(self) -> List[str]:
         """Get the list of assets"""
-        package_pattern = f'camoufox-*-{self.target[:3]}.{self.arch}.zip'
+        package_pattern = f'rotunda-*-{self.target[:3]}.{self.arch}.zip'
         return glob.glob(package_pattern)
 
     @staticmethod
     def clean():
-        """Clean the Camoufox directory"""
+        """Clean the Rotunda directory"""
         run('make clean')
 
 
@@ -118,7 +118,7 @@ def run_build(target, arch):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Easy build CLI for Camoufox")
+    parser = argparse.ArgumentParser(description="Easy build CLI for Rotunda")
     parser.add_argument(
         "--target",
         choices=AVAILABLE_TARGETS,

@@ -61,8 +61,8 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Resolve Camoufox release version
-        id: camoufox-release
+      - name: Resolve Rotunda release version
+        id: rotunda-release
         env:
           GITHUB_EVENT_RELEASE_TAG_NAME: ${{ github.event.release.tag_name }}
         run: bash .github/scripts/resolve-release-version.sh
@@ -77,7 +77,7 @@ jobs:
 
       - name: Fetch source
         env:
-          CAMOUFOX_PASSWD: ${{ secrets.CAMOUFOX_PASSWD }}
+          ROTUNDA_PASSWD: ${{ secrets.ROTUNDA_PASSWD }}
         run: make fetch
 
       - name: Setup and bootstrap
@@ -95,7 +95,7 @@ jobs:
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: CamoufoxBuilds-windows-${{ matrix.arch }}
+          name: RotundaBuilds-windows-${{ matrix.arch }}
           path: dist/*
 
       - name: Debug failed build over SSH

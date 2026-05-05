@@ -16,7 +16,7 @@ import pytest
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-PACKAGE_ROOT = REPO_ROOT / "pythonlib" / "camoufox"
+PACKAGE_ROOT = REPO_ROOT / "pythonlib" / "rotunda"
 
 
 @dataclass(frozen=True)
@@ -52,10 +52,10 @@ class FakeFingerprint:
 
 
 def _install_dependency_shims() -> None:
-    if "camoufox.geo" not in sys.modules:
-        geo_package = types.ModuleType("camoufox.geo")
+    if "rotunda.geo" not in sys.modules:
+        geo_package = types.ModuleType("rotunda.geo")
         geo_package.__path__ = []
-        sys.modules["camoufox.geo"] = geo_package
+        sys.modules["rotunda.geo"] = geo_package
 
     if "orjson" not in sys.modules:
         orjson = types.ModuleType("orjson")
@@ -138,8 +138,8 @@ def _install_dependency_shims() -> None:
         )
         sys.modules["ua_parser"] = ua_parser
 
-    if "camoufox.pkgman" not in sys.modules:
-        pkgman = types.ModuleType("camoufox.pkgman")
+    if "rotunda.pkgman" not in sys.modules:
+        pkgman = types.ModuleType("rotunda.pkgman")
 
         def load_yaml(filename: str) -> Dict[str, Any]:
             import yaml
@@ -151,11 +151,11 @@ def _install_dependency_shims() -> None:
         pkgman.load_yaml = load_yaml
         pkgman.get_path = lambda file: f"/tmp/{file}"
         pkgman.installed_verstr = lambda: "150.0.1-beta.25"
-        pkgman.launch_path = lambda browser_path=None: "/tmp/camoufox"
-        sys.modules["camoufox.pkgman"] = pkgman
+        pkgman.launch_path = lambda browser_path=None: "/tmp/rotunda"
+        sys.modules["rotunda.pkgman"] = pkgman
 
-    if "camoufox._warnings" not in sys.modules:
-        warnings_module = types.ModuleType("camoufox._warnings")
+    if "rotunda._warnings" not in sys.modules:
+        warnings_module = types.ModuleType("rotunda._warnings")
 
         class LeakWarning(RuntimeWarning):
             @staticmethod
@@ -163,10 +163,10 @@ def _install_dependency_shims() -> None:
                 return None
 
         warnings_module.LeakWarning = LeakWarning
-        sys.modules["camoufox._warnings"] = warnings_module
+        sys.modules["rotunda._warnings"] = warnings_module
 
-    if "camoufox.addons" not in sys.modules:
-        addons = types.ModuleType("camoufox.addons")
+    if "rotunda.addons" not in sys.modules:
+        addons = types.ModuleType("rotunda.addons")
 
         class DefaultAddons(Enum):
             UBO = "ubo"
@@ -174,17 +174,17 @@ def _install_dependency_shims() -> None:
         addons.DefaultAddons = DefaultAddons
         addons.add_default_addons = lambda addons_list, exclude_list=None: None
         addons.confirm_paths = lambda paths: None
-        sys.modules["camoufox.addons"] = addons
+        sys.modules["rotunda.addons"] = addons
 
-    if "camoufox.geo.geolocation" not in sys.modules:
-        geolocation = types.ModuleType("camoufox.geo.geolocation")
+    if "rotunda.geo.geolocation" not in sys.modules:
+        geolocation = types.ModuleType("rotunda.geo.geolocation")
         geolocation.geoip_allowed = lambda: None
         geolocation.get_geolocation = lambda ip, geoip_db=None: types.SimpleNamespace(as_config=lambda: {})
-        sys.modules["camoufox.geo.geolocation"] = geolocation
-        sys.modules["camoufox.geo"].geolocation = geolocation
+        sys.modules["rotunda.geo.geolocation"] = geolocation
+        sys.modules["rotunda.geo"].geolocation = geolocation
 
-    if "camoufox.geo.ip" not in sys.modules:
-        ip = types.ModuleType("camoufox.geo.ip")
+    if "rotunda.geo.ip" not in sys.modules:
+        ip = types.ModuleType("rotunda.geo.ip")
 
         @dataclass(frozen=True)
         class Proxy:
@@ -200,11 +200,11 @@ def _install_dependency_shims() -> None:
         ip.valid_ipv4 = lambda value: "." in value
         ip.valid_ipv6 = lambda value: ":" in value
         ip.validate_ip = lambda value: None
-        sys.modules["camoufox.geo.ip"] = ip
-        sys.modules["camoufox.geo"].ip = ip
+        sys.modules["rotunda.geo.ip"] = ip
+        sys.modules["rotunda.geo"].ip = ip
 
-    if "camoufox.geo.locales" not in sys.modules:
-        locales = types.ModuleType("camoufox.geo.locales")
+    if "rotunda.geo.locales" not in sys.modules:
+        locales = types.ModuleType("rotunda.geo.locales")
 
         @dataclass(frozen=True)
         class Locale:
@@ -229,18 +229,18 @@ def _install_dependency_shims() -> None:
             from_region=lambda region: normalize_locale(f"en-{region}"),
             from_language=lambda language: normalize_locale(f"{language}-US"),
         )
-        sys.modules["camoufox.geo.locales"] = locales
-        sys.modules["camoufox.geo"].locales = locales
+        sys.modules["rotunda.geo.locales"] = locales
+        sys.modules["rotunda.geo"].locales = locales
 
-    if "camoufox.virtdisplay" not in sys.modules:
-        virtdisplay = types.ModuleType("camoufox.virtdisplay")
+    if "rotunda.virtdisplay" not in sys.modules:
+        virtdisplay = types.ModuleType("rotunda.virtdisplay")
 
         class VirtualDisplay:
             def kill(self) -> None:
                 return None
 
         virtdisplay.VirtualDisplay = VirtualDisplay
-        sys.modules["camoufox.virtdisplay"] = virtdisplay
+        sys.modules["rotunda.virtdisplay"] = virtdisplay
 
 
 def _load_module(name: str, path: Path) -> Any:
@@ -256,21 +256,21 @@ def _load_module(name: str, path: Path) -> Any:
 def modules() -> tuple[Any, Any, Any]:
     _install_dependency_shims()
 
-    package = types.ModuleType("camoufox")
+    package = types.ModuleType("rotunda")
     package.__path__ = [str(PACKAGE_ROOT)]
-    sys.modules["camoufox"] = package
+    sys.modules["rotunda"] = package
 
-    assets = _load_module("camoufox.assets", PACKAGE_ROOT / "assets" / "__init__.py")
-    fingerprints = _load_module("camoufox.fingerprints", PACKAGE_ROOT / "fingerprints.py")
-    utils = _load_module("camoufox.utils", PACKAGE_ROOT / "utils.py")
+    assets = _load_module("rotunda.assets", PACKAGE_ROOT / "assets" / "__init__.py")
+    fingerprints = _load_module("rotunda.fingerprints", PACKAGE_ROOT / "fingerprints.py")
+    utils = _load_module("rotunda.utils", PACKAGE_ROOT / "utils.py")
     return assets, fingerprints, utils
 
 
 @pytest.fixture
 def fake_host(modules: tuple[Any, Any, Any]) -> Any:
     _ = modules
-    host_macos = importlib.import_module("camoufox.fingerprinting.host_macos")
-    voices = importlib.import_module("camoufox.fingerprinting.voices")
+    host_macos = importlib.import_module("rotunda.fingerprinting.host_macos")
+    voices = importlib.import_module("rotunda.fingerprinting.voices")
     return host_macos.MacOSHostAdapter(
         architecture="arm64",
         gpu_vendor="apple",
@@ -285,8 +285,8 @@ def fake_host(modules: tuple[Any, Any, Any]) -> Any:
 @pytest.fixture
 def fake_linux_host(modules: tuple[Any, Any, Any]) -> Any:
     _ = modules
-    host_linux = importlib.import_module("camoufox.fingerprinting.host_linux")
-    voices = importlib.import_module("camoufox.fingerprinting.voices")
+    host_linux = importlib.import_module("rotunda.fingerprinting.host_linux")
+    voices = importlib.import_module("rotunda.fingerprinting.voices")
     return host_linux.LinuxHostAdapter(
         architecture="x86_64",
         gpu_vendor="intel",
@@ -318,9 +318,9 @@ def stable_environment(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _, fingerprints, utils = modules
-    hosts = importlib.import_module("camoufox.fingerprinting.hosts")
-    host_macos = importlib.import_module("camoufox.fingerprinting.host_macos")
-    host_linux = importlib.import_module("camoufox.fingerprinting.host_linux")
+    hosts = importlib.import_module("rotunda.fingerprinting.hosts")
+    host_macos = importlib.import_module("rotunda.fingerprinting.host_macos")
+    host_linux = importlib.import_module("rotunda.fingerprinting.host_linux")
 
     monkeypatch.setattr(hosts.sys, "platform", "darwin")
     monkeypatch.setattr(host_macos.MacOSHostAdapter, "_cached", fake_host)
@@ -330,7 +330,7 @@ def stable_environment(
 
     monkeypatch.setattr(utils, "OS_NAME", "mac")
     monkeypatch.setattr(utils, "installed_verstr", lambda: "150.0.1-beta.25")
-    monkeypatch.setattr(utils, "launch_path", lambda browser_path=None: "/tmp/camoufox")
+    monkeypatch.setattr(utils, "launch_path", lambda browser_path=None: "/tmp/rotunda")
     monkeypatch.setattr(
         utils,
         "get_path",
@@ -389,9 +389,9 @@ def test_macos_font_probe_uses_defaults_and_samples_local_extras(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _ = modules
-    hosts = importlib.import_module("camoufox.fingerprinting.hosts")
-    host_macos = importlib.import_module("camoufox.fingerprinting.host_macos")
-    fonts = importlib.import_module("camoufox.fingerprinting.fonts")
+    hosts = importlib.import_module("rotunda.fingerprinting.hosts")
+    host_macos = importlib.import_module("rotunda.fingerprinting.host_macos")
+    fonts = importlib.import_module("rotunda.fingerprinting.fonts")
 
     discovered = (
         fonts.Font(
@@ -458,8 +458,8 @@ def test_macos_font_blocklist_keeps_legitimate_mac_families(
     modules: tuple[Any, Any, Any],
 ) -> None:
     _ = modules
-    common = importlib.import_module("camoufox.fingerprinting.common")
-    fonts = importlib.import_module("camoufox.fingerprinting.fonts")
+    common = importlib.import_module("rotunda.fingerprinting.common")
+    fonts = importlib.import_module("rotunda.fingerprinting.fonts")
 
     assert fonts.is_blocked_family_for_target_os("Segoe Fluent Icons", common.MACOS)
     assert fonts.is_blocked_family_for_target_os("Ubuntu Mono derivative Powerline", common.MACOS)
@@ -574,9 +574,9 @@ def test_generate_context_fingerprint_emits_debug_logs(
     result = fingerprints.generate_context_fingerprint(debug=True)
     output = capsys.readouterr().out
 
-    assert "[camoufox:fingerprint] Preparing fingerprinted browser context." in output
-    assert "[camoufox:fingerprint] Generating BrowserForge Firefox skeleton." in output
-    assert "[camoufox:fingerprint] Context options ready:" in output
+    assert "[rotunda:fingerprint] Preparing fingerprinted browser context." in output
+    assert "[rotunda:fingerprint] Generating BrowserForge Firefox skeleton." in output
+    assert "[rotunda:fingerprint] Context options ready:" in output
     assert result["context_options"]["user_agent"].endswith("Firefox/145.0")
 
 
@@ -608,7 +608,7 @@ def test_derives_major_firefox_version_from_playwright_browser(
 
     class MethodBrowser:
         def version(self) -> str:
-            return "Camoufox 150.0.1-beta.25"
+            return "Rotunda 150.0.1-beta.25"
 
     assert fingerprints._derive_browser_major_version(PropertyBrowser()) == "150"
     assert fingerprints._derive_browser_major_version(MethodBrowser()) == "150"
@@ -621,7 +621,7 @@ def test_new_context_uses_browser_version_when_ff_version_is_omitted(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _ = modules
-    sync_api = importlib.import_module("camoufox.sync_api")
+    sync_api = importlib.import_module("rotunda.sync_api")
     captured: dict[str, Any] = {}
 
     class FakeContext:
@@ -679,7 +679,7 @@ def test_zero_browserforge_inner_window_dimensions_are_repaired(
     assert result["context_options"]["viewport"] == {"width": 1440, "height": 872}
 
 
-def test_launch_options_does_not_warn_for_camoufox_generated_fingerprint(
+def test_launch_options_does_not_warn_for_rotunda_generated_fingerprint(
     modules: tuple[Any, Any, Any],
     fake_fingerprint: FakeFingerprint,
     monkeypatch: pytest.MonkeyPatch,
@@ -714,9 +714,9 @@ def test_launch_options_generates_full_config_payload(
         headless=True,
         locale="en-US",
     )
-    payload = _decode_camou_config(options["env"])
+    payload = _decode_rotunda_config(options["env"])
 
-    assert options["executable_path"] == "/tmp/camoufox"
+    assert options["executable_path"] == "/tmp/rotunda"
     assert options["headless"] is True
     assert options["env"]["TEST_ENV"] == "1"
     assert options["firefox_user_prefs"]["javascript.options.asyncstack"] is False
@@ -763,26 +763,26 @@ def test_launch_options_enables_debug_dump_env_and_manifest(
 
     options = utils.launch_options(
         env={
-            "CAMOUFOX_DEBUG_DUMP_DIR": str(tmp_path),
-            "CAMOUFOX_DEBUG_DUMP": "manifest,returns",
-            "CAMOUFOX_VM_ACCESS_SAMPLE_RATE": "10",
-            "CAMOUFOX_VM_ACCESS_VALUE_STRINGS": "1",
+            "ROTUNDA_DEBUG_DUMP_DIR": str(tmp_path),
+            "ROTUNDA_DEBUG_DUMP": "manifest,returns",
+            "ROTUNDA_VM_ACCESS_SAMPLE_RATE": "10",
+            "ROTUNDA_VM_ACCESS_VALUE_STRINGS": "1",
         },
         headless=True,
     )
 
-    assert options["env"]["CAMOUFOX_VM_ACCESS_LOG"] == "1"
-    assert options["env"]["CAMOUFOX_VM_ACCESS_LOG_FILE"] == str(tmp_path / "vm-access.log")
-    assert options["env"]["CAMOUFOX_VM_ACCESS_BUFFERED"] == "1"
-    assert options["env"]["CAMOUFOX_VM_ACCESS_REALM"] == "1"
-    assert options["env"]["CAMOUFOX_VM_ACCESS_RETURNS"] == "1"
+    assert options["env"]["ROTUNDA_VM_ACCESS_LOG"] == "1"
+    assert options["env"]["ROTUNDA_VM_ACCESS_LOG_FILE"] == str(tmp_path / "vm-access.log")
+    assert options["env"]["ROTUNDA_VM_ACCESS_BUFFERED"] == "1"
+    assert options["env"]["ROTUNDA_VM_ACCESS_REALM"] == "1"
+    assert options["env"]["ROTUNDA_VM_ACCESS_RETURNS"] == "1"
 
     manifest = json.loads((tmp_path / "manifest.json").read_text(encoding="utf-8"))
-    assert manifest["launch"]["executable_path"] == "/tmp/camoufox"
+    assert manifest["launch"]["executable_path"] == "/tmp/rotunda"
     assert manifest["launch"]["config"]["navigator"]["userAgent"].endswith("Firefox/150.0")
     assert manifest["launch"]["xul"]["app_bundle"]["exists"] is False
-    assert manifest["launch"]["env"]["CAMOUFOX_VM_ACCESS_SAMPLE_RATE"] == "10"
-    assert manifest["launch"]["env"]["CAMOUFOX_VM_ACCESS_VALUE_STRINGS"] == "1"
+    assert manifest["launch"]["env"]["ROTUNDA_VM_ACCESS_SAMPLE_RATE"] == "10"
+    assert manifest["launch"]["env"]["ROTUNDA_VM_ACCESS_VALUE_STRINGS"] == "1"
 
 
 def test_new_context_installs_debug_dump_hooks(
@@ -792,7 +792,7 @@ def test_new_context_installs_debug_dump_hooks(
     tmp_path: Path,
 ) -> None:
     _ = modules
-    sync_api = importlib.import_module("camoufox.sync_api")
+    sync_api = importlib.import_module("rotunda.sync_api")
 
     class FakeContext:
         def __init__(self) -> None:
@@ -808,10 +808,10 @@ def test_new_context_installs_debug_dump_hooks(
 
     class FakeBrowser:
         version = "150.0.1"
-        _camoufox_debug_dump_env = {
-            "CAMOUFOX_DEBUG_DUMP_DIR": str(tmp_path),
-            "CAMOUFOX_DEBUG_DUMP": "manifest,network,console,vm,returns",
-            "CAMOUFOX_DEBUG_DUMP_MAX_BODY": "12",
+        _rotunda_debug_dump_env = {
+            "ROTUNDA_DEBUG_DUMP_DIR": str(tmp_path),
+            "ROTUNDA_DEBUG_DUMP": "manifest,network,console,vm,returns",
+            "ROTUNDA_DEBUG_DUMP_MAX_BODY": "12",
         }
 
         def __init__(self) -> None:
@@ -928,9 +928,9 @@ def test_from_browserforge_compiles_linux_host_compatible_config(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _, fingerprints, utils = modules
-    hosts = importlib.import_module("camoufox.fingerprinting.hosts")
-    host_macos = importlib.import_module("camoufox.fingerprinting.host_macos")
-    host_linux = importlib.import_module("camoufox.fingerprinting.host_linux")
+    hosts = importlib.import_module("rotunda.fingerprinting.hosts")
+    host_macos = importlib.import_module("rotunda.fingerprinting.host_macos")
+    host_linux = importlib.import_module("rotunda.fingerprinting.host_linux")
 
     monkeypatch.setattr(hosts.sys, "platform", "linux")
     monkeypatch.setattr(host_macos.MacOSHostAdapter, "_cached", None)
@@ -955,9 +955,9 @@ def test_linux_font_probe_combines_defaults_local_and_bundled_extras(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _ = modules
-    hosts = importlib.import_module("camoufox.fingerprinting.hosts")
-    host_linux = importlib.import_module("camoufox.fingerprinting.host_linux")
-    fonts = importlib.import_module("camoufox.fingerprinting.fonts")
+    hosts = importlib.import_module("rotunda.fingerprinting.hosts")
+    host_linux = importlib.import_module("rotunda.fingerprinting.host_linux")
+    fonts = importlib.import_module("rotunda.fingerprinting.fonts")
 
     installed = (
         fonts.Font("Arimo", path="/usr/share/fonts/arimo.ttf", is_system=True),
@@ -965,14 +965,14 @@ def test_linux_font_probe_combines_defaults_local_and_bundled_extras(
         fonts.Font("Fira Sans", path="/home/user/.local/share/fonts/fira.ttf", is_system=False),
     )
     bundled = (
-        fonts.Font("Cousine", path="/opt/camoufox/fonts/linux/Cousine.ttf", is_system=True),
+        fonts.Font("Cousine", path="/opt/rotunda/fonts/linux/Cousine.ttf", is_system=True),
         fonts.Font(
             "Noto Color Emoji",
-            path="/opt/camoufox/fonts/linux/NotoColorEmoji.ttf",
+            path="/opt/rotunda/fonts/linux/NotoColorEmoji.ttf",
             is_system=True,
         ),
-        fonts.Font("Roboto", path="/opt/camoufox/fonts/linux/Roboto.ttf", is_system=True),
-        fonts.Font("Segoe UI", path="/opt/camoufox/fonts/linux/segoeui.ttf", is_system=True),
+        fonts.Font("Roboto", path="/opt/rotunda/fonts/linux/Roboto.ttf", is_system=True),
+        fonts.Font("Segoe UI", path="/opt/rotunda/fonts/linux/segoeui.ttf", is_system=True),
     )
 
     monkeypatch.setattr(hosts.sys, "platform", "linux")
@@ -1006,9 +1006,9 @@ def test_generate_fingerprint_dedupes_repeated_linux_screens(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _, fingerprints, _ = modules
-    hosts = importlib.import_module("camoufox.fingerprinting.hosts")
-    host_macos = importlib.import_module("camoufox.fingerprinting.host_macos")
-    host_linux = importlib.import_module("camoufox.fingerprinting.host_linux")
+    hosts = importlib.import_module("rotunda.fingerprinting.hosts")
+    host_macos = importlib.import_module("rotunda.fingerprinting.host_macos")
+    host_linux = importlib.import_module("rotunda.fingerprinting.host_linux")
     browserforge = importlib.import_module("browserforge.fingerprints")
 
     monkeypatch.setattr(hosts.sys, "platform", "linux")
@@ -1058,7 +1058,7 @@ def test_linux_runtime_bundle_font_scan_exposes_expected_markers(
     if shutil.which("fc-scan") is None:
         pytest.skip("fc-scan is required to inspect bundled Linux fonts.")
 
-    host_linux = importlib.import_module("camoufox.fingerprinting.host_linux")
+    host_linux = importlib.import_module("rotunda.fingerprinting.host_linux")
     discovered = host_linux._discover_bundled_runtime_fonts()
     families = {font.family for font in discovered}
 
@@ -1073,9 +1073,9 @@ def test_launch_options_defaults_to_linux_host_target(
     tmp_path: Path,
 ) -> None:
     _, fingerprints, utils = modules
-    hosts = importlib.import_module("camoufox.fingerprinting.hosts")
-    host_macos = importlib.import_module("camoufox.fingerprinting.host_macos")
-    host_linux = importlib.import_module("camoufox.fingerprinting.host_linux")
+    hosts = importlib.import_module("rotunda.fingerprinting.hosts")
+    host_macos = importlib.import_module("rotunda.fingerprinting.host_macos")
+    host_linux = importlib.import_module("rotunda.fingerprinting.host_linux")
 
     monkeypatch.setattr(hosts.sys, "platform", "linux")
     monkeypatch.setattr(host_macos.MacOSHostAdapter, "_cached", None)
@@ -1089,7 +1089,7 @@ def test_launch_options_defaults_to_linux_host_target(
     monkeypatch.setattr(utils, "get_path", lambda file: str(tmp_path / file))
 
     options = utils.launch_options(env={"TEST_ENV": "1"}, headless=True)
-    payload = _decode_camou_config(options["env"])
+    payload = _decode_rotunda_config(options["env"])
 
     assert utils._normalize_requested_os(None) == "linux"
     assert payload["navigator"]["platform"] == "Linux x86_64"
@@ -1104,7 +1104,7 @@ def test_launch_options_rejects_literal_readme_placeholder_path(
 
     with pytest.raises(FileNotFoundError, match="README placeholder was used literally"):
         utils.launch_options(
-            executable_path="/tmp/camoufox-<version>-<release>/Camoufox.app/Contents/MacOS/camoufox"
+            executable_path="/tmp/rotunda-<version>-<release>/Rotunda.app/Contents/MacOS/rotunda"
         )
 
 
@@ -1118,7 +1118,7 @@ def test_launch_options_reads_version_from_macos_bundle(
     monkeypatch.setattr(utils, "generate_fingerprint", lambda **_: fake_fingerprint)
     monkeypatch.setattr(utils, "installed_verstr", lambda: "142.0.0-beta.1")
 
-    executable_path = tmp_path / "Camoufox.app" / "Contents" / "MacOS" / "camoufox"
+    executable_path = tmp_path / "Rotunda.app" / "Contents" / "MacOS" / "rotunda"
     executable_path.parent.mkdir(parents=True)
     executable_path.write_text("", encoding="utf-8")
 
@@ -1130,7 +1130,7 @@ def test_launch_options_reads_version_from_macos_bundle(
     )
 
     options = utils.launch_options(executable_path=executable_path, env={"TEST_ENV": "1"}, headless=True)
-    payload = _decode_camou_config(options["env"])
+    payload = _decode_rotunda_config(options["env"])
 
     assert options["executable_path"] == str(executable_path)
     assert payload["navigator"]["userAgent"].endswith("Firefox/150.0")
@@ -1146,6 +1146,6 @@ def test_get_asset_by_name_returns_packaged_path(modules: tuple[Any, Any, Any]) 
     assert asset_path.parent == PACKAGE_ROOT / "assets"
 
 
-def _decode_camou_config(env: Dict[str, Any]) -> Dict[str, Any]:
-    with open(env["CAMOU_CONFIG_PATH"], encoding="utf-8") as handle:
+def _decode_rotunda_config(env: Dict[str, Any]) -> Dict[str, Any]:
+    with open(env["ROTUNDA_CONFIG_PATH"], encoding="utf-8") as handle:
         return json.load(handle)

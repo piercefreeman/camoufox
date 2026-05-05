@@ -194,7 +194,7 @@ async def test_request_headers_should_work(
     if is_chromium:
         assert "Chrome" in response.request.headers["user-agent"]
     elif is_firefox:
-        assert "Camoufox/" in response.request.headers["user-agent"]
+        assert "Rotunda/" in response.request.headers["user-agent"]
     elif is_webkit:
         assert "WebKit" in response.request.headers["user-agent"]
 

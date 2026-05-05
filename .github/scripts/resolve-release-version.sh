@@ -14,20 +14,20 @@ else
   fi
 
   release_version="${raw_tag#refs/tags/}"
-  release_version="${release_version#camoufox-}"
+  release_version="${release_version#rotunda-}"
   release_version="${release_version#v}"
   release_version="${release_version#${version}-}"
 fi
 
 if [[ ! "$release_version" =~ ^[A-Za-z0-9][A-Za-z0-9._+-]*$ ]]; then
-  echo "Invalid Camoufox release version derived from tag: $release_version" >&2
+  echo "Invalid Rotunda release version derived from tag: $release_version" >&2
   exit 1
 fi
 
-echo "Camoufox release version: $release_version"
+echo "Rotunda release version: $release_version"
 
 if [[ -n "${GITHUB_ENV:-}" ]]; then
-  echo "CAMOUFOX_RELEASE=$release_version" >> "$GITHUB_ENV"
+  echo "ROTUNDA_RELEASE=$release_version" >> "$GITHUB_ENV"
 fi
 
 if [[ -n "${GITHUB_OUTPUT:-}" ]]; then
