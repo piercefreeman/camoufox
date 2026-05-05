@@ -607,7 +607,7 @@ The Camoufox Python package (`pythonlib/`) generates fingerprints for both `NewB
 | Screen dims, colorDepth | BrowserForge or preset | Viewport adjusted by -28px for browser chrome |
 | WebGL/WebGPU | Real host hardware/browser stack | Runtime profile schema does not accept synthetic GPU fields. |
 | Font list | macOS bundled baseline + host extras | Advertises the installed macOS-bundled font set, plus a random `0-50` extra locally installed fonts. |
-| Font spacing seed | `randint(1, 2^32-1)` | Excludes 0 (0 = no-op in C++) |
+| Font spacing seed | `0` | Default no-op in C++; explicit nonzero seeds remain available for A/B tests |
 | Audio seed | `randint(1, 2^32-1)` | Excludes 0 |
 | Canvas seed | `randint(1, 2^32-1)` | Excludes 0 |
 | Timezone | From preset, or Intl.DateTimeFormat fallback in init script | NewBrowser: from preset or geolocation detection. NewContext: preset or browser default. |

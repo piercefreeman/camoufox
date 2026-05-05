@@ -14,7 +14,7 @@ from playwright.sync_api import (
 from camoufox.virtdisplay import VirtualDisplay
 
 from .exceptions import InvalidProxy
-from .fingerprints import generate_context_fingerprint
+from .fingerprints import _derive_browser_major_version, generate_context_fingerprint
 from .utils import launch_options, sync_attach_vd
 
 
@@ -173,6 +173,9 @@ def NewContext(
             webrtc_ip = geo["ip"]
         if "timezone_id" not in context_kwargs and geo["timezone"]:
             context_kwargs["timezone_id"] = geo["timezone"]
+
+    if ff_version is None:
+        ff_version = _derive_browser_major_version(browser)
 
     fp = generate_context_fingerprint(
         fingerprint=fingerprint,

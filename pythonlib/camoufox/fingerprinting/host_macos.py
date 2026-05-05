@@ -10,7 +10,11 @@ from typing_extensions import Self
 
 from .._generated_profile import CamoufoxProfile, NavigatorProfile
 from .common import MACOS, HostTargetOS
-from .fonts import Font, default_families_for_target_os
+from .fonts import (
+    Font,
+    allowed_alias_families_for_target_os,
+    default_families_for_target_os,
+)
 from .hosts import (
     HostFingerprintAdapter,
     dedupe,
@@ -50,17 +54,18 @@ class MacOSHostAdapter(HostFingerprintAdapter):
         matched_catalog_voice_names = {voice.name for voice in matched_catalog_voices}
         gpu_vendor, gpu_family = _probe_gpu_family()
 
-        default_font_families = {
-            family.casefold() for family in default_families_for_target_os(MACOS)
-        }
+        default_font_families = default_families_for_target_os(MACOS)
+        allowed_alias_families = allowed_alias_families_for_target_os(MACOS)
+        baseline_font_family_names = {family.casefold() for family in default_font_families}
+
         bundled_fonts = [
             font.family
             for font in discovered_fonts
-            if font.is_system or font.family.casefold() in default_font_families
+            if font.is_system or font.family.casefold() in baseline_font_family_names
         ]
         extra_fonts: list[str] = []
         for font in discovered_fonts:
-            if font.is_system or font.family.casefold() in default_font_families:
+            if font.is_system or font.family.casefold() in baseline_font_family_names:
                 continue
             extra_fonts.append(font.family)
 
@@ -82,6 +87,7 @@ class MacOSHostAdapter(HostFingerprintAdapter):
             extra_fonts=dedupe(extra_fonts),
             bundled_voices=dedupe_voices(bundled_voices),
             extra_voices=dedupe_voices(extra_voices),
+            font_allowlist_aliases=dedupe(sorted(allowed_alias_families)),
         )
 
     @classmethod

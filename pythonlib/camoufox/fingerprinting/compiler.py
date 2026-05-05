@@ -13,9 +13,11 @@ from browserforge.fingerprints import (
 )
 
 from .._generated_profile import (
+    AudioProfile,
     CamoufoxProfile,
     ColorGamut,
     DynamicRange,
+    FontsProfile,
     NavigatorProfile,
     ScreenProfile,
     VideoDynamicRange,
@@ -117,6 +119,8 @@ class FirefoxFingerprintCompiler:
 
         navigator = preset.get("navigator", {})
         screen = preset.get("screen", {})
+        fonts = preset.get("fonts", {})
+        audio = preset.get("audio", {})
 
         navigator_profile = NavigatorProfile()
         screen_profile = ScreenProfile()
@@ -189,6 +193,16 @@ class FirefoxFingerprintCompiler:
         device_pixel_ratio = screen.get("devicePixelRatio")
         if isinstance(device_pixel_ratio, int | float):
             window_profile.device_pixel_ratio = float(device_pixel_ratio)
+
+        if isinstance(fonts, dict):
+            spacing_seed = _non_negative_value(fonts.get("spacingSeed"))
+            if isinstance(spacing_seed, int):
+                profile.fonts = FontsProfile.model_validate({"spacingSeed": spacing_seed})
+
+        if isinstance(audio, dict):
+            audio_seed = _non_negative_value(audio.get("seed"))
+            if isinstance(audio_seed, int):
+                profile.audio = AudioProfile(seed=audio_seed)
 
         self.host.finalize_config(profile)
         return profile

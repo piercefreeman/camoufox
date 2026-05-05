@@ -15,7 +15,7 @@ from playwright.async_api import (
 
 from camoufox.virtdisplay import VirtualDisplay
 
-from .fingerprints import generate_context_fingerprint
+from .fingerprints import _derive_browser_major_version, generate_context_fingerprint
 from .utils import async_attach_vd, launch_options
 
 
@@ -177,6 +177,9 @@ async def AsyncNewContext(
             webrtc_ip = geo["ip"]
         if "timezone_id" not in context_kwargs and geo["timezone"]:
             context_kwargs["timezone_id"] = geo["timezone"]
+
+    if ff_version is None:
+        ff_version = _derive_browser_major_version(browser)
 
     fp = await asyncio.get_event_loop().run_in_executor(
         None,

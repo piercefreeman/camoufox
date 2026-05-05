@@ -350,6 +350,41 @@ _DEFAULT_FONT_FAMILIES: dict[TargetOS, tuple[str, ...]] = {
     ),
 }
 
+_DEFAULT_ALLOWED_FONT_ALIASES: dict[TargetOS, tuple[str, ...]] = {
+    MACOS: (
+        # These names are commonly accepted by stock macOS Firefox through
+        # CoreText/Firefox family alias handling, but they are not always
+        # surfaced as distinct families by host inventory probes.
+        "PT Serif Caption",
+        "PT Serif",
+        "STIXGeneral",
+        "STIXIntegralsD",
+        "STIXIntegralsSm",
+        "STIXIntegralsUp",
+        "STIXIntegralsUpD",
+        "STIXIntegralsUpSm",
+        "STIXSizeFiveSym",
+        "STIXSizeFourSym",
+        "STIXSizeOneSym",
+        "STIXSizeThreeSym",
+        "STIXSizeTwoSym",
+        "STIXVariants",
+        "Noto Nastaliq Urdu",
+        "Superclarendon",
+        "Marion",
+        "Iowan Old Style",
+        "Athelas",
+        "STIXNonUnicode",
+        "Courier",
+        "Hiragino Mincho Pro",
+        "Hiragino Maru Gothic Pro",
+        "Times New Roman",
+        "Times",
+    ),
+    WINDOWS: (),
+    LINUX: (),
+}
+
 
 def font_definitions_for_target_os(target_os: TargetOS) -> tuple[Font, ...]:
     return tuple(font for font in _FONT_DEFINITIONS if target_os in font.target_os)
@@ -392,6 +427,17 @@ def default_families_for_target_os(target_os: TargetOS) -> frozenset[str]:
     discovered non-baseline fonts as extras.
     """
     return frozenset(_DEFAULT_FONT_FAMILIES.get(target_os, ()))
+
+
+def allowed_alias_families_for_target_os(target_os: TargetOS) -> frozenset[str]:
+    """
+    Return OS baseline family names that should pass Camoufox's font allowlist.
+
+    These names are not synthetic substitutions. They are allowed through so
+    the native Firefox/platform resolver can handle aliases and legacy family
+    names the same way it does without Camoufox's pre-filter.
+    """
+    return frozenset(_DEFAULT_ALLOWED_FONT_ALIASES.get(target_os, ()))
 
 
 def essential_families_for_target_os(target_os: TargetOS) -> frozenset[str]:

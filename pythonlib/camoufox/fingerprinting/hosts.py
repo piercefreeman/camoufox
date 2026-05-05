@@ -56,6 +56,7 @@ class HostFingerprintAdapter(ABC):
     extra_fonts: tuple[str, ...]
     bundled_voices: tuple[Voice, ...]
     extra_voices: tuple[Voice, ...]
+    font_allowlist_aliases: tuple[str, ...] = ()
 
     @classmethod
     def current(cls) -> Self:
@@ -125,6 +126,7 @@ class HostFingerprintAdapter(ABC):
 
     def sample_fonts(self) -> list[str]:
         fonts = list(self.bundled_fonts)
+        fonts.extend(self.font_allowlist_aliases)
         filtered_extras = [
             family
             for family in self.extra_fonts
@@ -331,7 +333,7 @@ def _merge_seed_values(config: CamoufoxProfile) -> None:
     config.fonts = config.fonts or FontsProfile()
     config.audio = config.audio or AudioProfile()
     if config.fonts.spacing_seed is None:
-        config.fonts.spacing_seed = randint(1, 4_294_967_295)  # nosec
+        config.fonts.spacing_seed = 0
     if config.audio.seed is None:
         config.audio.seed = randint(1, 4_294_967_295)  # nosec
 

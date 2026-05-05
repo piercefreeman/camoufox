@@ -1,6 +1,6 @@
 # Fingerprint Debugging Notes
 
-Last updated: 2026-05-04 PDT
+Last updated: 2026-05-05 PDT
 
 This file captures practical debugging notes from investigating why
 `https://demo.fingerprint.com/playground` reports `developer_tools: true`.
@@ -152,6 +152,59 @@ The launcher default should set `javascript.options.asyncstack` to `false`.
 Callers can still override it explicitly through `firefox_user_prefs`, but the
 default should match a normal non-debugged page where async debugger stack
 capture is not visible to page JavaScript.
+
+## PixelScan Masking Finding
+
+PixelScan's `Fingerprint: Masking detected` verdict can be triggered by
+synthetic font metrics. The C++ font-spacing patch already treats
+`fonts.spacingSeed == 0` as a no-op, but the Python defaults previously filled a
+missing spacing seed with a random nonzero value. That made ordinary Camoufox
+launches perturb HarfBuzz glyph advances and produce font/canvas text metrics
+that do not match real population data.
+
+The default should leave `fonts.spacingSeed` at `0`. Explicit nonzero seeds are
+still useful for A/B tests, but should be opt-in.
+
+When debugging this, make sure the `.app` bundle is actually running the current
+`XUL`. An incremental `gfx/thebes` build updates `dist/bin/XUL`, but the
+previous app bundle can continue using stale font-spacing code. Rebuild/link the
+library and refresh the app copy before retesting:
+
+```sh
+cd camoufox-150.0.1-beta.25
+./mach build --allow-subdirectory-build gfx/thebes layout/generic toolkit/library
+cp obj-aarch64-apple-darwin/dist/bin/XUL \
+  obj-aarch64-apple-darwin/dist/Camoufox.app/Contents/MacOS/XUL
+```
+
+PixelScan's font check is a 160-family canvas probe. Stock Firefox on this host
+produces 147 unique canvas outputs with one expected STIX/Times duplicate group.
+The stale Camoufox app produced only 133 unique outputs and several extra
+duplicate groups. After refreshing `XUL`, Camoufox matched stock Firefox:
+
+```text
+/s/api/co: osFontsStatus=true
+/s/api/cb: result=true
+page: Your Browser Fingerprint is consistent / No masking detected
+```
+
+The font allowlist aliases are still useful. PixelScan's expected macOS list
+contains legacy/CoreText family names, and regular Firefox resolves those names
+on the same host. Camoufox should allow those aliases through `setFontList()` so
+Firefox's native resolver can handle them.
+
+The fix is Python-side allowlist alias support: keep discovered font families
+and allowlist-only aliases separate internally, then merge both into the final
+`fonts.families` list that `setFontList()` receives. Do not add C++ family
+substitutions for this case; that changes resolver behavior instead of letting
+stock Firefox resolve the same aliases it normally accepts.
+
+One more PixelScan mismatch can hide in the Python context path. `launch_options`
+may build a Firefox 150 user agent, but `NewContext(browser, fingerprint=fp)`
+used to preserve the BrowserForge skeleton's original Firefox version unless
+`ff_version` was passed again. Derive the major version from the launched
+Playwright browser when `ff_version` is omitted, so HTTP and navigator versions
+stay aligned with the executable.
 
 ## VM Access Logger
 

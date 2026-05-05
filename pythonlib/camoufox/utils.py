@@ -479,7 +479,7 @@ class LaunchOptionBuilder:
 
         config.fonts = config.fonts or FontsProfile()
         if config.fonts.spacing_seed is None:
-            config.fonts.spacing_seed = randint(1, 4_294_967_295)  # nosec
+            config.fonts.spacing_seed = 0
 
         config.audio = config.audio or AudioProfile()
         if config.audio.seed is None:
