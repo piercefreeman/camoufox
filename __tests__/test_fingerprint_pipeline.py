@@ -379,7 +379,7 @@ def test_from_browserforge_compiles_host_compatible_config(
     assert config.screen.avail_height == 940
     assert config.fonts.families == ["Helvetica Neue", "PingFang SC", "Fira Code", "IBM Plex Sans"]
     assert config.voices.items == ["Alex", "Samantha", "Moira (Enhanced)", "Karen (Premium)"]
-    assert isinstance(config.fonts.spacing_seed, int)
+    assert config.fonts.spacing_seed == 0
     assert isinstance(config.audio.seed, int)
     assert not hasattr(config, "canvas")
 
@@ -438,11 +438,13 @@ def test_macos_font_probe_uses_defaults_and_samples_local_extras(
     adapter = host_macos.MacOSHostAdapter._probe()
     sampled = adapter.sample_fonts()
 
-    assert adapter.bundled_fonts == (
-        "Helvetica Neue",
-        "PingFang SC",
-        "Noto Sans Gunjala Gondi Regular",
-    )
+    assert "Helvetica Neue" in adapter.bundled_fonts
+    assert "PingFang SC" in adapter.bundled_fonts
+    assert "Noto Sans Gunjala Gondi Regular" in adapter.bundled_fonts
+    assert "PT Serif" in adapter.font_allowlist_aliases
+    assert "STIXGeneral" in adapter.font_allowlist_aliases
+    assert "PT Serif" in sampled
+    assert "STIXGeneral" in sampled
     assert "Fira Code" in sampled
     assert "Cambria Math" not in sampled
     assert "Arimo" not in sampled
@@ -503,6 +505,27 @@ def test_from_preset_keeps_explicit_preset_path_host_safe(modules: tuple[Any, An
     assert config.voices.items == ["Alex", "Samantha", "Moira (Enhanced)", "Karen (Premium)"]
 
 
+def test_from_preset_preserves_explicit_font_spacing_seed(
+    modules: tuple[Any, Any, Any],
+) -> None:
+    _, fingerprints, _ = modules
+    preset = {
+        "navigator": {
+            "platform": "MacIntel",
+            "userAgent": (
+                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:145.0) "
+                "Gecko/20100101 Firefox/145.0"
+            ),
+        },
+        "screen": {"width": 1720, "height": 1100},
+        "fonts": {"spacingSeed": 123456},
+    }
+
+    config = fingerprints.from_preset(preset, ff_version="150")
+
+    assert config.fonts.spacing_seed == 123456
+
+
 def test_generate_context_fingerprint_strips_webgl_but_keeps_native_canvas(
     modules: tuple[Any, Any, Any],
 ) -> None:
@@ -529,7 +552,7 @@ def test_generate_context_fingerprint_strips_webgl_but_keeps_native_canvas(
     assert not hasattr(config, "web_gl2")
     assert "webGl" not in payload
     assert "webGl2" not in payload
-    assert isinstance(config.fonts.spacing_seed, int)
+    assert config.fonts.spacing_seed == 0
     assert isinstance(config.audio.seed, int)
     assert not hasattr(config, "canvas")
     assert 'if (typeof w.setWebGLVendor === "function") w.setWebGLVendor' not in init_script
@@ -572,7 +595,88 @@ def test_generate_context_fingerprint_reuses_supplied_browserforge_fingerprint(
     result = fingerprints.generate_context_fingerprint(fingerprint=fake_fingerprint, ff_version="150")
 
     assert result["config"].navigator.user_agent.endswith("Firefox/150.0")
-    assert result["context_options"]["viewport"] == {"width": 1500, "height": 942}
+    assert result["context_options"]["viewport"] == {"width": 1360, "height": 880}
+
+
+def test_derives_major_firefox_version_from_playwright_browser(
+    modules: tuple[Any, Any, Any],
+) -> None:
+    _, fingerprints, _ = modules
+
+    class PropertyBrowser:
+        version = "150.0.1"
+
+    class MethodBrowser:
+        def version(self) -> str:
+            return "Camoufox 150.0.1-beta.25"
+
+    assert fingerprints._derive_browser_major_version(PropertyBrowser()) == "150"
+    assert fingerprints._derive_browser_major_version(MethodBrowser()) == "150"
+    assert fingerprints._derive_browser_major_version(types.SimpleNamespace(version=None)) is None
+
+
+def test_new_context_uses_browser_version_when_ff_version_is_omitted(
+    modules: tuple[Any, Any, Any],
+    fake_fingerprint: FakeFingerprint,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _ = modules
+    sync_api = importlib.import_module("camoufox.sync_api")
+    captured: dict[str, Any] = {}
+
+    class FakeContext:
+        def add_init_script(self, script: str) -> None:
+            captured["init_script"] = script
+
+    class FakeBrowser:
+        version = "150.0.1"
+
+        def new_context(self, **opts: Any) -> FakeContext:
+            captured["context_options"] = opts
+            return FakeContext()
+
+    def _fake_generate_context_fingerprint(**kwargs: Any) -> dict[str, Any]:
+        captured["fingerprint_kwargs"] = kwargs
+        return {"context_options": {}, "init_script": "/* init */"}
+
+    monkeypatch.setattr(sync_api, "generate_context_fingerprint", _fake_generate_context_fingerprint)
+
+    context = sync_api.NewContext(FakeBrowser(), fingerprint=fake_fingerprint)
+
+    assert isinstance(context, FakeContext)
+    assert captured["fingerprint_kwargs"]["ff_version"] == "150"
+    assert captured["init_script"] == "/* init */"
+
+
+def test_zero_browserforge_inner_window_dimensions_are_repaired(
+    modules: tuple[Any, Any, Any],
+) -> None:
+    _, fingerprints, _ = modules
+    fingerprint = FakeFingerprint(
+        navigator=FakeNavigator(
+            userAgent=(
+                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:145.0) "
+                "Gecko/20100101 Firefox/145.0"
+            ),
+        ),
+        screen=FakeScreen(
+            width=1440,
+            height=900,
+            availWidth=1440,
+            availHeight=900,
+            outerWidth=1440,
+            outerHeight=900,
+            innerWidth=0,
+            innerHeight=0,
+        ),
+    )
+
+    result = fingerprints.generate_context_fingerprint(fingerprint=fingerprint, ff_version="150")
+    config = result["config"]
+
+    assert config.window.inner_width == 1440
+    assert config.window.inner_height == 872
+    assert result["context_options"]["viewport"] == {"width": 1440, "height": 872}
 
 
 def test_launch_options_does_not_warn_for_camoufox_generated_fingerprint(
@@ -615,6 +719,7 @@ def test_launch_options_generates_full_config_payload(
     assert options["executable_path"] == "/tmp/camoufox"
     assert options["headless"] is True
     assert options["env"]["TEST_ENV"] == "1"
+    assert options["firefox_user_prefs"]["javascript.options.asyncstack"] is False
     assert payload["navigator"]["userAgent"].endswith("Firefox/150.0")
     assert payload["navigator"]["language"] == "en-US"
     assert payload["locale"]["language"] == "en"
@@ -628,6 +733,23 @@ def test_launch_options_generates_full_config_payload(
     assert payload["voices"]["items"] == ["Alex", "Samantha", "Moira (Enhanced)", "Karen (Premium)"]
     assert "webGl" not in payload
     assert 1 <= payload["window"]["history"]["length"] <= 5
+
+
+def test_launch_options_allows_explicit_asyncstack_override(
+    modules: tuple[Any, Any, Any],
+    fake_fingerprint: FakeFingerprint,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _, _, utils = modules
+    monkeypatch.setattr(utils, "generate_fingerprint", lambda **_: fake_fingerprint)
+
+    options = utils.launch_options(
+        env={"TEST_ENV": "1"},
+        firefox_user_prefs={"javascript.options.asyncstack": True},
+        headless=True,
+    )
+
+    assert options["firefox_user_prefs"]["javascript.options.asyncstack"] is True
 
 
 def test_launch_options_rejects_webgl_profile_override(

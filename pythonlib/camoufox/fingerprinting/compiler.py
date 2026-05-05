@@ -13,9 +13,11 @@ from browserforge.fingerprints import (
 )
 
 from .._generated_profile import (
+    AudioProfile,
     CamoufoxProfile,
     ColorGamut,
     DynamicRange,
+    FontsProfile,
     NavigatorProfile,
     ScreenProfile,
     VideoDynamicRange,
@@ -29,12 +31,18 @@ from .hosts import (
     normalize_target_os,
 )
 
+_DEFAULT_BROWSER_CHROME_HEIGHT = 28
+
 
 @dataclass(frozen=True)
 class CompiledScreen:
     width: int | None
     height: int | None
     color_depth: int | None
+    avail_width: int | None = None
+    avail_height: int | None = None
+    avail_left: int | None = None
+    avail_top: int | None = None
     device_pixel_ratio: float | None = None
 
 
@@ -111,6 +119,8 @@ class FirefoxFingerprintCompiler:
 
         navigator = preset.get("navigator", {})
         screen = preset.get("screen", {})
+        fonts = preset.get("fonts", {})
+        audio = preset.get("audio", {})
 
         navigator_profile = NavigatorProfile()
         screen_profile = ScreenProfile()
@@ -184,6 +194,16 @@ class FirefoxFingerprintCompiler:
         if isinstance(device_pixel_ratio, int | float):
             window_profile.device_pixel_ratio = float(device_pixel_ratio)
 
+        if isinstance(fonts, dict):
+            spacing_seed = _non_negative_value(fonts.get("spacingSeed"))
+            if isinstance(spacing_seed, int):
+                profile.fonts = FontsProfile.model_validate({"spacingSeed": spacing_seed})
+
+        if isinstance(audio, dict):
+            audio_seed = _non_negative_value(audio.get("seed"))
+            if isinstance(audio_seed, int):
+                profile.audio = AudioProfile(seed=audio_seed)
+
         self.host.finalize_config(profile)
         return profile
 
@@ -214,10 +234,26 @@ class FirefoxFingerprintCompiler:
         if isinstance(user_agent, str):
             options["user_agent"] = user_agent
 
-        if screen.width and screen.height:
+        window = config.window
+        viewport_width = (
+            window.inner_width
+            if window and isinstance(window.inner_width, int) and window.inner_width > 0
+            else screen.width
+        )
+        viewport_height = (
+            window.inner_height
+            if window and isinstance(window.inner_height, int) and window.inner_height > 0
+            else (
+                max(screen.height - _DEFAULT_BROWSER_CHROME_HEIGHT, 600)
+                if screen.height
+                else None
+            )
+        )
+
+        if viewport_width and viewport_height:
             options["viewport"] = {
-                "width": screen.width,
-                "height": max(screen.height - 28, 600),
+                "width": viewport_width,
+                "height": viewport_height,
             }
 
         if screen.device_pixel_ratio:
@@ -250,6 +286,10 @@ class FirefoxFingerprintCompiler:
             "navigatorPlatform": config.navigator.platform if config.navigator else None,
             "navigatorUserAgent": config.navigator.user_agent if config.navigator else None,
             "screenColorDepth": screen.color_depth,
+            "screenAvailHeight": screen.avail_height,
+            "screenAvailLeft": screen.avail_left,
+            "screenAvailTop": screen.avail_top,
+            "screenAvailWidth": screen.avail_width,
             "screenHeight": screen.height,
             "screenWidth": screen.width,
             "speechVoices": config.voices.items if config.voices else None,
@@ -273,6 +313,36 @@ class FirefoxFingerprintCompiler:
                 )
 
         if values["screenWidth"] and values["screenHeight"]:
+            window = config.window
+            if (
+                window
+                and isinstance(window.outer_width, int)
+                and window.outer_width > 0
+                and isinstance(window.outer_height, int)
+                and window.outer_height > 0
+                and isinstance(window.inner_width, int)
+                and window.inner_width > 0
+                and isinstance(window.inner_height, int)
+                and window.inner_height > 0
+            ):
+                screen_x = window.screen_x if isinstance(window.screen_x, int) else 0
+                screen_y = window.screen_y if isinstance(window.screen_y, int) else 0
+                lines.append(
+                    "  if (typeof w.setWindowDimensions === \"function\") "
+                    f"w.setWindowDimensions({window.outer_width}, {window.outer_height}, "
+                    f"{window.inner_width}, {window.inner_height}, "
+                    f"{max(screen_x, 0)}, {max(screen_y, 0)});"
+                )
+            if values["screenAvailWidth"] and values["screenAvailHeight"]:
+                avail_left = values["screenAvailLeft"]
+                avail_top = values["screenAvailTop"]
+                lines.append(
+                    "  if (typeof w.setScreenAvailableRect === \"function\") "
+                    f"w.setScreenAvailableRect({values['screenAvailWidth']}, "
+                    f"{values['screenAvailHeight']}, "
+                    f"{max(avail_left if isinstance(avail_left, int) else 0, 0)}, "
+                    f"{max(avail_top if isinstance(avail_top, int) else 0, 0)});"
+                )
             lines.append(
                 "  if (typeof w.setScreenDimensions === \"function\") "
                 f"w.setScreenDimensions({values['screenWidth']}, {values['screenHeight']});"
@@ -314,7 +384,9 @@ class FirefoxFingerprintCompiler:
             "setAudioFingerprintSeed",
             "setTimezone",
             "setScreenDimensions",
+            "setScreenAvailableRect",
             "setScreenColorDepth",
+            "setWindowDimensions",
             "setNavigatorPlatform",
             "setNavigatorOscpu",
             "setNavigatorHardwareConcurrency",
@@ -486,21 +558,38 @@ def _screen_from_mapping(screen: dict[str, Any]) -> ScreenProfile:
 
 def _window_from_mapping(screen: dict[str, Any]) -> WindowProfile:
     profile = WindowProfile()
-    outer_height = _non_negative_value(screen.get("outerHeight"))
+    outer_height = _positive_int_value(screen.get("outerHeight"))
     if outer_height is not None:
         profile.outer_height = outer_height
 
-    outer_width = _non_negative_value(screen.get("outerWidth"))
+    outer_width = _positive_int_value(screen.get("outerWidth"))
     if outer_width is not None:
         profile.outer_width = outer_width
 
-    inner_height = _non_negative_value(screen.get("innerHeight"))
+    inner_height = _positive_int_value(screen.get("innerHeight"))
     if inner_height is not None:
         profile.inner_height = inner_height
+    elif profile.outer_height:
+        profile.inner_height = max(profile.outer_height - _DEFAULT_BROWSER_CHROME_HEIGHT, 1)
+    else:
+        height = _positive_int_value(screen.get("height"))
+        if height is not None:
+            profile.inner_height = max(height - _DEFAULT_BROWSER_CHROME_HEIGHT, 1)
 
-    inner_width = _non_negative_value(screen.get("innerWidth"))
+    inner_width = _positive_int_value(screen.get("innerWidth"))
     if inner_width is not None:
         profile.inner_width = inner_width
+    elif profile.outer_width:
+        profile.inner_width = profile.outer_width
+    else:
+        width = _positive_int_value(screen.get("width"))
+        if width is not None:
+            profile.inner_width = width
+
+    if profile.outer_height is not None and profile.inner_height is not None:
+        profile.inner_height = min(profile.inner_height, profile.outer_height)
+    if profile.outer_width is not None and profile.inner_width is not None:
+        profile.inner_width = min(profile.inner_width, profile.outer_width)
 
     screen_x = screen.get("screenX")
     if screen_x is not None:
@@ -525,9 +614,26 @@ def _compiled_screen_from_profile(
         or _as_optional_int(source_screen.get("height")),
         color_depth=(config.screen.color_depth if config.screen else None)
         or _as_optional_int(source_screen.get("colorDepth")),
+        avail_width=(config.screen.avail_width if config.screen else None)
+        or _as_optional_int(source_screen.get("availWidth")),
+        avail_height=(config.screen.avail_height if config.screen else None)
+        or _as_optional_int(source_screen.get("availHeight")),
+        avail_left=(config.screen.avail_left if config.screen else None)
+        or _as_optional_int(source_screen.get("availLeft")),
+        avail_top=(config.screen.avail_top if config.screen else None)
+        or _as_optional_int(source_screen.get("availTop")),
         device_pixel_ratio=(config.window.device_pixel_ratio if config.window else None)
         or _extract_device_pixel_ratio(source_screen),
     )
+
+
+def _positive_int_value(value: Any) -> int | None:
+    if isinstance(value, bool):
+        return None
+    value = _non_negative_value(value)
+    if isinstance(value, int) and value > 0:
+        return value
+    return None
 
 
 def _copy_screen_offsets(config: CamoufoxProfile, screen: ScreenFingerprint) -> None:

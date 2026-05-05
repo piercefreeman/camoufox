@@ -10,7 +10,11 @@ from typing_extensions import Self
 
 from .._generated_profile import CamoufoxProfile, NavigatorProfile
 from .common import MACOS, HostTargetOS
-from .fonts import Font, default_families_for_target_os
+from .fonts import (
+    Font,
+    allowed_alias_families_for_target_os,
+    default_families_for_target_os,
+)
 from .hosts import (
     HostFingerprintAdapter,
     dedupe,
@@ -50,17 +54,18 @@ class MacOSHostAdapter(HostFingerprintAdapter):
         matched_catalog_voice_names = {voice.name for voice in matched_catalog_voices}
         gpu_vendor, gpu_family = _probe_gpu_family()
 
-        default_font_families = {
-            family.casefold() for family in default_families_for_target_os(MACOS)
-        }
+        default_font_families = default_families_for_target_os(MACOS)
+        allowed_alias_families = allowed_alias_families_for_target_os(MACOS)
+        baseline_font_family_names = {family.casefold() for family in default_font_families}
+
         bundled_fonts = [
             font.family
             for font in discovered_fonts
-            if font.is_system or font.family.casefold() in default_font_families
+            if font.is_system or font.family.casefold() in baseline_font_family_names
         ]
         extra_fonts: list[str] = []
         for font in discovered_fonts:
-            if font.is_system or font.family.casefold() in default_font_families:
+            if font.is_system or font.family.casefold() in baseline_font_family_names:
                 continue
             extra_fonts.append(font.family)
 
@@ -82,6 +87,7 @@ class MacOSHostAdapter(HostFingerprintAdapter):
             extra_fonts=dedupe(extra_fonts),
             bundled_voices=dedupe_voices(bundled_voices),
             extra_voices=dedupe_voices(extra_voices),
+            font_allowlist_aliases=dedupe(sorted(allowed_alias_families)),
         )
 
     @classmethod
@@ -176,17 +182,32 @@ class MacOSHostAdapter(HostFingerprintAdapter):
         if width is None or height is None:
             return
 
+        avail_left = config.screen.avail_left
+        if not isinstance(avail_left, int):
+            config.screen.avail_left = 0
+        else:
+            config.screen.avail_left = min(max(avail_left, 0), width)
+
+        avail_top = config.screen.avail_top
+        if not isinstance(avail_top, int):
+            config.screen.avail_top = 0
+        else:
+            config.screen.avail_top = min(max(avail_top, 0), height)
+
+        avail_left = config.screen.avail_left or 0
+        avail_top = config.screen.avail_top or 0
+
         avail_width = config.screen.avail_width
         if not isinstance(avail_width, int):
-            config.screen.avail_width = width
+            config.screen.avail_width = width - avail_left
         else:
-            config.screen.avail_width = min(max(avail_width, 0), width)
+            config.screen.avail_width = min(max(avail_width, 0), width - avail_left)
 
         avail_height = config.screen.avail_height
         if not isinstance(avail_height, int):
-            config.screen.avail_height = height
+            config.screen.avail_height = height - avail_top
         else:
-            config.screen.avail_height = min(max(avail_height, 0), height)
+            config.screen.avail_height = min(max(avail_height, 0), height - avail_top)
 
         if not config.window:
             return
@@ -195,9 +216,16 @@ class MacOSHostAdapter(HostFingerprintAdapter):
         inner_width = config.window.inner_width if isinstance(config.window.inner_width, int) else None
         if outer_width is not None:
             width_delta = outer_width - inner_width if inner_width is not None else 0
-            config.window.outer_width = min(outer_width, width)
+            max_outer_width = config.screen.avail_width or width
+            config.window.outer_width = min(outer_width, max_outer_width)
             if inner_width is not None:
                 config.window.inner_width = max(config.window.outer_width - width_delta, 0)
+            screen_x = config.window.screen_x
+            if not isinstance(screen_x, int):
+                config.window.screen_x = avail_left
+            else:
+                max_screen_x = avail_left + max_outer_width - config.window.outer_width
+                config.window.screen_x = min(max(screen_x, avail_left), max_screen_x)
 
         outer_height = (
             config.window.outer_height if isinstance(config.window.outer_height, int) else None
@@ -207,9 +235,16 @@ class MacOSHostAdapter(HostFingerprintAdapter):
         )
         if outer_height is not None:
             height_delta = outer_height - inner_height if inner_height is not None else 0
-            config.window.outer_height = min(outer_height, height)
+            max_outer_height = config.screen.avail_height or height
+            config.window.outer_height = min(outer_height, max_outer_height)
             if inner_height is not None:
                 config.window.inner_height = max(config.window.outer_height - height_delta, 0)
+            screen_y = config.window.screen_y
+            if not isinstance(screen_y, int):
+                config.window.screen_y = avail_top
+            else:
+                max_screen_y = avail_top + max_outer_height - config.window.outer_height
+                config.window.screen_y = min(max(screen_y, avail_top), max_screen_y)
 
 
 def _probe_gpu_family() -> tuple[str | None, str | None]:

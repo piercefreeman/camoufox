@@ -1,0 +1,600 @@
+diff --git a/js/src/vm/CamoufoxVMAccessLog.cpp b/js/src/vm/CamoufoxVMAccessLog.cpp
+new file mode 100644
+index 0000000..a7a38e6
+--- /dev/null
++++ b/js/src/vm/CamoufoxVMAccessLog.cpp
+@@ -0,0 +1,397 @@
++/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*-
++ * vim: set ts=8 sts=2 et sw=2 tw=80:
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++#include "vm/CamoufoxVMAccessLog.h"
++
++#include <stdio.h>
++#include <stdlib.h>
++#include <stdint.h>
++#include <string.h>
++
++#include "js/CallArgs.h"           // JS::CallArgs
++#include "js/CharacterEncoding.h"  // JS_EncodeStringToUTF8
++#include "js/Exception.h"          // JS::AutoSaveExceptionState
++#include "js/UniquePtr.h"          // JS::UniqueChars
++#include "js/Value.h"              // JS::Value
++#include "vm/JSContext.h"          // JSContext
++#include "vm/JSFunction.h"         // JSFunction
++#include "vm/JSObject.h"           // JSObject
++#include "vm/JSScript.h"           // JSScript
++#include "vm/StringType.h"         // JSString
++#include "vm/SymbolType.h"         // JS::Symbol
++
++using namespace js;
++
++namespace {
++
++enum class AccessLogState : uint8_t { Uninitialized, Disabled, Enabled };
++
++AccessLogState gState = AccessLogState::Uninitialized;
++const char* gScriptFilter = nullptr;
++const char* gObjectFilter = nullptr;
++bool gLogSymbols = false;
++unsigned gMaxCallArgs = 8;
++unsigned gMaxStringBytes = 160;
++
++thread_local bool gIsLogging = false;
++
++static bool EnvFlagEnabled(const char* value) {
++  return value && value[0] && strcmp(value, "0") != 0 &&
++         strcmp(value, "false") != 0 && strcmp(value, "no") != 0;
++}
++
++static unsigned EnvUnsigned(const char* value, unsigned fallback,
++                            unsigned maximum) {
++  if (!value || !value[0]) {
++    return fallback;
++  }
++
++  char* end = nullptr;
++  unsigned long parsed = strtoul(value, &end, 10);
++  if (end == value || parsed > maximum) {
++    return fallback;
++  }
++  return unsigned(parsed);
++}
++
++static bool Enabled() {
++  if (gState == AccessLogState::Uninitialized) {
++    if (!EnvFlagEnabled(getenv("CAMOUFOX_VM_ACCESS_LOG"))) {
++      gState = AccessLogState::Disabled;
++      return false;
++    }
++
++    gScriptFilter = getenv("CAMOUFOX_VM_ACCESS_FILTER");
++    if (gScriptFilter && !gScriptFilter[0]) {
++      gScriptFilter = nullptr;
++    }
++
++    gObjectFilter = getenv("CAMOUFOX_VM_ACCESS_OBJECT_FILTER");
++    if (gObjectFilter && !gObjectFilter[0]) {
++      gObjectFilter = nullptr;
++    }
++
++    gLogSymbols = EnvFlagEnabled(getenv("CAMOUFOX_VM_ACCESS_SYMBOLS"));
++    gMaxCallArgs =
++        EnvUnsigned(getenv("CAMOUFOX_VM_ACCESS_MAX_ARGS"), 8, 32);
++    gMaxStringBytes =
++        EnvUnsigned(getenv("CAMOUFOX_VM_ACCESS_MAX_STRING"), 160, 1024);
++    gState = AccessLogState::Enabled;
++  }
++
++  return gState == AccessLogState::Enabled;
++}
++
++static const char* CurrentFilename(JSContext* cx, uint32_t* line,
++                                   uint32_t* column) {
++  JSScript* script = cx->currentScript();
++  if (!script) {
++    return nullptr;
++  }
++
++  if (line) {
++    *line = script->lineno();
++  }
++  if (column) {
++    *column = script->column().oneOriginValue();
++  }
++  return script->filename();
++}
++
++static bool ShouldLogForCaller(JSContext* cx, uint32_t* line,
++                               uint32_t* column, const char** filename) {
++  *filename = CurrentFilename(cx, line, column);
++  if (!gScriptFilter) {
++    return true;
++  }
++  return *filename && strstr(*filename, gScriptFilter);
++}
++
++static bool ShouldLogForObject(JSObject* obj, const char** className) {
++  *className = obj && obj->getClass() ? obj->getClass()->name : "<null>";
++  if (!gObjectFilter) {
++    return true;
++  }
++  return *className && strstr(*className, gObjectFilter);
++}
++
++static bool MatchesObjectFilter(const char* value) {
++  return !gObjectFilter || (value && strstr(value, gObjectFilter));
++}
++
++static const char* ObjectClassName(JSObject* obj) {
++  return obj && obj->getClass() ? obj->getClass()->name : "<null>";
++}
++
++static void FormatId(JSContext* cx, JS::Handle<jsid> id, char* fallback,
++                     size_t fallbackLen, JS::UniqueChars* owned,
++                     const char** out) {
++  *owned = nullptr;
++  *out = fallback;
++
++  if (id.isInt()) {
++    snprintf(fallback, fallbackLen, "%d", id.toInt());
++    return;
++  }
++
++  if (id.isString()) {
++    JS::AutoSaveExceptionState savedExc(cx);
++    JS::RootedString str(cx, id.toString());
++    *owned = JS_EncodeStringToUTF8(cx, str);
++    if (*owned) {
++      *out = owned->get();
++    } else {
++      snprintf(fallback, fallbackLen, "<string-oom>");
++    }
++    return;
++  }
++
++  if (id.isSymbol()) {
++    snprintf(fallback, fallbackLen, "<symbol>");
++    return;
++  }
++
++  snprintf(fallback, fallbackLen, "<void>");
++}
++
++static JSString* MaybeFunctionName(JSObject* obj) {
++  if (!obj || !obj->is<JSFunction>()) {
++    return nullptr;
++  }
++  return obj->as<JSFunction>().maybePartialDisplayAtom();
++}
++
++static void FormatFunctionName(JSContext* cx, JSObject* obj,
++                               JS::UniqueChars* ownedName,
++                               const char** functionName) {
++  *ownedName = nullptr;
++  *functionName = nullptr;
++
++  JSString* name = MaybeFunctionName(obj);
++  if (!name) {
++    return;
++  }
++
++  JS::AutoSaveExceptionState savedExc(cx);
++  JS::RootedString str(cx, name);
++  *ownedName = JS_EncodeStringToUTF8(cx, str);
++  if (*ownedName) {
++    *functionName = ownedName->get();
++  }
++}
++
++static void PrintEscapedString(const char* value) {
++  fputc('"', stderr);
++  if (!value) {
++    fputs("<string-oom>", stderr);
++    fputc('"', stderr);
++    return;
++  }
++
++  unsigned printed = 0;
++  for (const char* cursor = value; *cursor && printed < gMaxStringBytes;
++       cursor++, printed++) {
++    switch (*cursor) {
++      case '\\':
++        fputs("\\\\", stderr);
++        break;
++      case '"':
++        fputs("\\\"", stderr);
++        break;
++      case '\n':
++        fputs("\\n", stderr);
++        break;
++      case '\r':
++        fputs("\\r", stderr);
++        break;
++      case '\t':
++        fputs("\\t", stderr);
++        break;
++      default:
++        fputc(*cursor, stderr);
++        break;
++    }
++  }
++
++  if (value[printed]) {
++    fputs("...", stderr);
++  }
++  fputc('"', stderr);
++}
++
++static void PrintValue(JSContext* cx, JS::HandleValue value) {
++  if (value.isUndefined()) {
++    fputs("undefined", stderr);
++    return;
++  }
++  if (value.isNull()) {
++    fputs("null", stderr);
++    return;
++  }
++  if (value.isBoolean()) {
++    fputs(value.toBoolean() ? "true" : "false", stderr);
++    return;
++  }
++  if (value.isInt32()) {
++    fprintf(stderr, "%d", value.toInt32());
++    return;
++  }
++  if (value.isDouble()) {
++    fprintf(stderr, "%.17g", value.toDouble());
++    return;
++  }
++  if (value.isString()) {
++    JS::AutoSaveExceptionState savedExc(cx);
++    JS::RootedString str(cx, value.toString());
++    JS::UniqueChars encoded = JS_EncodeStringToUTF8(cx, str);
++    PrintEscapedString(encoded ? encoded.get() : nullptr);
++    return;
++  }
++  if (value.isSymbol()) {
++    fputs("<symbol>", stderr);
++    return;
++  }
++  if (value.isObject()) {
++    JSObject* obj = &value.toObject();
++    const char* className = ObjectClassName(obj);
++    JS::UniqueChars ownedName;
++    const char* functionName = nullptr;
++    FormatFunctionName(cx, obj, &ownedName, &functionName);
++    if (functionName) {
++      fprintf(stderr, "<%s:%s>", className, functionName);
++    } else {
++      fprintf(stderr, "<%s>", className);
++    }
++    return;
++  }
++
++  fputs("<value>", stderr);
++}
++
++}  // namespace
++
++void js::MaybeLogCamoufoxVMAccess(JSContext* cx, JS::Handle<JSObject*> obj,
++                                  JS::Handle<jsid> id, const char* op) {
++  if (!Enabled() || gIsLogging) {
++    return;
++  }
++  if (id.isSymbol() && !gLogSymbols) {
++    return;
++  }
++
++  const char* filename = nullptr;
++  const char* className = nullptr;
++  uint32_t line = 0;
++  uint32_t column = 0;
++  if (!ShouldLogForCaller(cx, &line, &column, &filename) ||
++      !ShouldLogForObject(obj, &className)) {
++    return;
++  }
++
++  gIsLogging = true;
++
++  char propFallback[64];
++  const char* prop = nullptr;
++  JS::UniqueChars ownedProp;
++  FormatId(cx, id, propFallback, sizeof(propFallback), &ownedProp, &prop);
++
++  fprintf(stderr,
++          "[camoufox-vm-access] op=%s class=%s prop=%s script=%s:%u:%u\n", op,
++          className ? className : "<null>", prop ? prop : "<null>",
++          filename ? filename : "<unknown>", line, column);
++  fflush(stderr);
++
++  gIsLogging = false;
++}
++
++void js::MaybeLogCamoufoxVMCall(JSContext* cx, const JS::CallArgs& args,
++                                const char* op, const char* kind) {
++  if (!Enabled() || gIsLogging) {
++    return;
++  }
++
++  const char* filename = nullptr;
++  uint32_t line = 0;
++  uint32_t column = 0;
++  if (!ShouldLogForCaller(cx, &line, &column, &filename)) {
++    return;
++  }
++
++  JSObject* calleeObj =
++      args.calleev().isObject() ? &args.calleev().toObject() : nullptr;
++  JSObject* thisObj =
++      args.thisv().isObject() ? &args.thisv().toObject() : nullptr;
++
++  const char* calleeClass = ObjectClassName(calleeObj);
++  const char* thisClass = thisObj ? ObjectClassName(thisObj) : "<primitive>";
++  JS::UniqueChars ownedFunctionName;
++  const char* functionName = nullptr;
++  FormatFunctionName(cx, calleeObj, &ownedFunctionName, &functionName);
++
++  if (gObjectFilter && !MatchesObjectFilter(calleeClass) &&
++      !MatchesObjectFilter(thisClass) && !MatchesObjectFilter(functionName)) {
++    return;
++  }
++
++  gIsLogging = true;
++
++  fprintf(stderr,
++          "[camoufox-vm-access] op=%s kind=%s calleeClass=%s callee=%s "
++          "thisClass=%s argc=%u args=(",
++          op, kind ? kind : "<unknown>", calleeClass,
++          functionName ? functionName : "<anonymous>", thisClass,
++          args.length());
++
++  unsigned maxArgs = args.length() < gMaxCallArgs ? args.length() : gMaxCallArgs;
++  for (unsigned i = 0; i < maxArgs; i++) {
++    if (i) {
++      fputs(", ", stderr);
++    }
++    JS::RootedValue arg(cx, args[i]);
++    PrintValue(cx, arg);
++  }
++  if (args.length() > maxArgs) {
++    if (maxArgs) {
++      fputs(", ", stderr);
++    }
++    fprintf(stderr, "...+%u", args.length() - maxArgs);
++  }
++
++  fprintf(stderr, ") script=%s:%u:%u\n", filename ? filename : "<unknown>",
++          line, column);
++  fflush(stderr);
++
++  gIsLogging = false;
++}
++
++void js::MaybeLogCamoufoxVMOwnKeys(JSContext* cx, JS::Handle<JSObject*> obj,
++                                   unsigned flags) {
++  if (!Enabled() || gIsLogging) {
++    return;
++  }
++
++  const char* filename = nullptr;
++  const char* className = nullptr;
++  uint32_t line = 0;
++  uint32_t column = 0;
++  if (!ShouldLogForCaller(cx, &line, &column, &filename) ||
++      !ShouldLogForObject(obj, &className)) {
++    return;
++  }
++
++  gIsLogging = true;
++
++  fprintf(stderr,
++          "[camoufox-vm-access] op=ownKeys class=%s flags=0x%x script=%s:%u:%u\n",
++          className ? className : "<null>", flags,
++          filename ? filename : "<unknown>", line, column);
++  fflush(stderr);
++
++  gIsLogging = false;
++}
++
++bool js::IsCamoufoxVMAccessLogEnabled() { return Enabled(); }
+diff --git a/js/src/vm/CamoufoxVMAccessLog.h b/js/src/vm/CamoufoxVMAccessLog.h
+new file mode 100644
+index 0000000..6d262f7
+--- /dev/null
++++ b/js/src/vm/CamoufoxVMAccessLog.h
+@@ -0,0 +1,33 @@
++/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*-
++ * vim: set ts=8 sts=2 et sw=2 tw=80:
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++#ifndef vm_CamoufoxVMAccessLog_h
++#define vm_CamoufoxVMAccessLog_h
++
++#include "js/CallArgs.h"     // JS::CallArgs
++#include "js/Id.h"           // jsid
++#include "js/RootingAPI.h"   // JS::Handle
++#include "js/TypeDecls.h"    // JSContext
++
++class JSObject;
++
++namespace js {
++
++void MaybeLogCamoufoxVMAccess(JSContext* cx, JS::Handle<JSObject*> obj,
++                              JS::Handle<jsid> id, const char* op);
++
++void MaybeLogCamoufoxVMOwnKeys(JSContext* cx, JS::Handle<JSObject*> obj,
++                               unsigned flags);
++
++void MaybeLogCamoufoxVMCall(JSContext* cx, const JS::CallArgs& args,
++                            const char* op, const char* kind);
++
++bool IsCamoufoxVMAccessLogEnabled();
++
++}  // namespace js
++
++#endif  // vm_CamoufoxVMAccessLog_h
+diff --git a/js/src/vm/Interpreter.cpp b/js/src/vm/Interpreter.cpp
+index 98fabae..4d58b63 100644
+--- a/js/src/vm/Interpreter.cpp
++++ b/js/src/vm/Interpreter.cpp
+@@ -43,6 +43,7 @@
+ #include "vm/AsyncIteration.h"
+ #include "vm/BigIntType.h"
+ #include "vm/BytecodeUtil.h"  // JSDVG_SEARCH_STACK
++#include "vm/CamoufoxVMAccessLog.h"
+ #include "vm/ConstantCompareOperand.h"
+ #ifdef ENABLE_EXPLICIT_RESOURCE_MANAGEMENT
+ #  include "vm/ErrorObject.h"
+@@ -447,14 +448,16 @@ bool js::RunScript(JSContext* cx, RunState& state) {
+     }
+   });
+ 
+-  jit::EnterJitStatus status = jit::MaybeEnterJit(cx, state);
+-  switch (status) {
+-    case jit::EnterJitStatus::Error:
+-      return false;
+-    case jit::EnterJitStatus::Ok:
+-      return true;
+-    case jit::EnterJitStatus::NotEntered:
+-      break;
++  if (!IsCamoufoxVMAccessLogEnabled()) {
++    jit::EnterJitStatus status = jit::MaybeEnterJit(cx, state);
++    switch (status) {
++      case jit::EnterJitStatus::Error:
++        return false;
++      case jit::EnterJitStatus::Ok:
++        return true;
++      case jit::EnterJitStatus::NotEntered:
++        break;
++    }
+   }
+ 
+   bool ok = MaybeEnterInterpreterTrampoline(cx, state);
+@@ -475,6 +478,9 @@ MOZ_ALWAYS_INLINE bool CallJSNative(JSContext* cx, Native native,
+     return false;
+   }
+ 
++  MaybeLogCamoufoxVMCall(cx, args, args.isConstructing() ? "construct" : "call",
++                         "native");
++
+   NativeResumeMode resumeMode = DebugAPI::onNativeCall(cx, args, reason);
+   if (resumeMode != NativeResumeMode::Continue) {
+     return resumeMode == NativeResumeMode::Override;
+@@ -562,6 +568,7 @@ bool js::InternalCallOrConstruct(JSContext* cx, const CallArgs& args,
+     }
+ 
+     if (args.callee().is<ProxyObject>()) {
++      MaybeLogCamoufoxVMCall(cx, args, "call", "proxy");
+       RootedObject proxy(cx, &args.callee());
+       return Proxy::call(cx, proxy, args);
+     }
+@@ -598,6 +605,10 @@ bool js::InternalCallOrConstruct(JSContext* cx, const CallArgs& args,
+     return false;
+   }
+ 
++  MaybeLogCamoufoxVMCall(cx, args, construct == CONSTRUCT ? "construct" : "call",
++                         fun->isSelfHostedBuiltin() ? "self-hosted"
++                                                    : "scripted");
++
+   /* Run function until JSOp::RetRval, JSOp::Return or error. */
+   InvokeState state(cx, args, construct);
+ 
+@@ -723,6 +734,7 @@ static bool InternalConstruct(JSContext* cx, const AnyConstructArgs& args,
+   }
+ 
+   if (callee.is<ProxyObject>()) {
++    MaybeLogCamoufoxVMCall(cx, args, "construct", "proxy");
+     RootedObject proxy(cx, &callee);
+     return Proxy::construct(cx, proxy, args);
+   }
+diff --git a/js/src/vm/Iteration.cpp b/js/src/vm/Iteration.cpp
+index d23b896..59d2ae9 100644
+--- a/js/src/vm/Iteration.cpp
++++ b/js/src/vm/Iteration.cpp
+@@ -31,6 +31,7 @@
+ #include "js/PropertySpec.h"
+ #include "util/DifferentialTesting.h"
+ #include "util/Poison.h"
++#include "vm/CamoufoxVMAccessLog.h"
+ #include "vm/GlobalObject.h"
+ #include "vm/Interpreter.h"
+ #include "vm/JSContext.h"
+@@ -738,6 +739,8 @@ bool PropertyEnumerator::snapshot(JSContext* cx) {
+ JS_PUBLIC_API bool js::GetPropertyKeys(JSContext* cx, HandleObject obj,
+                                        unsigned flags,
+                                        MutableHandleIdVector props) {
++  MaybeLogCamoufoxVMOwnKeys(cx, obj, flags);
++
+   uint32_t validFlags =
+       flags & (JSITER_OWNONLY | JSITER_HIDDEN | JSITER_SYMBOLS |
+                JSITER_SYMBOLSONLY | JSITER_PRIVATE);
+diff --git a/js/src/vm/JSObject.cpp b/js/src/vm/JSObject.cpp
+index ce09973..09728cb 100644
+--- a/js/src/vm/JSObject.cpp
++++ b/js/src/vm/JSObject.cpp
+@@ -50,6 +50,7 @@
+ #include "vm/ArrayBufferObject.h"
+ #include "vm/ArrayBufferViewObject.h"
+ #include "vm/BytecodeUtil.h"
++#include "vm/CamoufoxVMAccessLog.h"
+ #include "vm/Compartment.h"
+ #include "vm/DateObject.h"
+ #include "vm/ErrorObject.h"
+@@ -2009,6 +2010,8 @@ bool js::PreventExtensions(JSContext* cx, HandleObject obj) {
+ bool js::GetOwnPropertyDescriptor(
+     JSContext* cx, HandleObject obj, HandleId id,
+     MutableHandle<Maybe<PropertyDescriptor>> desc) {
++  MaybeLogCamoufoxVMAccess(cx, obj, id, "getOwnPropertyDescriptor");
++
+   if (GetOwnPropertyOp op = obj->getOpsGetOwnPropertyDescriptor()) {
+     bool ok = op(cx, obj, id, desc);
+     if (ok && desc.isSome()) {
+diff --git a/js/src/vm/ObjectOperations-inl.h b/js/src/vm/ObjectOperations-inl.h
+index e9095c3..642bdc7 100644
+--- a/js/src/vm/ObjectOperations-inl.h
++++ b/js/src/vm/ObjectOperations-inl.h
+@@ -25,6 +25,7 @@
+ #include "proxy/Proxy.h"      // js::Proxy
+ #include "vm/JSContext.h"     // JSContext
+ #include "vm/JSObject.h"      // JSObject
++#include "vm/CamoufoxVMAccessLog.h"  // js::MaybeLogCamoufoxVMAccess
+ #include "vm/NativeObject.h"  // js::NativeObject, js::Native{Get,Has,Set}Property, js::NativeGetPropertyNoGC, js::Qualified
+ #include "vm/ProxyObject.h"   // js::ProxyObject
+ #include "vm/StringType.h"    // js::NameToId
+@@ -82,6 +83,8 @@ inline bool IsExtensible(JSContext* cx, JS::Handle<JSObject*> obj,
+  */
+ inline bool HasProperty(JSContext* cx, JS::Handle<JSObject*> obj,
+                         JS::Handle<jsid> id, bool* foundp) {
++  MaybeLogCamoufoxVMAccess(cx, obj, id, "has");
++
+   if (HasPropertyOp op = obj->getOpsHasProperty()) {
+     return op(cx, obj, id, foundp);
+   }
+@@ -106,6 +109,8 @@ inline bool HasProperty(JSContext* cx, JS::Handle<JSObject*> obj,
+ inline bool GetProperty(JSContext* cx, JS::Handle<JSObject*> obj,
+                         JS::Handle<JS::Value> receiver, JS::Handle<jsid> id,
+                         JS::MutableHandle<JS::Value> vp) {
++  MaybeLogCamoufoxVMAccess(cx, obj, id, "get");
++
+   if (GetPropertyOp op = obj->getOpsGetProperty()) {
+     return op(cx, obj, receiver, id, vp);
+   }
+diff --git a/js/src/vm/moz.build b/js/src/vm/moz.build
+index d14128d..ae3a4c5 100644
+--- a/js/src/vm/moz.build
++++ b/js/src/vm/moz.build
+@@ -127,6 +127,7 @@ if CONFIG["ENABLE_EXPLICIT_RESOURCE_MANAGEMENT"]:
+ # Interpreter.cpp is gigantic and destroys incremental build times for any files
+ # unlucky enough to be unified with it.
+ SOURCES += [
++    "CamoufoxVMAccessLog.cpp",
+     "Interpreter.cpp",
+     "ProfilingStack.cpp",
+ ]

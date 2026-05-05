@@ -1,0 +1,213 @@
+diff --git a/js/src/vm/CamoufoxVMAccessLog.cpp b/js/src/vm/CamoufoxVMAccessLog.cpp
+index 66329eb025..cf562f9e99 100644
+--- a/js/src/vm/CamoufoxVMAccessLog.cpp
++++ b/js/src/vm/CamoufoxVMAccessLog.cpp
+@@ -36,6 +36,7 @@ const char* gObjectFilter = nullptr;
+ bool gLogSymbols = false;
+ unsigned gMaxCallArgs = 8;
+ unsigned gMaxStringBytes = 160;
++FILE* gLogFile = nullptr;
+ 
+ thread_local bool gIsLogging = false;
+ 
+@@ -80,12 +81,25 @@ static bool Enabled() {
+         EnvUnsigned(getenv("CAMOUFOX_VM_ACCESS_MAX_ARGS"), 8, 32);
+     gMaxStringBytes =
+         EnvUnsigned(getenv("CAMOUFOX_VM_ACCESS_MAX_STRING"), 160, 1024);
++
++    const char* logFile = getenv("CAMOUFOX_VM_ACCESS_LOG_FILE");
++    if (logFile && logFile[0]) {
++      gLogFile = fopen(logFile, "a");
++      if (gLogFile) {
++        setvbuf(gLogFile, nullptr, _IOLBF, 0);
++      }
++    }
++
+     gState = AccessLogState::Enabled;
+   }
+ 
+   return gState == AccessLogState::Enabled;
+ }
+ 
++static FILE* LogStream() {
++  return gLogFile ? gLogFile : stderr;
++}
++
+ static const char* CurrentFilename(JSContext* cx, uint32_t* line,
+                                    uint32_t* column) {
+   JSScript* script = cx->currentScript();
+@@ -185,10 +199,11 @@ static void FormatFunctionName(JSContext* cx, JSObject* obj,
+ }
+ 
+ static void PrintEscapedString(const char* value) {
+-  fputc('"', stderr);
++  FILE* stream = LogStream();
++  fputc('"', stream);
+   if (!value) {
+-    fputs("<string-oom>", stderr);
+-    fputc('"', stderr);
++    fputs("<string-oom>", stream);
++    fputc('"', stream);
+     return;
+   }
+ 
+@@ -197,51 +212,52 @@ static void PrintEscapedString(const char* value) {
+        cursor++, printed++) {
+     switch (*cursor) {
+       case '\\':
+-        fputs("\\\\", stderr);
++        fputs("\\\\", stream);
+         break;
+       case '"':
+-        fputs("\\\"", stderr);
++        fputs("\\\"", stream);
+         break;
+       case '\n':
+-        fputs("\\n", stderr);
++        fputs("\\n", stream);
+         break;
+       case '\r':
+-        fputs("\\r", stderr);
++        fputs("\\r", stream);
+         break;
+       case '\t':
+-        fputs("\\t", stderr);
++        fputs("\\t", stream);
+         break;
+       default:
+-        fputc(*cursor, stderr);
++        fputc(*cursor, stream);
+         break;
+     }
+   }
+ 
+   if (value[printed]) {
+-    fputs("...", stderr);
++    fputs("...", stream);
+   }
+-  fputc('"', stderr);
++  fputc('"', stream);
+ }
+ 
+ static void PrintValue(JSContext* cx, JS::HandleValue value) {
++  FILE* stream = LogStream();
+   if (value.isUndefined()) {
+-    fputs("undefined", stderr);
++    fputs("undefined", stream);
+     return;
+   }
+   if (value.isNull()) {
+-    fputs("null", stderr);
++    fputs("null", stream);
+     return;
+   }
+   if (value.isBoolean()) {
+-    fputs(value.toBoolean() ? "true" : "false", stderr);
++    fputs(value.toBoolean() ? "true" : "false", stream);
+     return;
+   }
+   if (value.isInt32()) {
+-    fprintf(stderr, "%d", value.toInt32());
++    fprintf(stream, "%d", value.toInt32());
+     return;
+   }
+   if (value.isDouble()) {
+-    fprintf(stderr, "%.17g", value.toDouble());
++    fprintf(stream, "%.17g", value.toDouble());
+     return;
+   }
+   if (value.isString()) {
+@@ -252,7 +268,7 @@ static void PrintValue(JSContext* cx, JS::HandleValue value) {
+     return;
+   }
+   if (value.isSymbol()) {
+-    fputs("<symbol>", stderr);
++    fputs("<symbol>", stream);
+     return;
+   }
+   if (value.isObject()) {
+@@ -262,14 +278,14 @@ static void PrintValue(JSContext* cx, JS::HandleValue value) {
+     const char* functionName = nullptr;
+     FormatFunctionName(cx, obj, &ownedName, &functionName);
+     if (functionName) {
+-      fprintf(stderr, "<%s:%s>", className, functionName);
++      fprintf(stream, "<%s:%s>", className, functionName);
+     } else {
+-      fprintf(stderr, "<%s>", className);
++      fprintf(stream, "<%s>", className);
+     }
+     return;
+   }
+ 
+-  fputs("<value>", stderr);
++  fputs("<value>", stream);
+ }
+ 
+ }  // namespace
+@@ -299,11 +315,12 @@ void js::MaybeLogCamoufoxVMAccess(JSContext* cx, JS::Handle<JSObject*> obj,
+   JS::UniqueChars ownedProp;
+   FormatId(cx, id, propFallback, sizeof(propFallback), &ownedProp, &prop);
+ 
+-  fprintf(stderr,
++  FILE* stream = LogStream();
++  fprintf(stream,
+           "[camoufox-vm-access] op=%s class=%s prop=%s script=%s:%u:%u\n", op,
+           className ? className : "<null>", prop ? prop : "<null>",
+           filename ? filename : "<unknown>", line, column);
+-  fflush(stderr);
++  fflush(stream);
+ 
+   gIsLogging = false;
+ }
+@@ -339,7 +356,8 @@ void js::MaybeLogCamoufoxVMCall(JSContext* cx, const JS::CallArgs& args,
+ 
+   gIsLogging = true;
+ 
+-  fprintf(stderr,
++  FILE* stream = LogStream();
++  fprintf(stream,
+           "[camoufox-vm-access] op=%s kind=%s calleeClass=%s callee=%s "
+           "thisClass=%s argc=%u args=(",
+           op, kind ? kind : "<unknown>", calleeClass,
+@@ -349,21 +367,21 @@ void js::MaybeLogCamoufoxVMCall(JSContext* cx, const JS::CallArgs& args,
+   unsigned maxArgs = args.length() < gMaxCallArgs ? args.length() : gMaxCallArgs;
+   for (unsigned i = 0; i < maxArgs; i++) {
+     if (i) {
+-      fputs(", ", stderr);
++      fputs(", ", stream);
+     }
+     JS::RootedValue arg(cx, args[i]);
+     PrintValue(cx, arg);
+   }
+   if (args.length() > maxArgs) {
+     if (maxArgs) {
+-      fputs(", ", stderr);
++      fputs(", ", stream);
+     }
+-    fprintf(stderr, "...+%u", args.length() - maxArgs);
++    fprintf(stream, "...+%u", args.length() - maxArgs);
+   }
+ 
+-  fprintf(stderr, ") script=%s:%u:%u\n", filename ? filename : "<unknown>",
++  fprintf(stream, ") script=%s:%u:%u\n", filename ? filename : "<unknown>",
+           line, column);
+-  fflush(stderr);
++  fflush(stream);
+ 
+   gIsLogging = false;
+ }
+@@ -385,11 +403,12 @@ void js::MaybeLogCamoufoxVMOwnKeys(JSContext* cx, JS::Handle<JSObject*> obj,
+ 
+   gIsLogging = true;
+ 
+-  fprintf(stderr,
++  FILE* stream = LogStream();
++  fprintf(stream,
+           "[camoufox-vm-access] op=ownKeys class=%s flags=0x%x script=%s:%u:%u\n",
+           className ? className : "<null>", flags,
+           filename ? filename : "<unknown>", line, column);
+-  fflush(stderr);
++  fflush(stream);
+ 
+   gIsLogging = false;
+ }

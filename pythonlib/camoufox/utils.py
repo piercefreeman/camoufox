@@ -56,6 +56,13 @@ CACHE_PREFS = {
     "browser.sessionhistory.max_total_viewers": -1,
 }
 
+STEALTH_PREFS = {
+    # Playwright/Juggler attaches pages as Debugger debuggees. Without this,
+    # Firefox exposes async stack frames to page Error.stack values, which lets
+    # fingerprinting scripts infer a developer-tools/debugger state.
+    "javascript.options.asyncstack": False,
+}
+
 
 def launch_options(
     *,
@@ -472,7 +479,7 @@ class LaunchOptionBuilder:
 
         config.fonts = config.fonts or FontsProfile()
         if config.fonts.spacing_seed is None:
-            config.fonts.spacing_seed = randint(1, 4_294_967_295)  # nosec
+            config.fonts.spacing_seed = 0
 
         config.audio = config.audio or AudioProfile()
         if config.audio.seed is None:
@@ -560,6 +567,8 @@ class LaunchOptionBuilder:
 
     def _apply_firefox_preferences(self) -> None:
         firefox_user_prefs = self._firefox_prefs()
+
+        _merge_missing(firefox_user_prefs, STEALTH_PREFS)
 
         if self.block_images:
             LeakWarning.warn("block_images", self.i_know_what_im_doing)

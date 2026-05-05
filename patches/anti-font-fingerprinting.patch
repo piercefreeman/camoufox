@@ -1002,7 +1002,7 @@ index de9a9661a1..f878bdb36c 100644
    if (aLength == 0) {
      return MakeEmptyTextRun(aParams, aFlags, aFlags2);
    }
-@@ -2530,8 +2547,16 @@ already_AddRefed<gfxTextRun> gfxFontGroup::MakeTextRun(
+@@ -2530,8 +2547,13 @@ already_AddRefed<gfxTextRun> gfxFontGroup::MakeTextRun(
      return MakeBlankTextRun(aString, aLength, aParams, aFlags, aFlags2);
    }
  
@@ -1011,16 +1011,13 @@ index de9a9661a1..f878bdb36c 100644
 +    aUserContextId = mUserContextId;
 +  }
 +
-+  // Log the user context id used for this text run creation
-+  printf("MakeTextRun: userContextId=%u\n", aUserContextId);
-+
-   RefPtr<gfxTextRun> textRun =
+  RefPtr<gfxTextRun> textRun =
 -      gfxTextRun::Create(aParams, aLength, this, aFlags, aFlags2);
 +      gfxTextRun::Create(aParams, aLength, this, aFlags, aFlags2, aUserContextId);
    if (!textRun) {
      return nullptr;
    }
-@@ -2547,11 +2572,11 @@ already_AddRefed<gfxTextRun> gfxFontGroup::MakeTextRun(
+@@ -2547,11 +2569,11 @@ already_AddRefed<gfxTextRun> gfxFontGroup::MakeTextRun(
  template already_AddRefed<gfxTextRun> gfxFontGroup::MakeTextRun(
      const uint8_t* aString, uint32_t aLength, const Parameters* aParams,
      gfx::ShapedTextFlags aFlags, nsTextFrameUtils::Flags aFlags2,
@@ -1034,7 +1031,7 @@ index de9a9661a1..f878bdb36c 100644
  
  // Helper to get a hashtable that maps tags to Script codes, created on first
  // use.
-@@ -2609,8 +2634,9 @@ static Script ResolveScriptForLang(const nsAtom* aLanguage, Script aDefault) {
+@@ -2609,8 +2631,9 @@ static Script ResolveScriptForLang(const nsAtom* aLanguage, Script aDefault) {
    static LangScriptCache sCache;
    static RWLock sLock("LangScriptCache lock");
  
@@ -1046,7 +1043,7 @@ index de9a9661a1..f878bdb36c 100644
  
    {
      // Try to use a cached value without taking an exclusive lock.
-@@ -3045,7 +3071,7 @@ gfxTextRun* gfxFontGroup::GetEllipsisTextRun(
+@@ -3045,7 +3068,7 @@ gfxTextRun* gfxFontGroup::GetEllipsisTextRun(
                         nullptr, 0,       aAppUnitsPerDevPixel};
    mCachedEllipsisTextRun =
        MakeTextRun(ellipsis.BeginReading(), ellipsis.Length(), &params, aFlags,
@@ -1055,7 +1052,7 @@ index de9a9661a1..f878bdb36c 100644
    if (!mCachedEllipsisTextRun) {
      return nullptr;
    }
-@@ -3460,7 +3486,7 @@ already_AddRefed<gfxFont> gfxFontGroup::FindFontForChar(
+@@ -3460,7 +3483,7 @@ already_AddRefed<gfxFont> gfxFontGroup::FindFontForChar(
          font = FindFallbackFaceForChar(ff, aCh, aNextCh, presentation);
          if (font) {
            if (CheckCandidate(font,
@@ -1215,11 +1212,12 @@ diff --git a/layout/generic/MathMLTextRunFactory.cpp b/layout/generic/MathMLText
 index 13c9cc5c11..b940be8790 100644
 --- a/layout/generic/MathMLTextRunFactory.cpp
 +++ b/layout/generic/MathMLTextRunFactory.cpp
-@@ -11,6 +11,8 @@
+@@ -11,6 +11,9 @@
  #include "mozilla/ComputedStyleInlines.h"
  #include "mozilla/StaticPrefs_mathml.h"
  #include "mozilla/intl/UnicodeScriptCodes.h"
 +#include "mozilla/dom/BrowsingContext.h"
++#include "mozilla/dom/Document.h"
 +#include "nsPIDOMWindow.h"
  #include "nsDeviceContext.h"
  #include "nsFontMetrics.h"

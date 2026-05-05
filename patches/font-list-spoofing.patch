@@ -235,7 +235,7 @@ index xxxxxxxxxx..yyyyyyyyyy 100644
  #include "mozilla/gfx/2D.h"
  #include "mozilla/ipc/FileDescriptorUtils.h"
  #include "mozilla/TextUtils.h"
-@@ -1632,6 +1633,16 @@
+@@ -1632,6 +1633,18 @@
    nsAutoCString key;
    GenerateFontListKey(aFamily, key);
  
@@ -258,10 +258,11 @@ diff --git a/gfx/thebes/gfxTextRun.cpp b/gfx/thebes/gfxTextRun.cpp
 index xxxxxxxxxx..yyyyyyyyyy 100644
 --- a/gfx/thebes/gfxTextRun.cpp
 +++ b/gfx/thebes/gfxTextRun.cpp
-@@ -36,3 +36,4 @@
+@@ -36,3 +36,5 @@
  #include "TextDrawTarget.h"
++#include "mozilla/dom/Document.h"
 +#include "mozilla/dom/FontListManager.h"
- 
+
  #ifdef XP_WIN
 @@ -1910,4 +1911,6 @@
  void gfxFontGroup::EnsureFontList() {

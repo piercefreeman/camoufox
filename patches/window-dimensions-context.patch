@@ -1,0 +1,322 @@
+diff --git a/dom/base/ScreenDimensionManager.cpp b/dom/base/ScreenDimensionManager.cpp
+index f5d2c23df5..5caf4f7002 100644
+--- a/dom/base/ScreenDimensionManager.cpp
++++ b/dom/base/ScreenDimensionManager.cpp
+@@ -70,6 +70,89 @@ ScreenDimensionManager::GetColorDepth(uint32_t aUserContextId) {
+   return static_cast<int32_t>(depth);
+ }
+ 
++/* static */ void
++ScreenDimensionManager::WindowKey(uint32_t aUserContextId, const char* aName,
++                                  nsString& aKey) {
++  aKey.AppendPrintf("%s_%u", aName, aUserContextId);
++}
++
++/* static */ void
++ScreenDimensionManager::SetWindowDimensions(uint32_t aUserContextId,
++                                            int32_t aOuterWidth,
++                                            int32_t aOuterHeight,
++                                            int32_t aInnerWidth,
++                                            int32_t aInnerHeight,
++                                            int32_t aScreenX,
++                                            int32_t aScreenY) {
++  struct WindowValue {
++    const char* name;
++    int32_t value;
++  };
++  const WindowValue values[] = {
++      {"windowOuterWidth", aOuterWidth},
++      {"windowOuterHeight", aOuterHeight},
++      {"windowInnerWidth", aInnerWidth},
++      {"windowInnerHeight", aInnerHeight},
++      {"windowScreenX", aScreenX},
++      {"windowScreenY", aScreenY},
++  };
++
++  for (const auto& entry : values) {
++    nsString key;
++    WindowKey(aUserContextId, entry.name, key);
++    RoverfoxStorageManager::PutUint(key, static_cast<uint32_t>(entry.value));
++  }
++}
++
++/* static */ bool
++ScreenDimensionManager::GetWindowValue(uint32_t aUserContextId,
++                                       const char* aName, int32_t* aValue) {
++  nsString key;
++  WindowKey(aUserContextId, aName, key);
++  uint32_t value = 0;
++  if (!RoverfoxStorageManager::GetUint(key, value)) {
++    return false;
++  }
++  *aValue = static_cast<int32_t>(value);
++  return true;
++}
++
++/* static */ bool
++ScreenDimensionManager::GetWindowOuterWidth(uint32_t aUserContextId,
++                                            int32_t* aValue) {
++  return GetWindowValue(aUserContextId, "windowOuterWidth", aValue);
++}
++
++/* static */ bool
++ScreenDimensionManager::GetWindowOuterHeight(uint32_t aUserContextId,
++                                             int32_t* aValue) {
++  return GetWindowValue(aUserContextId, "windowOuterHeight", aValue);
++}
++
++/* static */ bool
++ScreenDimensionManager::GetWindowInnerWidth(uint32_t aUserContextId,
++                                            int32_t* aValue) {
++  return GetWindowValue(aUserContextId, "windowInnerWidth", aValue);
++}
++
++/* static */ bool
++ScreenDimensionManager::GetWindowInnerHeight(uint32_t aUserContextId,
++                                             int32_t* aValue) {
++  return GetWindowValue(aUserContextId, "windowInnerHeight", aValue);
++}
++
++/* static */ bool
++ScreenDimensionManager::GetWindowScreenX(uint32_t aUserContextId,
++                                         int32_t* aValue) {
++  return GetWindowValue(aUserContextId, "windowScreenX", aValue);
++}
++
++/* static */ bool
++ScreenDimensionManager::GetWindowScreenY(uint32_t aUserContextId,
++                                         int32_t* aValue) {
++  return GetWindowValue(aUserContextId, "windowScreenY", aValue);
++}
++
+ /* static */ nsString
+ ScreenDimensionManager::DisabledKeyForUserContext(uint32_t userContextId) {
+   nsString key;
+@@ -83,6 +166,19 @@ ScreenDimensionManager::DisableFunction(uint32_t userContextId) {
+   RoverfoxStorageManager::PutBool(key, true);
+ }
+ 
++/* static */ nsString
++ScreenDimensionManager::WindowDisabledKeyForUserContext(uint32_t userContextId) {
++  nsString key;
++  key.AppendPrintf("window_disabled_%u", userContextId);
++  return key;
++}
++
++/* static */ void
++ScreenDimensionManager::DisableWindowFunction(uint32_t userContextId) {
++  nsString key = WindowDisabledKeyForUserContext(userContextId);
++  RoverfoxStorageManager::PutBool(key, true);
++}
++
+ /* static */ bool
+ ScreenDimensionManager::IsFunctionEnabledForWebIDL(JSContext* aCx, JSObject* aObj) {
+   nsGlobalWindowInner* win = xpc::WindowOrNull(aObj);
+@@ -100,5 +196,24 @@ ScreenDimensionManager::IsFunctionEnabledForWebIDL(JSContext* aCx, JSObject* aOb
+   return !disabled;
+ }
+ 
++/* static */ bool
++ScreenDimensionManager::IsWindowFunctionEnabledForWebIDL(JSContext* aCx,
++                                                         JSObject* aObj) {
++  nsGlobalWindowInner* win = xpc::WindowOrNull(aObj);
++  if (!win) {
++    return false;
++  }
++
++  uint32_t userContextId = 0;
++  if (BrowsingContext* bc = win->GetBrowsingContext()) {
++    userContextId = bc->OriginAttributesRef().mUserContextId;
++  }
++
++  bool disabled = false;
++  RoverfoxStorageManager::GetBool(WindowDisabledKeyForUserContext(userContextId),
++                                  disabled);
++  return !disabled;
++}
++
+ }  // namespace dom
+ }  // namespace mozilla
+diff --git a/dom/base/ScreenDimensionManager.h b/dom/base/ScreenDimensionManager.h
+index 329f709a60..bb8aaec9e2 100644
+--- a/dom/base/ScreenDimensionManager.h
++++ b/dom/base/ScreenDimensionManager.h
+@@ -31,14 +31,33 @@ class ScreenDimensionManager {
+   static void SetColorDepth(uint32_t aUserContextId, int32_t aColorDepth);
+   static int32_t GetColorDepth(uint32_t aUserContextId);
+ 
++  // Set/get window dimensions for a user context
++  static void SetWindowDimensions(uint32_t aUserContextId, int32_t aOuterWidth,
++                                  int32_t aOuterHeight, int32_t aInnerWidth,
++                                  int32_t aInnerHeight, int32_t aScreenX,
++                                  int32_t aScreenY);
++  static bool GetWindowOuterWidth(uint32_t aUserContextId, int32_t* aValue);
++  static bool GetWindowOuterHeight(uint32_t aUserContextId, int32_t* aValue);
++  static bool GetWindowInnerWidth(uint32_t aUserContextId, int32_t* aValue);
++  static bool GetWindowInnerHeight(uint32_t aUserContextId, int32_t* aValue);
++  static bool GetWindowScreenX(uint32_t aUserContextId, int32_t* aValue);
++  static bool GetWindowScreenY(uint32_t aUserContextId, int32_t* aValue);
++
+   // Self-destruct support
+   static void DisableFunction(uint32_t userContextId);
++  static void DisableWindowFunction(uint32_t userContextId);
+ 
+   // WebIDL exposure check
+   static bool IsFunctionEnabledForWebIDL(JSContext* aCx, JSObject* aObj);
++  static bool IsWindowFunctionEnabledForWebIDL(JSContext* aCx, JSObject* aObj);
+ 
+  private:
+   static nsString DisabledKeyForUserContext(uint32_t userContextId);
++  static nsString WindowDisabledKeyForUserContext(uint32_t userContextId);
++  static void WindowKey(uint32_t aUserContextId, const char* aName,
++                        nsString& aKey);
++  static bool GetWindowValue(uint32_t aUserContextId, const char* aName,
++                             int32_t* aValue);
+ };
+ 
+ }  // namespace dom
+diff --git a/dom/base/nsGlobalWindowInner.cpp b/dom/base/nsGlobalWindowInner.cpp
+index 14a7ffac80..eefd4b2f30 100644
+--- a/dom/base/nsGlobalWindowInner.cpp
++++ b/dom/base/nsGlobalWindowInner.cpp
+@@ -3706,6 +3706,11 @@ void nsGlobalWindowInner::SetName(const nsAString& aName,
+ }
+ 
+ double nsGlobalWindowInner::GetInnerWidth(ErrorResult& aError) {
++  int32_t value = 0;
++  uint32_t userContextId = ScreenDimensionManager::GetUserContextIdFromWindow(this);
++  if (ScreenDimensionManager::GetWindowInnerWidth(userContextId, &value)) {
++    return value;
++  }
+   if (auto window = MaskConfig::Profile().getWindow()) {
+     if (auto value = window->getInnerWidth()) {
+       return *value;
+@@ -3722,6 +3727,11 @@ nsresult nsGlobalWindowInner::GetInnerWidth(double* aWidth) {
+ }
+ 
+ double nsGlobalWindowInner::GetInnerHeight(ErrorResult& aError) {
++  int32_t value = 0;
++  uint32_t userContextId = ScreenDimensionManager::GetUserContextIdFromWindow(this);
++  if (ScreenDimensionManager::GetWindowInnerHeight(userContextId, &value)) {
++    return value;
++  }
+   if (auto window = MaskConfig::Profile().getWindow()) {
+     if (auto value = window->getInnerHeight()) {
+       return *value;
+@@ -3743,6 +3753,11 @@ nsresult nsGlobalWindowInner::GetInnerHeight(double* aHeight) {
+ 
+ int32_t nsGlobalWindowInner::GetOuterWidth(CallerType aCallerType,
+                                            ErrorResult& aError) {
++  int32_t value = 0;
++  uint32_t userContextId = ScreenDimensionManager::GetUserContextIdFromWindow(this);
++  if (ScreenDimensionManager::GetWindowOuterWidth(userContextId, &value)) {
++    return value;
++  }
+   if (auto window = MaskConfig::Profile().getWindow()) {
+     if (auto value = window->getOuterWidth()) {
+       return *value;
+@@ -3754,6 +3769,11 @@ int32_t nsGlobalWindowInner::GetOuterWidth(CallerType aCallerType,
+ 
+ int32_t nsGlobalWindowInner::GetOuterHeight(CallerType aCallerType,
+                                             ErrorResult& aError) {
++  int32_t value = 0;
++  uint32_t userContextId = ScreenDimensionManager::GetUserContextIdFromWindow(this);
++  if (ScreenDimensionManager::GetWindowOuterHeight(userContextId, &value)) {
++    return value;
++  }
+   if (auto window = MaskConfig::Profile().getWindow()) {
+     if (auto value = window->getOuterHeight()) {
+       return *value;
+@@ -3773,6 +3793,11 @@ double nsGlobalWindowInner::ScreenEdgeSlopY() const {
+ 
+ int32_t nsGlobalWindowInner::GetScreenX(CallerType aCallerType,
+                                         ErrorResult& aError) {
++  int32_t value = 0;
++  uint32_t userContextId = ScreenDimensionManager::GetUserContextIdFromWindow(this);
++  if (ScreenDimensionManager::GetWindowScreenX(userContextId, &value)) {
++    return value;
++  }
+   if (auto window = MaskConfig::Profile().getWindow()) {
+     if (auto value = window->getScreenX()) return *value;
+   }
+@@ -3781,6 +3806,11 @@ int32_t nsGlobalWindowInner::GetScreenX(CallerType aCallerType,
+ 
+ int32_t nsGlobalWindowInner::GetScreenY(CallerType aCallerType,
+                                         ErrorResult& aError) {
++  int32_t value = 0;
++  uint32_t userContextId = ScreenDimensionManager::GetUserContextIdFromWindow(this);
++  if (ScreenDimensionManager::GetWindowScreenY(userContextId, &value)) {
++    return value;
++  }
+   if (auto window = MaskConfig::Profile().getWindow()) {
+     if (auto value = window->getScreenY()) return *value;
+   }
+@@ -7797,6 +7827,34 @@ void nsGlobalWindowInner::SetScreenColorDepth(int32_t aColorDepth,
+   }
+ }
+ 
++void nsGlobalWindowInner::SetWindowDimensions(
++    int32_t aOuterWidth, int32_t aOuterHeight, int32_t aInnerWidth,
++    int32_t aInnerHeight, int32_t aScreenX, int32_t aScreenY,
++    ErrorResult& aRv) {
++  uint32_t userContextId = ScreenDimensionManager::GetUserContextIdFromWindow(this);
++
++  if (aOuterWidth <= 0 || aOuterHeight <= 0 || aInnerWidth <= 0 ||
++      aInnerHeight <= 0 || aScreenX < 0 || aScreenY < 0) {
++    aRv.ThrowTypeError("Window dimensions must be positive and offsets must be non-negative");
++    return;
++  }
++
++  ScreenDimensionManager::SetWindowDimensions(userContextId, aOuterWidth,
++                                              aOuterHeight, aInnerWidth,
++                                              aInnerHeight, aScreenX,
++                                              aScreenY);
++  ScreenDimensionManager::DisableWindowFunction(userContextId);
++
++  if (JSContext* cx = nsContentUtils::GetCurrentJSContext()) {
++    JS::Rooted<JSObject*> global(cx, JS::CurrentGlobalOrNull(cx));
++    if (global) {
++      JS::Rooted<JS::Value> undef(cx, JS::UndefinedValue());
++      JS_SetProperty(cx, global, "setWindowDimensions", undef);
++      JS_DeleteProperty(cx, global, "setWindowDimensions");
++    }
++  }
++}
++
+ Worklet* nsGlobalWindowInner::GetPaintWorklet(ErrorResult& aRv) {
+   if (!mPaintWorklet) {
+     nsIPrincipal* principal = GetPrincipal();
+diff --git a/dom/base/nsGlobalWindowInner.h b/dom/base/nsGlobalWindowInner.h
+index 9972f17260..c25b070cc4 100644
+--- a/dom/base/nsGlobalWindowInner.h
++++ b/dom/base/nsGlobalWindowInner.h
+@@ -677,6 +677,10 @@ class nsGlobalWindowInner final : public mozilla::dom::EventTarget,
+   // Screen dimension methods for per-context screen spoofing
+   void SetScreenDimensions(int32_t aWidth, int32_t aHeight, mozilla::ErrorResult& aRv);
+   void SetScreenColorDepth(int32_t aColorDepth, mozilla::ErrorResult& aRv);
++  void SetWindowDimensions(int32_t aOuterWidth, int32_t aOuterHeight,
++                           int32_t aInnerWidth, int32_t aInnerHeight,
++                           int32_t aScreenX, int32_t aScreenY,
++                           mozilla::ErrorResult& aRv);
+ 
+   // Audio fingerprint seed for per-context audio fingerprinting
+   void SetAudioFingerprintSeed(uint32_t seed, mozilla::ErrorResult& aRv);
+diff --git a/dom/webidl/Window.webidl b/dom/webidl/Window.webidl
+index 88e8d85eb0..05bb3f75d6 100644
+--- a/dom/webidl/Window.webidl
++++ b/dom/webidl/Window.webidl
+@@ -941,6 +941,14 @@ partial interface Window {
+   undefined setScreenColorDepth(long colorDepth);
+ };
+ 
++// Window dimensions for per-context spoofing
++partial interface Window {
++  [Throws, Func="mozilla::dom::ScreenDimensionManager::IsWindowFunctionEnabledForWebIDL"]
++  undefined setWindowDimensions(long outerWidth, long outerHeight,
++                                long innerWidth, long innerHeight,
++                                long screenX, long screenY);
++};
++
+ partial interface Window {
+   [SameObject, Replaceable]
+   readonly attribute VisualViewport visualViewport;

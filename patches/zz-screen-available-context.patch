@@ -1,0 +1,232 @@
+diff --git a/dom/base/ScreenDimensionManager.cpp b/dom/base/ScreenDimensionManager.cpp
+index 5caf4f7002..3611237775 100644
+--- a/dom/base/ScreenDimensionManager.cpp
++++ b/dom/base/ScreenDimensionManager.cpp
+@@ -54,6 +54,47 @@ ScreenDimensionManager::GetDimensions(uint32_t aUserContextId, int32_t* aWidth,
+   return false;
+ }
+ 
++/* static */ void
++ScreenDimensionManager::SetAvailableRect(uint32_t aUserContextId,
++                                         int32_t aWidth, int32_t aHeight,
++                                         int32_t aLeft, int32_t aTop) {
++  nsString widthKey, heightKey, leftKey, topKey;
++  widthKey.AppendPrintf("screenAvailWidth_%u", aUserContextId);
++  heightKey.AppendPrintf("screenAvailHeight_%u", aUserContextId);
++  leftKey.AppendPrintf("screenAvailLeft_%u", aUserContextId);
++  topKey.AppendPrintf("screenAvailTop_%u", aUserContextId);
++  RoverfoxStorageManager::PutUint(widthKey, static_cast<uint32_t>(aWidth));
++  RoverfoxStorageManager::PutUint(heightKey, static_cast<uint32_t>(aHeight));
++  RoverfoxStorageManager::PutUint(leftKey, static_cast<uint32_t>(aLeft));
++  RoverfoxStorageManager::PutUint(topKey, static_cast<uint32_t>(aTop));
++}
++
++/* static */ bool
++ScreenDimensionManager::GetAvailableRect(uint32_t aUserContextId,
++                                         int32_t* aWidth, int32_t* aHeight,
++                                         int32_t* aLeft, int32_t* aTop) {
++  nsString widthKey, heightKey, leftKey, topKey;
++  widthKey.AppendPrintf("screenAvailWidth_%u", aUserContextId);
++  heightKey.AppendPrintf("screenAvailHeight_%u", aUserContextId);
++  leftKey.AppendPrintf("screenAvailLeft_%u", aUserContextId);
++  topKey.AppendPrintf("screenAvailTop_%u", aUserContextId);
++
++  uint32_t width = 0, height = 0, left = 0, top = 0;
++  RoverfoxStorageManager::GetUint(widthKey, width);
++  RoverfoxStorageManager::GetUint(heightKey, height);
++  RoverfoxStorageManager::GetUint(leftKey, left);
++  RoverfoxStorageManager::GetUint(topKey, top);
++
++  if (width > 0 && height > 0) {
++    *aWidth = static_cast<int32_t>(width);
++    *aHeight = static_cast<int32_t>(height);
++    *aLeft = static_cast<int32_t>(left);
++    *aTop = static_cast<int32_t>(top);
++    return true;
++  }
++  return false;
++}
++
+ /* static */ void
+ ScreenDimensionManager::SetColorDepth(uint32_t aUserContextId, int32_t aColorDepth) {
+   nsString key;
+@@ -166,6 +207,19 @@ ScreenDimensionManager::DisableFunction(uint32_t userContextId) {
+   RoverfoxStorageManager::PutBool(key, true);
+ }
+ 
++/* static */ nsString
++ScreenDimensionManager::AvailableDisabledKeyForUserContext(uint32_t userContextId) {
++  nsString key;
++  key.AppendPrintf("screen_avail_disabled_%u", userContextId);
++  return key;
++}
++
++/* static */ void
++ScreenDimensionManager::DisableAvailableFunction(uint32_t userContextId) {
++  nsString key = AvailableDisabledKeyForUserContext(userContextId);
++  RoverfoxStorageManager::PutBool(key, true);
++}
++
+ /* static */ nsString
+ ScreenDimensionManager::WindowDisabledKeyForUserContext(uint32_t userContextId) {
+   nsString key;
+@@ -196,6 +250,25 @@ ScreenDimensionManager::IsFunctionEnabledForWebIDL(JSContext* aCx, JSObject* aOb
+   return !disabled;
+ }
+ 
++/* static */ bool
++ScreenDimensionManager::IsAvailableFunctionEnabledForWebIDL(JSContext* aCx,
++                                                            JSObject* aObj) {
++  nsGlobalWindowInner* win = xpc::WindowOrNull(aObj);
++  if (!win) {
++    return false;
++  }
++
++  uint32_t userContextId = 0;
++  if (BrowsingContext* bc = win->GetBrowsingContext()) {
++    userContextId = bc->OriginAttributesRef().mUserContextId;
++  }
++
++  bool disabled = false;
++  RoverfoxStorageManager::GetBool(AvailableDisabledKeyForUserContext(userContextId),
++                                  disabled);
++  return !disabled;
++}
++
+ /* static */ bool
+ ScreenDimensionManager::IsWindowFunctionEnabledForWebIDL(JSContext* aCx,
+                                                          JSObject* aObj) {
+diff --git a/dom/base/ScreenDimensionManager.h b/dom/base/ScreenDimensionManager.h
+index bb8aaec9e2..bf9c7aaa05 100644
+--- a/dom/base/ScreenDimensionManager.h
++++ b/dom/base/ScreenDimensionManager.h
+@@ -26,6 +26,12 @@ class ScreenDimensionManager {
+   // Set/get screen dimensions for a user context
+   static void SetDimensions(uint32_t aUserContextId, int32_t aWidth, int32_t aHeight);
+   static bool GetDimensions(uint32_t aUserContextId, int32_t* aWidth, int32_t* aHeight);
++  static void SetAvailableRect(uint32_t aUserContextId, int32_t aWidth,
++                               int32_t aHeight, int32_t aLeft,
++                               int32_t aTop);
++  static bool GetAvailableRect(uint32_t aUserContextId, int32_t* aWidth,
++                               int32_t* aHeight, int32_t* aLeft,
++                               int32_t* aTop);
+ 
+   // Set/get color depth for a user context
+   static void SetColorDepth(uint32_t aUserContextId, int32_t aColorDepth);
+@@ -45,14 +51,17 @@ class ScreenDimensionManager {
+ 
+   // Self-destruct support
+   static void DisableFunction(uint32_t userContextId);
++  static void DisableAvailableFunction(uint32_t userContextId);
+   static void DisableWindowFunction(uint32_t userContextId);
+ 
+   // WebIDL exposure check
+   static bool IsFunctionEnabledForWebIDL(JSContext* aCx, JSObject* aObj);
++  static bool IsAvailableFunctionEnabledForWebIDL(JSContext* aCx, JSObject* aObj);
+   static bool IsWindowFunctionEnabledForWebIDL(JSContext* aCx, JSObject* aObj);
+ 
+  private:
+   static nsString DisabledKeyForUserContext(uint32_t userContextId);
++  static nsString AvailableDisabledKeyForUserContext(uint32_t userContextId);
+   static nsString WindowDisabledKeyForUserContext(uint32_t userContextId);
+   static void WindowKey(uint32_t aUserContextId, const char* aName,
+                         nsString& aKey);
+diff --git a/dom/base/nsGlobalWindowInner.cpp b/dom/base/nsGlobalWindowInner.cpp
+index eefd4b2f30..672861ae2f 100644
+--- a/dom/base/nsGlobalWindowInner.cpp
++++ b/dom/base/nsGlobalWindowInner.cpp
+@@ -7804,6 +7804,32 @@ void nsGlobalWindowInner::SetScreenDimensions(int32_t aWidth, int32_t aHeight,
+   }
+ }
+ 
++void nsGlobalWindowInner::SetScreenAvailableRect(int32_t aWidth,
++                                                 int32_t aHeight,
++                                                 int32_t aLeft, int32_t aTop,
++                                                 ErrorResult& aRv) {
++  uint32_t userContextId = ScreenDimensionManager::GetUserContextIdFromWindow(this);
++
++  if (aWidth <= 0 || aHeight <= 0 || aLeft < 0 || aTop < 0) {
++    aRv.ThrowTypeError(
++        "Screen available dimensions must be positive and offsets must be non-negative");
++    return;
++  }
++
++  ScreenDimensionManager::SetAvailableRect(userContextId, aWidth, aHeight,
++                                           aLeft, aTop);
++  ScreenDimensionManager::DisableAvailableFunction(userContextId);
++
++  if (JSContext* cx = nsContentUtils::GetCurrentJSContext()) {
++    JS::Rooted<JSObject*> global(cx, JS::CurrentGlobalOrNull(cx));
++    if (global) {
++      JS::Rooted<JS::Value> undef(cx, JS::UndefinedValue());
++      JS_SetProperty(cx, global, "setScreenAvailableRect", undef);
++      JS_DeleteProperty(cx, global, "setScreenAvailableRect");
++    }
++  }
++}
++
+ void nsGlobalWindowInner::SetScreenColorDepth(int32_t aColorDepth,
+                                               ErrorResult& aRv) {
+   uint32_t userContextId = ScreenDimensionManager::GetUserContextIdFromWindow(this);
+diff --git a/dom/base/nsGlobalWindowInner.h b/dom/base/nsGlobalWindowInner.h
+index c25b070cc4..69b1b57c77 100644
+--- a/dom/base/nsGlobalWindowInner.h
++++ b/dom/base/nsGlobalWindowInner.h
+@@ -676,6 +676,9 @@ class nsGlobalWindowInner final : public mozilla::dom::EventTarget,
+ 
+   // Screen dimension methods for per-context screen spoofing
+   void SetScreenDimensions(int32_t aWidth, int32_t aHeight, mozilla::ErrorResult& aRv);
++  void SetScreenAvailableRect(int32_t aWidth, int32_t aHeight,
++                              int32_t aLeft, int32_t aTop,
++                              mozilla::ErrorResult& aRv);
+   void SetScreenColorDepth(int32_t aColorDepth, mozilla::ErrorResult& aRv);
+   void SetWindowDimensions(int32_t aOuterWidth, int32_t aOuterHeight,
+                            int32_t aInnerWidth, int32_t aInnerHeight,
+diff --git a/dom/base/nsScreen.cpp b/dom/base/nsScreen.cpp
+index bf707632d3..b9bbf780c9 100644
+--- a/dom/base/nsScreen.cpp
++++ b/dom/base/nsScreen.cpp
+@@ -138,15 +138,16 @@ CSSIntRect nsScreen::GetAvailRect() {
+       nsGlobalWindowInner* win = nsGlobalWindowInner::Cast(inner);
+       if (win) {
+         uint32_t userContextId = mozilla::dom::ScreenDimensionManager::GetUserContextIdFromWindow(win);
+-        int32_t w = 0, h = 0;
+-        if (mozilla::dom::ScreenDimensionManager::GetDimensions(userContextId, &w, &h)) {
+-          int32_t availTop = 25;
+-          if (auto screen = MaskConfig::Profile().getScreen()) {
+-            if (auto top = screen->getAvailTop(); top.has_value()) {
+-              availTop = *top;
+-            }
+-          }
+-          return {0, availTop, w, h - availTop};
++        int32_t w = 0, h = 0, left = 0, top = 0;
++        if (mozilla::dom::ScreenDimensionManager::GetAvailableRect(
++                userContextId, &w, &h, &left, &top)) {
++          return {left, top, w, h};
++        }
++        int32_t screenW = 0, screenH = 0;
++        if (mozilla::dom::ScreenDimensionManager::GetDimensions(userContextId,
++                                                                &screenW,
++                                                                &screenH)) {
++          return {0, 0, screenW, screenH};
+         }
+       }
+     }
+diff --git a/dom/webidl/Window.webidl b/dom/webidl/Window.webidl
+index 05bb3f75d6..2bfe19773c 100644
+--- a/dom/webidl/Window.webidl
++++ b/dom/webidl/Window.webidl
+@@ -935,6 +935,13 @@ partial interface Window {
+   undefined setScreenDimensions(long width, long height);
+ };
+ 
++// Screen available rectangle for per-context screen spoofing
++partial interface Window {
++  [Throws, Func="mozilla::dom::ScreenDimensionManager::IsAvailableFunctionEnabledForWebIDL"]
++  undefined setScreenAvailableRect(long width, long height,
++                                   long left, long top);
++};
++
+ // Screen color depth for per-context screen spoofing
+ partial interface Window {
+   [Throws, Func="mozilla::dom::ScreenDimensionManager::IsFunctionEnabledForWebIDL"]

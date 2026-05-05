@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from browserforge.fingerprints import Fingerprint
@@ -11,6 +12,22 @@ from .fingerprinting.compiler import browserforge_target_os as _browserforge_tar
 from .fingerprinting.compiler import preset_target_os as _preset_target_os
 
 _GENERATED_FINGERPRINT_IDS: set[int] = set()
+
+
+def _derive_browser_major_version(browser: Any) -> str | None:
+    version = getattr(browser, "version", None)
+    if callable(version):
+        try:
+            version = version()
+        except TypeError:
+            return None
+    if not isinstance(version, str):
+        return None
+
+    match = re.search(r"\b(\d+)(?:\.\d+)*\b", version)
+    if not match:
+        return None
+    return match.group(1)
 
 
 def generate_context_fingerprint(
