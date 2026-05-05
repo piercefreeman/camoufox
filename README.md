@@ -4,7 +4,7 @@
 
 Giving your agents the power to browse the web is like giving them superpowers. You can automate almost anything. Rotunda is a browser built for agents from the ground up. Sick of seeing more captchas in Claude than when you open Chrome and do it yourself? Try Rotunda.
 
-## Getting Started
+## Getting started
 
 Install Rotunda into your Python project with `uv`, then fetch the latest Rotunda browser build:
 
@@ -46,7 +46,7 @@ Instead Rotunda focuses on providing a browser that looks fully human, without l
 
 This results in a browser that's not suitable for crawling. For public sites you should be automating that in the cloud anyway via [Browserbase](https://browserbase.com/), [Kernel](https://kernel.sh/), or [ScrapingBee](https://www.scrapingbee.com/). But it's _very_ suitable when you're delegating tasks to your Agents. It's like having a fleet of interns that are doing useful work on your home network.
 
-## Fingerprint Blocked?
+## Fingerprint blocked?
 
 You're a lot less likely to get flagged as a bot with our host-passthrough approach. But that doesn't mean it's impossible. First we recommend you open the same site in Chrome/Firefox and see if you still start seeing flags. If you do it might be because of your IP reputation.
 
