@@ -852,6 +852,289 @@ def gui(debug):
         )
 
 
+@cli.group(name="agent")
+def agent_cmd():
+    """
+    Agent-friendly browser control commands.
+    """
+
+
+@agent_cmd.command(name="new-profile")
+@click.option("--name", default=None, help="Optional profile label.")
+@click.option("--headless/--headed", default=True, help="Run the browser headless.")
+def agent_new_profile(name: str | None, headless: bool) -> None:
+    """
+    Create an agent profile under ~/.rotunda.
+    """
+    from .agent.store import AgentStore
+
+    store = AgentStore()
+    profile = store.create_profile(name=name, headless=headless)
+    resource = store.register(
+        kind="profile",
+        id=profile["id"],
+        label=profile["name"],
+    )
+    click.echo(f"[{resource.idx}] profile {profile['id']}")
+    click.echo(f"    path: {profile['profile_dir']}")
+    click.echo("    browser: rotunda")
+
+
+@agent_cmd.command(name="new-context")
+@click.argument("profile")
+def agent_new_context(profile: str) -> None:
+    """
+    Create or attach to a browser context for a profile idx.
+    """
+    from .agent.store import AgentStore
+
+    store = AgentStore()
+    profile_resource = _agent_resolve(store, profile, kind="profile")
+    client = _agent_client(store, profile_resource.id)
+    data = _agent_post(client, "/new-context")
+    context_resource = store.register(
+        kind="context",
+        id=data["context_id"],
+        profile_id=profile_resource.id,
+        parent_id=profile_resource.id,
+        label=f"profile {profile_resource.idx}",
+    )
+    click.echo(f"[{context_resource.idx}] context {context_resource.id}")
+    for page in data.get("pages", []):
+        _agent_register_page(store, page, context_resource)
+
+
+@agent_cmd.command(name="new-page")
+@click.argument("context")
+def agent_new_page(context: str) -> None:
+    """
+    Create a page from a context idx.
+    """
+    from .agent.store import AgentStore
+
+    store = AgentStore()
+    context_resource = _agent_resolve(store, context, kind="context")
+    if not context_resource.profile_id:
+        raise click.ClickException("Context has no profile.")
+    client = _agent_client(store, context_resource.profile_id)
+    data = _agent_post(client, "/new-page")
+    _agent_register_page(store, data["page"], context_resource)
+
+
+@agent_cmd.command(name="navigate")
+@click.argument("page")
+@click.argument("url")
+@click.option(
+    "--wait-until",
+    default="domcontentloaded",
+    type=click.Choice(["commit", "domcontentloaded", "load", "networkidle"]),
+    help="Playwright navigation wait state.",
+)
+def agent_navigate(page: str, url: str, wait_until: str) -> None:
+    """
+    Navigate a page idx to a URL.
+    """
+    from .agent.store import AgentStore
+
+    store = AgentStore()
+    page_resource = _agent_resolve(store, page, kind="page")
+    if not page_resource.profile_id:
+        raise click.ClickException("Page has no profile.")
+    client = _agent_client(store, page_resource.profile_id)
+    data = _agent_post(
+        client,
+        "/navigate",
+        {
+            "page_id": page_resource.id,
+            "url": _agent_normalize_url(url),
+            "wait_until": wait_until,
+        },
+    )
+    _agent_update_page(store, data["page"], page_resource)
+
+
+@agent_cmd.command(name="list")
+@click.argument("page")
+@click.option("--max-items", default=200, show_default=True, help="Maximum DOM items.")
+def agent_list(page: str, max_items: int) -> None:
+    """
+    Dump an agent-friendly DOM representation for a page idx.
+    """
+    from .agent.store import AgentStore
+
+    store = AgentStore()
+    page_resource = _agent_resolve(store, page, kind="page")
+    if not page_resource.profile_id:
+        raise click.ClickException("Page has no profile.")
+    client = _agent_client(store, page_resource.profile_id)
+    data = _agent_post(
+        client,
+        "/list",
+        {"page_id": page_resource.id, "max_items": max_items},
+    )
+    _agent_update_page(store, data["page"], page_resource)
+    if data.get("text"):
+        click.echo(data["text"])
+
+
+@agent_cmd.command(name="click")
+@click.argument("page")
+@click.argument("ref")
+def agent_click(page: str, ref: str) -> None:
+    """
+    Click a DOM ref from the last list output for a page idx.
+    """
+    from .agent.store import AgentStore
+
+    store = AgentStore()
+    page_resource = _agent_resolve(store, page, kind="page")
+    if not page_resource.profile_id:
+        raise click.ClickException("Page has no profile.")
+    client = _agent_client(store, page_resource.profile_id)
+    data = _agent_post(client, "/click", {"page_id": page_resource.id, "ref": ref})
+    _agent_update_page(store, data["page"], page_resource)
+    if data.get("text"):
+        click.echo(data["text"])
+
+
+@agent_cmd.command(name="enter")
+@click.argument("page")
+@click.argument("ref")
+@click.argument("text")
+@click.option("--submit", is_flag=True, help="Press Enter after filling text.")
+def agent_enter(page: str, ref: str, text: str, submit: bool) -> None:
+    """
+    Fill text into a DOM ref from the last list output for a page idx.
+    """
+    from .agent.store import AgentStore
+
+    store = AgentStore()
+    page_resource = _agent_resolve(store, page, kind="page")
+    if not page_resource.profile_id:
+        raise click.ClickException("Page has no profile.")
+    client = _agent_client(store, page_resource.profile_id)
+    data = _agent_post(
+        client,
+        "/enter",
+        {
+            "page_id": page_resource.id,
+            "ref": ref,
+            "text": text,
+            "submit": submit,
+        },
+    )
+    _agent_update_page(store, data["page"], page_resource)
+    if data.get("text"):
+        click.echo(data["text"])
+
+
+@agent_cmd.command(name="resources")
+@click.option(
+    "--kind",
+    type=click.Choice(["profile", "context", "page"]),
+    default=None,
+    help="Filter resource kind.",
+)
+def agent_resources(kind: str | None) -> None:
+    """
+    List saved agent resource indexes.
+    """
+    from .agent.store import AgentStore
+
+    store = AgentStore()
+    for resource in store.list_resources(kind=kind):
+        suffix = f" {resource.label}" if resource.label else ""
+        click.echo(f"[{resource.idx}] {resource.kind} {resource.id}{suffix}")
+
+
+@agent_cmd.command(name="stop")
+@click.argument("profile", required=False)
+def agent_stop(profile: str | None) -> None:
+    """
+    Stop the daemon for a profile idx.
+    """
+    from contextlib import suppress
+
+    from .agent.client import AgentClient, AgentClientError
+    from .agent.store import AgentStore
+
+    store = AgentStore()
+    profile_resource = _agent_resolve(store, profile, kind="profile")
+    session = store.load_session(profile_resource.id)
+    if not session:
+        click.echo(f"No running daemon for profile {profile_resource.id}.")
+        return
+    with suppress(AgentClientError):
+        AgentClient(session).post("/shutdown")
+    store.remove_session(profile_resource.id)
+    click.echo(f"Stopped profile {profile_resource.id}.")
+
+
+def _agent_client(store, profile_id: str):
+    from .agent.client import AgentClientError, ensure_daemon
+
+    try:
+        return ensure_daemon(profile_id, store=store)
+    except AgentClientError as exc:
+        raise click.ClickException(_agent_clean_error(exc)) from None
+
+
+def _agent_post(client, path: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
+    from .agent.client import AgentClientError
+
+    try:
+        return client.post(path, payload)
+    except AgentClientError as exc:
+        raise click.ClickException(_agent_clean_error(exc)) from None
+
+
+def _agent_resolve(store, ref: str | None, *, kind: str):
+    try:
+        return store.resolve(ref, kind=kind)
+    except KeyError as exc:
+        raise click.ClickException(_agent_clean_error(exc)) from None
+
+
+def _agent_register_page(store, page: dict[str, str], context_resource) -> None:
+    page_resource = store.register(
+        kind="page",
+        id=page["id"],
+        profile_id=context_resource.profile_id,
+        parent_id=context_resource.id,
+        label=page.get("url") or "about:blank",
+    )
+    _agent_print_page(page_resource.idx, page)
+
+
+def _agent_update_page(store, page: dict[str, str], page_resource) -> None:
+    updated = store.register(
+        kind="page",
+        id=page["id"],
+        profile_id=page_resource.profile_id,
+        parent_id=page_resource.parent_id,
+        label=page.get("url") or page_resource.label,
+    )
+    _agent_print_page(updated.idx, page)
+
+
+def _agent_print_page(idx: int, page: dict[str, str]) -> None:
+    title = f" title={page['title']!r}" if page.get("title") else ""
+    click.echo(f"[{idx}] page {page['id']} {page.get('url', '')}{title}")
+
+
+def _agent_normalize_url(url: str) -> str:
+    if "://" in url or url.startswith(("about:", "data:", "file:")):
+        return url
+    return f"https://{url}"
+
+
+def _agent_clean_error(exc: BaseException) -> str:
+    message = str(exc)
+    if len(message) >= 2 and message[0] == message[-1] == "'":
+        message = message[1:-1]
+    return message
+
+
 class VersionInfo:
     def __init__(self):
         from rich.table import Table
