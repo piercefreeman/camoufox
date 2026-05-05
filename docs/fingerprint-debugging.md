@@ -215,8 +215,15 @@ CAMOUFOX_VM_ACCESS_LOG=1
 CAMOUFOX_VM_ACCESS_FILTER='fingerprint'
 CAMOUFOX_VM_ACCESS_OBJECT_FILTER='Window'
 CAMOUFOX_VM_ACCESS_SYMBOLS=1
-CAMOUFOX_VM_ACCESS_MAX_ARGS=16
+CAMOUFOX_VM_ACCESS_RETURNS=1
+CAMOUFOX_VM_ACCESS_BUFFERED=1
+CAMOUFOX_VM_ACCESS_REALM=1
+CAMOUFOX_VM_ACCESS_VALUE_STRINGS=1
+CAMOUFOX_VM_ACCESS_FUNCTION_NAMES=1
+CAMOUFOX_VM_ACCESS_SAMPLE_RATE=1
+CAMOUFOX_VM_ACCESS_MAX_ARGS=8
 CAMOUFOX_VM_ACCESS_MAX_STRING=256
+CAMOUFOX_VM_ACCESS_MAX_QUEUE_BYTES=67108864
 ```
 
 Under Playwright, browser stderr is not reliably visible from the Python launch
@@ -242,7 +249,123 @@ The logger records:
 - Property gets and `in` checks.
 - `getOwnPropertyDescriptor`.
 - `ownKeys`.
-- Native and scripted calls, including callee name, `this` class, and arguments.
+- Native and scripted calls, including callee name, `this` class, and capped
+  argument previews.
+- Return previews for calls, property gets, and `in` checks when
+  `CAMOUFOX_VM_ACCESS_RETURNS=1`.
+- String return/argument contents only when
+  `CAMOUFOX_VM_ACCESS_VALUE_STRINGS=1`; otherwise strings are logged as the
+  cheaper `<string>` marker.
+- Native caller and target realm attribution when `CAMOUFOX_VM_ACCESS_REALM=1`,
+  which usually identifies both the script owner and the page/frame/global owner
+  of the object being inspected without adding page-visible wrappers.
+
+When `CAMOUFOX_VM_ACCESS_LOG_FILE` is set, the logger uses a native buffered
+writer thread by default. The JS execution thread records compact structured
+events with interned string ids and primitive previews; the writer thread formats
+the grep-friendly text lines. Set `CAMOUFOX_VM_ACCESS_BUFFERED=0` only when
+debugging the logger itself. If a full unfiltered run outpaces the writer,
+overflow is reported as
+`op=log-dropped ... reason=queue-full`; raise
+`CAMOUFOX_VM_ACCESS_MAX_QUEUE_BYTES` for short local sessions where completeness
+matters more than memory.
+Use `CAMOUFOX_VM_ACCESS_SAMPLE_RATE=N` to record roughly every Nth VM event when
+the full stream still changes page timing too much. Use
+`CAMOUFOX_VM_ACCESS_FUNCTION_NAMES=0` if function-name lookup itself becomes a
+hot-path cost; object value previews still report class names either way.
+
+## Debug Dump Mode
+
+This debugging session would have been much shorter with one reproducible dump
+directory containing the browser identity, network traffic, VM accesses, and
+selected high-value API outputs. The Python launch/context path now supports
+this small env-flag surface:
+
+```sh
+CAMOUFOX_DEBUG_DUMP_DIR=/tmp/camoufox-debug
+CAMOUFOX_DEBUG_DUMP=manifest,network,console,vm,returns
+CAMOUFOX_DEBUG_DUMP_MAX_BODY=1048576
+```
+
+Set `CAMOUFOX_DEBUG_DUMP_RAW=1` only for isolated local repros where secrets are
+not a concern. Without raw mode, obvious credentials in headers and common token
+strings are redacted.
+The `returns` section implies `vm` because native return previews are emitted by
+the VM access logger.
+Do not implement dump collection by replacing or wrapping page-visible
+JavaScript APIs. Anything injected into the page realm changes function identity,
+property descriptors, stack traces, or timing and is itself fingerprintable.
+
+The dump is JSONL-first so normal shell tools work:
+
+- `manifest.json`: executable path, `browser.version`, generated UA, context UA,
+  Firefox prefs, config payload, `dist/bin/XUL` hash, app-bundle `XUL` hash, and
+  mtimes. This would have caught the stale `.app` `XUL` problem immediately.
+- `network.jsonl`: request id, frame URL, method, URL, request headers, posted
+  body, status, response headers, response body, timing, and redirect chain.
+  PixelScan's `/s/api/co` response explicitly exposed `osFontsStatus:false`, so
+  response-body capture is as important as request capture.
+- `console.jsonl`: console method, arguments, stack/script URL when available,
+  page errors, and uncaught exceptions. This should capture debug output from
+  patched third-party agents without relying on browser stderr.
+- `vm-access.log`: the existing native VM property/call records. When `vm` is
+  enabled, the Python launcher automatically sets `CAMOUFOX_VM_ACCESS_LOG=1` and
+  points `CAMOUFOX_VM_ACCESS_LOG_FILE` at this file. It also enables the native
+  buffered writer and realm attribution. When `returns` is enabled, it sets
+  `CAMOUFOX_VM_ACCESS_RETURNS=1`, which adds return-preview lines for
+  native/scripted calls plus property `get` and `in` checks. Set
+  `CAMOUFOX_VM_ACCESS_VALUE_STRINGS=1` for investigations where actual string
+  values such as `Error.stack` matter more than timing fidelity.
+
+Network logging and return logging solve different problems and both are needed:
+
+- Network dumps show the server verdict and often name the failed check directly
+  (`developer_tools`, `osFontsStatus`, `result:false`).
+- VM return dumps show what page JavaScript actually observed before it built or
+  encrypted a payload, such as `Error.stack`, `navigator.userAgent`,
+  `screen.availHeight`, canvas hashes, or font probe measurements. Actual
+  string contents require `CAMOUFOX_VM_ACCESS_VALUE_STRINGS=1`; numbers,
+  booleans, object classes, and error markers are captured without that flag.
+- Native surface-specific summaries would keep logs grepable when generic VM
+  logging produces too much data or enormous binary strings.
+
+Implemented:
+
+- Add a Python-side network dump hook for all `NewContext`/`AsyncNewContext`
+  contexts when `CAMOUFOX_DEBUG_DUMP` includes `network`.
+- Add console and page-error dumps for pages created from a debug-dump context.
+- Automatically route existing native VM logs into the dump directory when `vm`
+  is enabled.
+- Add native return previews for calls, property gets, and `in` checks when
+  `returns` is enabled.
+- Move native VM file writes and flushes to a buffered writer thread, with a
+  bounded queue and explicit drop markers on overflow.
+- Move VM line formatting to the native writer thread by queueing compact
+  structured events, with interned strings, capped call arguments, optional
+  string-value capture, and event sampling.
+- Add caller and target realm-name attribution to VM lines so script reads can
+  be tied back to the native frame/global owner without page-context
+  instrumentation.
+- Add body-size limits, binary hashing, and default redaction for `Cookie`,
+  `Authorization`, proxy credentials, and bearer-like strings. Provide an
+  explicit raw mode for isolated local repros.
+
+Remaining TODOs:
+
+- Convert native VM logs to JSONL and include stable browsing context id, user
+  context id, frame id, frame URL, and script URL where those are available.
+  Caller and target realm names are useful attribution now, but they are not a
+  complete frame identity model.
+- Add native-only surface logs for fingerprint-heavy APIs: canvas, fonts, WebGL,
+  AudioContext, WebRTC, screen/window, navigator, timezone/locale, and
+  `Error.stack`. These must be below the page JS layer, not wrappers installed
+  with `add_init_script`.
+- Use a single monotonically increasing event id across manifest, network, VM,
+  console, and surface logs so a request can be correlated with the JS reads and
+  calls that produced it. The Python JSONL files have per-writer event ids
+  today; native VM logs and cross-process coordination do not.
+- Include a one-command repro harness that launches a URL, waits for network
+  idle or a selector, writes the dump, and exits cleanly.
 
 ## Repro Harness
 

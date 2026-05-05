@@ -31,6 +31,7 @@ from ._generated_profile import (
 )
 from ._warnings import LeakWarning
 from .addons import DefaultAddons, add_default_addons, confirm_paths
+from .debug_dump import configure_launch_debug_dump
 from .exceptions import InvalidOS, InvalidPropertyType, NonFirefoxFingerprint
 from .fingerprinting import normalize_target_os
 from .fingerprinting.common import HostTargetOS
@@ -383,12 +384,20 @@ class LaunchOptionBuilder:
         _debug_log(self.debug, "Validating generated config against Camoufox profile schema.")
         validate_config(config, path=resolved_executable)
 
+        runtime_env = {
+            **env,
+            **get_env_vars(config, _user_agent_os(config)),
+        }
+        configure_launch_debug_dump(
+            runtime_env,
+            executable_path=resolved_executable_path,
+            firefox_user_prefs=firefox_user_prefs,
+            config=config,
+        )
+
         result = {
             "args": args,
-            "env": {
-                **env,
-                **get_env_vars(config, _user_agent_os(config)),
-            },
+            "env": runtime_env,
             "executable_path": resolved_executable_path,
             "firefox_user_prefs": firefox_user_prefs,
             "headless": self.headless,

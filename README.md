@@ -1,298 +1,57 @@
-# Camoufox
+# Cadence
 
-This repository is a fork of the original [daijro/camoufox](https://github.com/daijro/camoufox).
+Giving your Agents the power to browse the web is like giving them superpowers. You can automate almost anything. Cadence is a browser built for Agents from the ground up. Sick of seeing more captchas and roadblocks than when you open Chrome and do it yourself? Try Cadence.
 
-The upstream project has the broader product docs and Python usage docs. This fork is focused more on automation than it is on crawling; it gives your Agents access to a browser that works almost identically to your daily driver.
+## Getting Started
+
+```python
+TODO
+```
+
+## On stealth browsing
+
+Web automation is incredible. Unfortunately for us, so many people have abused the automation powers of browsers in the past (ticket scalpers, shoe resellers) that sites have poured billions into detecting anything that's not a human. If you run Chrome over CDP with Playwright you'll know what I'm talking about. You get recaptchas, refusals to login, or subtle changes in behavior.
+
+"Stealth" plugins advertise that they're able to evade these detections. But all stealth plugins are flawed. They often rely on overriding Javascript properties to return fake values that simulate another browser. Fingerprinters will check if these function implementations are native or non-native. Non-native never happens in the wild so you're flagged as a bot. Other plugins will fork Chromium and patch code that do the same things on the backend, so you'll be unable to detect them by sniffing Javascript state. Fingerprinters then use browser accessories like the canvas or audio drivers to detect anomalies with known devices. And so you're flagged as a bot. And on and on.
+
+This cat and mouse game has been around since the beginning of the web. As fingerprinting has switched from adhoc to statistical, the burden has shifted dramatically to the stealth implementers. Our view at Cadence is it's _impossible to compellingly lie about your browser fingerprint_. In the law of large numbers, and the surface area of APIs that browsers have to support, there's some way to detect that you're anomalous. The sites only need one thing wrong to prove that you're faking your whole identity. You need to patch every surface area, simulate the subtleties of every GPU driver, and honestly it's just not a game worth playing.
+
+Instead Cadence focuses on providing a browser that looks fully human, without lying about its underlying identity. We _want_ to look like it's actually running on your laptop - and instead focus on making sure no automation signatures can be detected. This includes making sure that Playwright can't be detected as the driver controlling your screen, and that any mouse movements tween as if, and that keyboard clicks have some occasional errors. Instead of lying about your fingerprint it's better to fib: tell them what GPU and audio drivers you're running on, but lie about some specifics like accessible fonts or extensions or screen size. It's not out of the ordinary for 10 M1 chips to be browsing their site at the same time.
+
+This results in a browser that's not suitable for crawling. For public sites you should be automating that in the cloud anyway via [Browserbase](https://browserbase.com/), [Kernel](https://kernel.sh/), or [ScrapingBee](https://www.scrapingbee.com/). But it's _very_ suitable when you're delegating tasks to your Agents. It's like having a fleet of interns that are doing useful work on your home network.
+
+## Fingerprint Blocked?
+
+You're a lot less likely to get flagged as a bot with our host-passthrough approach. But that doesn't mean it's impossible. First we recommend you open the same site in Chrome/Firefox and see if you still start seeing flags. If you do it might be because of your IP reputation.
+
+If other browsers work fine and you suspect it's at the Cadence level, run the same site with our debugging handlers. This echos the calls that the site makes into the Javascript VM, the return values from those calls, console output, and outgoing page requests sent to their servers. 99.99% of the time these payloads reveal that the site picked up on something anomalous. The only thing they don't really cover is the TCP handshake, but we're using the authentic Firefox protocol for that anyway.
+
+```sh
+export CAMOUFOX_DEBUG_DUMP_DIR=/tmp/cadence-fingerprint-debug
+export CAMOUFOX_DEBUG_DUMP=manifest,network,console,vm,returns
+export CAMOUFOX_VM_ACCESS_SAMPLE_RATE=10
+
+python your_repro_script.py
+zip -r cadence-fingerprint-debug.zip "$CAMOUFOX_DEBUG_DUMP_DIR"
+```
+
+Attach `cadence-fingerprint-debug.zip` to a GitHub Issue with the site URL, what you expected to happen, and what the site reported instead. The dump includes request/response bodies, so review it before sharing and do not set `CAMOUFOX_DEBUG_DUMP_RAW=1` unless a maintainer asks for it.
+
+## Credits
+
+This repository is a fork of the original [daijro/camoufox](https://github.com/daijro/camoufox). camoufox laid the foundation - via much trial and error - for the browser patching techniques used here. They made the case for using Firefox because Juggler is isolated from the browser context (unlike CDP).
+
+Their main focus, however, is on stealth whereas ours is on automation. We want to give your Agents access to a browser that works almost identically to your daily driver.
 
 - Original project: [github.com/daijro/camoufox](https://github.com/daijro/camoufox)
 - Upstream docs: [camoufox.com](https://camoufox.com)
-- Python package code in this repo: [pythonlib/README.md](pythonlib/README.md)
 
-## Getting Started on macOS
+## FAQ
 
-This is the shortest path from a fresh clone to a local macOS build.
+Can't I just control Chrome with computer vision?
 
-> [!IMPORTANT]
-> On macOS, use `make mozbootstrap`.
-> `make bootstrap` is the Linux helper target and will try `apt`, `dnf`, or `pacman`.
-> On a fresh checkout, start with `make setup`.
-> Apple Silicon is the default target in this repo: if `BUILD_TARGET` is unset, [`scripts/patch.py`](scripts/patch.py) falls back to `macos,arm64`.
+You certainly can try! Computer vision isn't a perfect answer here because it's so slow, fills up your context window, and doesn't allow your agent to see any content that's not in the viewport. It's much more convenient to grab the current DOM and parse it into an LLM friendly representation of the page. But grabbing this representation opens you up to the same question of Playwright/CDP control that we were trying to avoid.
 
-### 1. Install the small amount you need up front
+Launching in most cloud VMs to use computer vision also risks leaking state about the underlying host. Most use the same stealth plugins that are pretty easy to detect, which means you're going to eventually get flagged if you use them naturally.
 
-`make setup` needs `aria2c`, and incremental builds are much better with `ccache`.
-
-```bash
-xcode-select --install
-brew install aria2 python ccache
-```
-
-Notes:
-
-- `ccache` is optional, but [`assets/base.mozconfig`](assets/base.mozconfig) is already configured to use it if installed.
-- `make mozbootstrap` handles the heavier Mozilla toolchain setup in `~/.mozbuild`.
-
-### 2. Clone the fork
-
-```bash
-git clone https://github.com/piercefreeman/camoufox.git
-cd camoufox
-```
-
-### 3. Pick your target architecture
-
-Apple Silicon defaults to `macos,arm64`, so you can skip this unless you need Intel.
-
-```bash
-export BUILD_TARGET=macos,x86_64
-```
-
-If you switch targets later, rerun:
-
-```bash
-make set-target
-```
-
-### 4. Download and prepare the Firefox source tree
-
-```bash
-make setup
-```
-
-Use this before your first `make mozbootstrap` or `make build`.
-
-This does four things:
-
-1. Downloads the Firefox source tarball for the version declared in [`upstream.sh`](upstream.sh).
-2. Extracts it into `camoufox-<version>-<release>/`.
-3. Copies this repo's `additions/` and `settings/` into that tree.
-4. Initializes the extracted source as a local git repo tagged at `unpatched`.
-
-### 5. Bootstrap the Mozilla build environment
-
-```bash
-make mozbootstrap
-```
-
-This runs `./mach bootstrap` inside the generated `camoufox-*` source tree and sets up the Mozilla toolchain under `~/.mozbuild`.
-
-### 6. Build Camoufox
-
-```bash
-make build
-```
-
-On the first run, this will:
-
-- apply the repo's patches from `patches/`
-- generate the active `mozconfig`
-- add the required Rust target with `rustup`
-- compile the browser
-
-Cold builds are slow. With `ccache` installed, rebuilds are much faster.
-
-### 7. Run the result
-
-```bash
-make run
-```
-
-Useful output locations:
-
-- Apple Silicon build: `camoufox-*/obj-aarch64-apple-darwin/dist/Camoufox.app`
-- Intel build: `camoufox-*/obj-x86_64-apple-darwin/dist/Camoufox.app`
-
-## When You Need To Rebuild
-
-You only need `make build` when you change browser-side code or bundled browser data.
-
-Rebuild required:
-
-- `patches/`
-- `additions/`
-- `settings/`
-- anything under the extracted `camoufox-*/` Firefox source tree that affects the browser binary or bundled resources
-
-Rebuild not required:
-
-- `pythonlib/camoufox/fingerprints.py`
-- `pythonlib/camoufox/utils.py`
-- `pythonlib/camoufox/sync_api.py`
-- `pythonlib/camoufox/async_api.py`
-- other Python-only wrapper code
-
-Those Python files run at launch time on the client machine. If you only changed fingerprint generation logic, rerun your Python entrypoint against an existing Camoufox binary.
-
-If you changed both sides, the split is simple:
-
-- rebuild the browser so binary-side changes are present
-- rerun the Python code so the new launch/context logic is used
-
-## Launching The Python Fingerprint Flow
-
-The easiest local-dev path is:
-
-1. Build the browser once with `make build`.
-2. Point the Python package at that local executable.
-3. Launch through `NewContext()`, which is where the per-context fingerprint is generated.
-
-From the repo root:
-
-```bash
-uv sync --group dev
-source upstream.sh
-export CAMOUFOX_EXECUTABLE_PATH="$PWD/camoufox-$version-$release/obj-aarch64-apple-darwin/dist/Camoufox.app/Contents/MacOS/camoufox"
-uv run --group dev python -m camoufox test
-```
-
-On Intel macOS, replace `obj-aarch64-apple-darwin` with `obj-x86_64-apple-darwin`.
-
-If startup looks stuck, rerun with `--debug` to print browser-launch and fingerprint-generation logs:
-
-```bash
-uv run --group dev python -m camoufox test --debug
-```
-
-`camoufox test` now opens a controllable Playwright inspector session using the active fingerprint flow:
-
-- BrowserForge generates the Firefox skeleton
-- Camoufox constrains it to the real macOS host
-- `NewContext()` applies the per-context overrides
-
-If you want the Python CLI and default executable resolution path to pick up your local build without passing `executable_path`, package and install it into the local Camoufox cache:
-
-```bash
-make package-macos arch=arm64
-./scripts/install-local-build.sh
-uv run --group dev python -m camoufox test
-```
-
-That is only needed if you want the Python package to resolve the browser through its normal installed-browser lookup. For fast iteration on `pythonlib/`, pointing `CAMOUFOX_EXECUTABLE_PATH` at the repo build is simpler.
-
-## Persona Stability Check
-
-If you want to verify that saved persona files fully capture the browser identity over time, run the persona consistency script from the repo root:
-
-```bash
-uv sync --group dev
-source upstream.sh
-export CAMOUFOX_EXECUTABLE_PATH="$PWD/camoufox-$version-$release/obj-aarch64-apple-darwin/dist/Camoufox.app/Contents/MacOS/camoufox"
-uv run --group dev python example/persona_consistency.py
-```
-
-What it does:
-
-- generates 5 persona JSON files under `.tmp/personas/`
-- launches each persona against CreepJS and extracts its `FP ID`
-- closes all browsers, relaunches from the saved persona files only, and checks the IDs again
-- exits non-zero if any persona drifts between runs
-
-If you want to watch the browsers during the check:
-
-```bash
-uv run --group dev python example/persona_consistency.py --headful
-```
-
-## Fast Path
-
-If you just want the commands without the explanation:
-
-```bash
-xcode-select --install
-brew install aria2 python ccache
-git clone https://github.com/piercefreeman/camoufox.git
-cd camoufox
-make setup
-make mozbootstrap
-make build
-make run
-```
-
-For an Intel Mac, add this before `make setup`:
-
-```bash
-export BUILD_TARGET=macos,x86_64
-```
-
-## Packaging a macOS Artifact
-
-If you want a distributable zip after the build:
-
-```bash
-make package-macos arch=arm64
-```
-
-For Intel:
-
-```bash
-make package-macos arch=x86_64
-```
-
-That writes a file like `camoufox-<version>-<release>-mac.<arch>.zip` in the repo root.
-
-If you prefer the wrapper that builds and moves artifacts into `dist/`, use:
-
-```bash
-python3 multibuild.py --target macos --arch arm64
-```
-
-After that, [`scripts/install-local-build.sh`](scripts/install-local-build.sh) can install the latest zip from `dist/` into the local Camoufox cache.
-
-## Docker Fallback
-
-If native building on your M1 turns out to be flaky or too slow, this repo already has a containerized build path.
-
-That path is not a separate implementation: it follows the same cross-build model used in [`.github/workflows/build.yml`](.github/workflows/build.yml), where macOS artifacts are built on Ubuntu.
-
-Build the image:
-
-```bash
-docker build -t camoufox-builder .
-```
-
-Build a macOS Apple Silicon artifact into `dist/`:
-
-```bash
-mkdir -p dist
-docker run --rm \
-  -v "$(pwd)/dist:/app/dist" \
-  camoufox-builder \
-  --target macos \
-  --arch arm64
-```
-
-If you want the container to reuse an existing Mozilla toolchain cache:
-
-```bash
-docker run --rm \
-  -v "$HOME/.mozbuild:/root/.mozbuild" \
-  -v "$(pwd)/dist:/app/dist" \
-  camoufox-builder \
-  --target macos \
-  --arch arm64
-```
-
-Notes:
-
-- Docker is a fallback, not the only supported path.
-- The artifact will be written to `dist/` as `camoufox-<version>-<release>-mac.arm64.zip`.
-- If you want to mirror CI more closely, inspect [`.github/workflows/build.yml`](.github/workflows/build.yml).
-
-## How This Repo Is Organized
-
-- `patches/` contains the Firefox patch stack applied by [`scripts/patch.py`](scripts/patch.py).
-- `additions/` contains files copied directly into the extracted Firefox source tree before patching.
-- `settings/` contains runtime defaults bundled into the build.
-- `__tests__/` contains the Python-side test suites, including Playwright integration, the build tester, and the service tester.
-- `camoufox-<version>-<release>/` is generated by `make setup` and is disposable local build state, not the source of truth for long-term changes.
-
-If you edit files under `camoufox-*`, expect them to be overwritten by `make dir`, `make clean`, or `make distclean` unless you turn those edits back into a patch.
-
-## Testing
-
-Two test suites live in this repo:
-
-- [`__tests__/build-tester/README.md`](__tests__/build-tester/README.md) for raw browser binary validation
-- [`__tests__/service-tester/README.md`](__tests__/service-tester/README.md) for end-to-end Python package validation
-
-[`CONTRIBUTING.md`](CONTRIBUTING.md) has the expectations for when to run each one.
+Plus computer vision sometimes makes it hard to click around some websites because direct click events are hard to translate cleanly (see reports of Claude being unable to select dropdowns from form lists).

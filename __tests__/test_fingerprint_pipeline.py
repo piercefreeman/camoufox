@@ -752,6 +752,159 @@ def test_launch_options_allows_explicit_asyncstack_override(
     assert options["firefox_user_prefs"]["javascript.options.asyncstack"] is True
 
 
+def test_launch_options_enables_debug_dump_env_and_manifest(
+    modules: tuple[Any, Any, Any],
+    fake_fingerprint: FakeFingerprint,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _, _, utils = modules
+    monkeypatch.setattr(utils, "generate_fingerprint", lambda **_: fake_fingerprint)
+
+    options = utils.launch_options(
+        env={
+            "CAMOUFOX_DEBUG_DUMP_DIR": str(tmp_path),
+            "CAMOUFOX_DEBUG_DUMP": "manifest,returns",
+            "CAMOUFOX_VM_ACCESS_SAMPLE_RATE": "10",
+            "CAMOUFOX_VM_ACCESS_VALUE_STRINGS": "1",
+        },
+        headless=True,
+    )
+
+    assert options["env"]["CAMOUFOX_VM_ACCESS_LOG"] == "1"
+    assert options["env"]["CAMOUFOX_VM_ACCESS_LOG_FILE"] == str(tmp_path / "vm-access.log")
+    assert options["env"]["CAMOUFOX_VM_ACCESS_BUFFERED"] == "1"
+    assert options["env"]["CAMOUFOX_VM_ACCESS_REALM"] == "1"
+    assert options["env"]["CAMOUFOX_VM_ACCESS_RETURNS"] == "1"
+
+    manifest = json.loads((tmp_path / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest["launch"]["executable_path"] == "/tmp/camoufox"
+    assert manifest["launch"]["config"]["navigator"]["userAgent"].endswith("Firefox/150.0")
+    assert manifest["launch"]["xul"]["app_bundle"]["exists"] is False
+    assert manifest["launch"]["env"]["CAMOUFOX_VM_ACCESS_SAMPLE_RATE"] == "10"
+    assert manifest["launch"]["env"]["CAMOUFOX_VM_ACCESS_VALUE_STRINGS"] == "1"
+
+
+def test_new_context_installs_debug_dump_hooks(
+    modules: tuple[Any, Any, Any],
+    fake_fingerprint: FakeFingerprint,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _ = modules
+    sync_api = importlib.import_module("camoufox.sync_api")
+
+    class FakeContext:
+        def __init__(self) -> None:
+            self.handlers: dict[str, list[Any]] = {}
+            self.init_scripts: list[str] = []
+            self.pages: list[Any] = []
+
+        def on(self, event: str, callback: Any) -> None:
+            self.handlers.setdefault(event, []).append(callback)
+
+        def add_init_script(self, script: str) -> None:
+            self.init_scripts.append(script)
+
+    class FakeBrowser:
+        version = "150.0.1"
+        _camoufox_debug_dump_env = {
+            "CAMOUFOX_DEBUG_DUMP_DIR": str(tmp_path),
+            "CAMOUFOX_DEBUG_DUMP": "manifest,network,console,vm,returns",
+            "CAMOUFOX_DEBUG_DUMP_MAX_BODY": "12",
+        }
+
+        def __init__(self) -> None:
+            self.context = FakeContext()
+
+        def new_context(self, **opts: Any) -> FakeContext:
+            self.context_options = opts
+            return self.context
+
+    class FakeFrame:
+        url = "https://example.test/frame"
+
+    class FakeResponse:
+        url = "https://example.test/api"
+        status = 200
+        status_text = "OK"
+        headers = {"content-type": "application/json", "set-cookie": "secret=1"}
+
+        def body(self) -> bytes:
+            return b'{"access_token=supersecret"}'
+
+    class FakeRequest:
+        url = "https://example.test/api"
+        method = "POST"
+        resource_type = "xhr"
+        headers = {"cookie": "session=secret", "x-test": "ok"}
+        post_data = "api_key=supersecret"
+        timing = {"startTime": 1}
+        frame = FakeFrame()
+
+        def is_navigation_request(self) -> bool:
+            return False
+
+        def response(self) -> FakeResponse:
+            return FakeResponse()
+
+    class FakePage:
+        url = "https://example.test/"
+
+        def __init__(self) -> None:
+            self.handlers: dict[str, list[Any]] = {}
+
+        def on(self, event: str, callback: Any) -> None:
+            self.handlers.setdefault(event, []).append(callback)
+
+    class FakeMessage:
+        type = "debug"
+        text = "debug message"
+        location = {"url": "https://example.test/script.js", "lineNumber": 1}
+        args: list[Any] = []
+
+    monkeypatch.setattr(
+        sync_api,
+        "generate_context_fingerprint",
+        lambda **_: {
+            "context_options": {"user_agent": "ua"},
+            "init_script": "/* fingerprint */",
+            "config": None,
+        },
+    )
+
+    browser = FakeBrowser()
+    context = sync_api.NewContext(browser, fingerprint=fake_fingerprint)
+
+    assert context.init_scripts[0] == "/* fingerprint */"
+    assert {"request", "requestfinished", "requestfailed", "page"}.issubset(context.handlers)
+
+    request = FakeRequest()
+    context.handlers["request"][0](request)
+    context.handlers["requestfinished"][0](request)
+
+    page = FakePage()
+    context.handlers["page"][0](page)
+    page.handlers["console"][0](FakeMessage())
+
+    manifest = json.loads((tmp_path / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest["context"]["browser_version"] == "150.0.1"
+    assert manifest["context"]["context_options"]["user_agent"] == "ua"
+
+    network_lines = [
+        json.loads(line) for line in (tmp_path / "network.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
+    assert network_lines[0]["headers"]["cookie"] == "<redacted>"
+    assert network_lines[0]["post_data"]["text"] == "api_key=<redacted>"
+    assert network_lines[1]["response"]["headers"]["set-cookie"] == "<redacted>"
+    assert network_lines[1]["response"]["body"]["truncated"] is True
+
+    console_lines = [
+        json.loads(line) for line in (tmp_path / "console.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
+    assert console_lines[0]["text"] == "debug message"
+
+
 def test_launch_options_rejects_webgl_profile_override(
     modules: tuple[Any, Any, Any],
     fake_fingerprint: FakeFingerprint,
