@@ -11,6 +11,11 @@ on:
         options:
           - standard
           - fast
+      debug_tmate:
+        description: Open a tmate SSH session if a job fails
+        required: false
+        default: false
+        type: boolean
   pull_request:
     types: [opened, reopened, synchronize, labeled]
   push:
@@ -219,8 +224,10 @@ jobs:
           update: true
           install: >-
             base-devel
+            ca-certificates
             git
             mingw-w64-ucrt-x86_64-aria2
+            mingw-w64-ucrt-x86_64-ca-certificates
             make
             patch
             p7zip
@@ -389,7 +396,7 @@ jobs:
           gh release upload "$RELEASE_TAG" "${files[@]}" --repo "$GH_REPO" --clobber
 
       - name: Debug failed build over SSH
-        if: ${{ failure() }}
+        if: ${{ failure() && github.event_name == 'workflow_dispatch' && github.event.inputs.debug_tmate == 'true' }}
         uses: mxschmitt/action-tmate@v3
         timeout-minutes: 60
         with:
@@ -544,7 +551,7 @@ jobs:
             __tests__/service-tester/
 
       - name: Debug failed integration over SSH
-        if: ${{ failure() }}
+        if: ${{ failure() && github.event_name == 'workflow_dispatch' && github.event.inputs.debug_tmate == 'true' }}
         uses: mxschmitt/action-tmate@v3
         timeout-minutes: 60
         with:

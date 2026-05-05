@@ -12,6 +12,8 @@ export
 
 cf_source_dir := camoufox-$(version)-$(release)
 ff_source_tarball := firefox-$(version).source.tar.xz
+ARIA2C ?= aria2c
+ARIA2C_FLAGS ?= -x16 -s16 -k1M
 
 debs := python3 python3-dev python3-pip p7zip-full msitools wget aria2 libsqlite3-dev
 rpms := python3 python3-devel p7zip msitools wget aria2 sqlite-devel
@@ -67,7 +69,28 @@ $(eval $(_ARGS):;@:)
 
 fetch:
 	# Fetching the Firefox source tarball...
-	aria2c -x16 -s16 -k1M -o $(ff_source_tarball) "https://archive.mozilla.org/pub/firefox/releases/$(version)/source/firefox-$(version).source.tar.xz"; \
+	@set -eu; \
+	url="https://archive.mozilla.org/pub/firefox/releases/$(version)/source/firefox-$(version).source.tar.xz"; \
+	cert_arg=""; \
+	for cert in \
+		"$${ARIA2_CA_CERTIFICATE:-}" \
+		"$${SSL_CERT_FILE:-}" \
+		"$${CURL_CA_BUNDLE:-}" \
+		"$${MINGW_PREFIX:-}/etc/ssl/certs/ca-bundle.crt" \
+		/ucrt64/etc/ssl/certs/ca-bundle.crt \
+		/mingw64/etc/ssl/certs/ca-bundle.crt \
+		/clang64/etc/ssl/certs/ca-bundle.crt \
+		/usr/ssl/certs/ca-bundle.crt \
+		/etc/ssl/certs/ca-certificates.crt \
+		/etc/ssl/certs/ca-bundle.crt; \
+	do \
+		if [ -n "$$cert" ] && [ -f "$$cert" ]; then \
+			cert_arg="--ca-certificate=$$cert"; \
+			echo "Using CA bundle: $$cert"; \
+			break; \
+		fi; \
+	done; \
+	$(ARIA2C) $(ARIA2C_FLAGS) $$cert_arg -o "$(ff_source_tarball)" "$$url"
 
 setup-minimal:
 	# Note: Only docker containers are intended to run this directly.
