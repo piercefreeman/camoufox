@@ -18,7 +18,7 @@ viewport: >-
     Manually setting screen & window properties is not recommended.
     Screen dimensions are randomly generated within Rotunda
     based on the provided screen constraints. See here:
-    https://github.com/piercefreeman/rotunda/tree/main/pythonlib#browserforge-integration.
+    https://github.com/MonkeySee-AI/rotunda/tree/main/pythonlib#browserforge-integration.
 
 custom_fingerprint: >-
     Passing your own fingerprint is not recommended.

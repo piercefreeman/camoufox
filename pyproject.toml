@@ -48,7 +48,7 @@ dependencies = [
 
 [project.urls]
 Homepage = "https://rotunda.com/python"
-Repository = "https://github.com/piercefreeman/rotunda"
+Repository = "https://github.com/MonkeySee-AI/rotunda"
 
 [project.optional-dependencies]
 geoip = ["geoip2"]

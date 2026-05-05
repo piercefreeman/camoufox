@@ -5,7 +5,7 @@ default:
 
 # Browser repositories
 browsers:
-  - repo: piercefreeman/rotunda
+  - repo: MonkeySee-AI/rotunda
     name: Official
     pattern: "{name}-{version}-{build}-{os}.{arch}.zip"
     versions:

@@ -25,7 +25,7 @@ Notes:
 ### 2. Clone the fork
 
 ```bash
-git clone https://github.com/piercefreeman/rotunda.git
+git clone https://github.com/MonkeySee-AI/rotunda.git
 cd rotunda
 ```
 
@@ -190,7 +190,7 @@ If you just want the commands without the explanation:
 ```bash
 xcode-select --install
 brew install aria2 python ccache
-git clone https://github.com/piercefreeman/rotunda.git
+git clone https://github.com/MonkeySee-AI/rotunda.git
 cd rotunda
 make setup
 make mozbootstrap
