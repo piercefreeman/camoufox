@@ -771,6 +771,8 @@ def test_launch_options_enables_debug_dump_env_and_manifest(
 
     assert options["env"]["CAMOUFOX_VM_ACCESS_LOG"] == "1"
     assert options["env"]["CAMOUFOX_VM_ACCESS_LOG_FILE"] == str(tmp_path / "vm-access.log")
+    assert options["env"]["CAMOUFOX_VM_ACCESS_BUFFERED"] == "1"
+    assert options["env"]["CAMOUFOX_VM_ACCESS_REALM"] == "1"
     assert options["env"]["CAMOUFOX_VM_ACCESS_RETURNS"] == "1"
 
     manifest = json.loads((tmp_path / "manifest.json").read_text(encoding="utf-8"))

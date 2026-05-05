@@ -1,0 +1,625 @@
+--- a/js/src/vm/CamoufoxVMAccessLog.cpp
++++ b/js/src/vm/CamoufoxVMAccessLog.cpp
+@@ -7,20 +7,35 @@
+ 
+ #include "vm/CamoufoxVMAccessLog.h"
+ 
++#include <inttypes.h>
+ #include <stdio.h>
+ #include <stdlib.h>
+ #include <stdint.h>
+ #include <string.h>
++#include <stdarg.h>
++#include <string>
++#include <utility>
+ 
++#include "js/AllocPolicy.h"        // js::SystemAllocPolicy
+ #include "js/CallArgs.h"           // JS::CallArgs
+ #include "js/CharacterEncoding.h"  // JS_EncodeStringToUTF8
+ #include "js/Exception.h"          // JS::AutoSaveExceptionState
++#include "js/GCAPI.h"              // JS::AutoSuppressGCAnalysis
++#include "js/Realm.h"              // JS::GetCurrentRealmOrNull
+ #include "js/UniquePtr.h"          // JS::UniqueChars
++#include "js/Utility.h"            // js_new, js_delete
+ #include "js/Value.h"              // JS::Value
++#include "mozilla/Vector.h"        // mozilla::Vector
++#include "threading/ConditionVariable.h"  // js::ConditionVariable
++#include "threading/LockGuard.h"          // js::UniqueLock
++#include "threading/Mutex.h"              // js::Mutex
++#include "threading/Thread.h"             // js::Thread
+ #include "vm/JSContext.h"          // JSContext
+ #include "vm/JSFunction.h"         // JSFunction
+ #include "vm/JSObject.h"           // JSObject
+ #include "vm/JSScript.h"           // JSScript
++#include "vm/MutexIDs.h"           // js::mutexid
++#include "vm/Runtime.h"            // JSRuntime
+ #include "vm/StringType.h"         // JSString
+ #include "vm/SymbolType.h"         // JS::Symbol
+ 
+@@ -35,9 +50,20 @@
+ const char* gObjectFilter = nullptr;
+ bool gLogSymbols = false;
+ bool gLogReturns = false;
++bool gLogRealm = true;
+ unsigned gMaxCallArgs = 8;
+ unsigned gMaxStringBytes = 160;
++unsigned gMaxQueueBytes = 64 * 1024 * 1024;
+ FILE* gLogFile = nullptr;
++Mutex gLogMutex(mutexid::CamoufoxVMAccessLog);
++ConditionVariable gLogWakeup;
++Thread* gLogWriterThread = nullptr;
++bool gLogWriterStarted = false;
++bool gLogWriterStopping = false;
++bool gShutdownRegistered = false;
++size_t gQueuedBytes = 0;
++uint64_t gDroppedLines = 0;
++mozilla::Vector<std::string, 0, SystemAllocPolicy> gLogQueue;
+ 
+ thread_local bool gIsLogging = false;
+ 
+@@ -60,6 +86,152 @@
+   return unsigned(parsed);
+ }
+ 
++static void WriteDirect(const char* line) {
++  FILE* stream = gLogFile ? gLogFile : stderr;
++  fputs(line, stream);
++  fflush(stream);
++}
++
++static void LogWriterMain() {
++  ThisThread::SetName("Camoufox VM Access Log");
++
++  mozilla::Vector<std::string, 0, SystemAllocPolicy> batch;
++  while (true) {
++    uint64_t dropped = 0;
++    {
++      UniqueLock<Mutex> lock(gLogMutex);
++      gLogWakeup.wait(lock, []() {
++        return gLogWriterStopping || !gLogQueue.empty() || gDroppedLines;
++      });
++
++      if (gLogQueue.empty() && !gDroppedLines && gLogWriterStopping) {
++        break;
++      }
++
++      dropped = gDroppedLines;
++      gDroppedLines = 0;
++      gLogQueue.swap(batch);
++      gQueuedBytes = 0;
++    }
++
++    FILE* stream = gLogFile ? gLogFile : stderr;
++    if (dropped) {
++      fprintf(stream,
++              "[camoufox-vm-access] op=log-dropped count=%" PRIu64
++              " reason=queue-full\n",
++              dropped);
++    }
++    for (const std::string& line : batch) {
++      fputs(line.c_str(), stream);
++    }
++    batch.clear();
++    fflush(stream);
++  }
++
++  FILE* stream = gLogFile ? gLogFile : stderr;
++  fflush(stream);
++}
++
++static void ShutdownLogWriter() {
++  if (gLogWriterStarted) {
++    {
++      UniqueLock<Mutex> lock(gLogMutex);
++      gLogWriterStopping = true;
++      gLogWakeup.notify_one();
++    }
++
++    if (gLogWriterThread && gLogWriterThread->joinable()) {
++      gLogWriterThread->join();
++    }
++    js_delete(gLogWriterThread);
++    gLogWriterThread = nullptr;
++    gLogWriterStarted = false;
++  }
++
++  if (gLogFile) {
++    fclose(gLogFile);
++    gLogFile = nullptr;
++  }
++}
++
++static bool StartLogWriter() {
++  const char* buffered = getenv("CAMOUFOX_VM_ACCESS_BUFFERED");
++  if (!gLogFile || gLogWriterStarted ||
++      (buffered && !EnvFlagEnabled(buffered))) {
++    return false;
++  }
++
++  gLogWriterThread = js_new<Thread>();
++  if (!gLogWriterThread) {
++    return false;
++  }
++
++  if (!gLogWriterThread->init(LogWriterMain)) {
++    js_delete(gLogWriterThread);
++    gLogWriterThread = nullptr;
++    return false;
++  }
++
++  gLogWriterStarted = true;
++  return true;
++}
++
++static void EnqueueLogLine(std::string&& line) {
++  if (!gLogWriterStarted) {
++    WriteDirect(line.c_str());
++    return;
++  }
++
++  UniqueLock<Mutex> lock(gLogMutex);
++  if (gLogWriterStopping) {
++    gDroppedLines++;
++    return;
++  }
++
++  size_t lineBytes = line.size();
++  if (gQueuedBytes + lineBytes > gMaxQueueBytes) {
++    gDroppedLines++;
++    gLogWakeup.notify_one();
++    return;
++  }
++
++  if (!gLogQueue.append(std::move(line))) {
++    gDroppedLines++;
++    gLogWakeup.notify_one();
++    return;
++  }
++
++  gQueuedBytes += lineBytes;
++  gLogWakeup.notify_one();
++}
++
++static void AppendFormat(std::string& out, const char* format, ...) {
++  char stackBuffer[512];
++  va_list args;
++  va_start(args, format);
++  va_list argsCopy;
++  va_copy(argsCopy, args);
++  int needed = vsnprintf(stackBuffer, sizeof(stackBuffer), format, args);
++  va_end(args);
++
++  if (needed < 0) {
++    va_end(argsCopy);
++    return;
++  }
++
++  if (size_t(needed) < sizeof(stackBuffer)) {
++    out.append(stackBuffer, size_t(needed));
++    va_end(argsCopy);
++    return;
++  }
++
++  size_t oldLength = out.length();
++  out.resize(oldLength + size_t(needed) + 1);
++  vsnprintf(&out[oldLength], size_t(needed) + 1, format, argsCopy);
++  out.resize(oldLength + size_t(needed));
++  va_end(argsCopy);
++}
++
+ static bool Enabled() {
+   if (gState == AccessLogState::Uninitialized) {
+     if (!EnvFlagEnabled(getenv("CAMOUFOX_VM_ACCESS_LOG"))) {
+@@ -79,18 +251,28 @@
+ 
+     gLogSymbols = EnvFlagEnabled(getenv("CAMOUFOX_VM_ACCESS_SYMBOLS"));
+     gLogReturns = EnvFlagEnabled(getenv("CAMOUFOX_VM_ACCESS_RETURNS"));
++    const char* realmEnv = getenv("CAMOUFOX_VM_ACCESS_REALM");
++    gLogRealm = !realmEnv || EnvFlagEnabled(realmEnv);
+     gMaxCallArgs =
+         EnvUnsigned(getenv("CAMOUFOX_VM_ACCESS_MAX_ARGS"), 8, 32);
+     gMaxStringBytes =
+         EnvUnsigned(getenv("CAMOUFOX_VM_ACCESS_MAX_STRING"), 160, 1024);
++    gMaxQueueBytes = EnvUnsigned(
++        getenv("CAMOUFOX_VM_ACCESS_MAX_QUEUE_BYTES"), 64 * 1024 * 1024,
++        512 * 1024 * 1024);
+ 
+     const char* logFile = getenv("CAMOUFOX_VM_ACCESS_LOG_FILE");
+     if (logFile && logFile[0]) {
+       gLogFile = fopen(logFile, "a");
+       if (gLogFile) {
+-        setvbuf(gLogFile, nullptr, _IOLBF, 0);
++        setvbuf(gLogFile, nullptr, _IOFBF, 1024 * 1024);
++        StartLogWriter();
+       }
+     }
++    if (!gShutdownRegistered) {
++      atexit(ShutdownLogWriter);
++      gShutdownRegistered = true;
++    }
+ 
+     gState = AccessLogState::Enabled;
+   }
+@@ -98,10 +280,6 @@
+   return gState == AccessLogState::Enabled;
+ }
+ 
+-static FILE* LogStream() {
+-  return gLogFile ? gLogFile : stderr;
+-}
+-
+ static const char* CurrentFilename(JSContext* cx, uint32_t* line,
+                                    uint32_t* column) {
+   JSScript* script = cx->currentScript();
+@@ -200,12 +378,42 @@
+   }
+ }
+ 
+-static void PrintEscapedString(const char* value) {
+-  FILE* stream = LogStream();
+-  fputc('"', stream);
++static const char* RealmName(JSContext* cx, JS::Realm* realm, char* buffer,
++                             size_t bufferLen) {
++  if (!gLogRealm || !cx || !realm || !bufferLen) {
++    return nullptr;
++  }
++
++  auto nameCallback = cx->runtime()->realmNameCallback;
++  if (!nameCallback) {
++    return nullptr;
++  }
++
++  buffer[0] = '\0';
++  JS::AutoSuppressGCAnalysis nogc;
++  nameCallback(cx, realm, buffer, bufferLen, nogc);
++  buffer[bufferLen - 1] = '\0';
++  return buffer[0] ? buffer : nullptr;
++}
++
++static const char* CurrentRealmName(JSContext* cx, char* buffer,
++                                    size_t bufferLen) {
++  return RealmName(cx, JS::GetCurrentRealmOrNull(cx), buffer, bufferLen);
++}
++
++static const char* ObjectRealmName(JSContext* cx, JSObject* obj, char* buffer,
++                                   size_t bufferLen) {
++  if (!obj) {
++    return nullptr;
++  }
++  return RealmName(cx, JS::GetObjectRealmOrNull(obj), buffer, bufferLen);
++}
++
++static void AppendEscapedString(std::string& out, const char* value) {
++  out.push_back('"');
+   if (!value) {
+-    fputs("<string-oom>", stream);
+-    fputc('"', stream);
++    out.append("<string-oom>");
++    out.push_back('"');
+     return;
+   }
+ 
+@@ -214,63 +422,63 @@
+        cursor++, printed++) {
+     switch (*cursor) {
+       case '\\':
+-        fputs("\\\\", stream);
++        out.append("\\\\");
+         break;
+       case '"':
+-        fputs("\\\"", stream);
++        out.append("\\\"");
+         break;
+       case '\n':
+-        fputs("\\n", stream);
++        out.append("\\n");
+         break;
+       case '\r':
+-        fputs("\\r", stream);
++        out.append("\\r");
+         break;
+       case '\t':
+-        fputs("\\t", stream);
++        out.append("\\t");
+         break;
+       default:
+-        fputc(*cursor, stream);
++        out.push_back(*cursor);
+         break;
+     }
+   }
+ 
+   if (value[printed]) {
+-    fputs("...", stream);
++    out.append("...");
+   }
+-  fputc('"', stream);
++  out.push_back('"');
+ }
+ 
+-static void PrintValue(JSContext* cx, JS::HandleValue value) {
+-  FILE* stream = LogStream();
++static void AppendValue(JSContext* cx, JS::HandleValue value,
++                        std::string& out) {
+   if (value.isUndefined()) {
+-    fputs("undefined", stream);
++    out.append("undefined");
+     return;
+   }
+   if (value.isNull()) {
+-    fputs("null", stream);
++    out.append("null");
+     return;
+   }
+   if (value.isBoolean()) {
+-    fputs(value.toBoolean() ? "true" : "false", stream);
++    out.append(value.toBoolean() ? "true" : "false");
+     return;
+   }
+   if (value.isInt32()) {
+-    fprintf(stream, "%d", value.toInt32());
++    AppendFormat(out, "%d", value.toInt32());
+     return;
+   }
+   if (value.isDouble()) {
+-    fprintf(stream, "%.17g", value.toDouble());
++    AppendFormat(out, "%.17g", value.toDouble());
+     return;
+   }
+   if (value.isString()) {
+     JS::AutoSaveExceptionState savedExc(cx);
+     JS::RootedString str(cx, value.toString());
+     JS::UniqueChars encoded = JS_EncodeStringToUTF8(cx, str);
+-    PrintEscapedString(encoded ? encoded.get() : nullptr);
++    AppendEscapedString(out, encoded ? encoded.get() : nullptr);
+     return;
+   }
+   if (value.isSymbol()) {
+-    fputs("<symbol>", stream);
++    out.append("<symbol>");
+     return;
+   }
+   if (value.isObject()) {
+@@ -280,16 +488,28 @@
+     const char* functionName = nullptr;
+     FormatFunctionName(cx, obj, &ownedName, &functionName);
+     if (functionName) {
+-      fprintf(stream, "<%s:%s>", className, functionName);
++      AppendFormat(out, "<%s:%s>", className, functionName);
+     } else {
+-      fprintf(stream, "<%s>", className);
++      AppendFormat(out, "<%s>", className);
+     }
+     return;
+   }
+ 
+-  fputs("<value>", stream);
++  out.append("<value>");
+ }
+ 
++static void AppendRealmFields(std::string& out, const char* callerRealm,
++                              const char* targetRealm) {
++  if (callerRealm) {
++    out.append(" callerRealm=");
++    AppendEscapedString(out, callerRealm);
++  }
++  if (targetRealm) {
++    out.append(" targetRealm=");
++    AppendEscapedString(out, targetRealm);
++  }
++}
++
+ }  // namespace
+ 
+ void js::MaybeLogCamoufoxVMAccess(JSContext* cx, JS::Handle<JSObject*> obj,
+@@ -317,13 +537,23 @@
+   JS::UniqueChars ownedProp;
+   FormatId(cx, id, propFallback, sizeof(propFallback), &ownedProp, &prop);
+ 
+-  FILE* stream = LogStream();
+-  fprintf(stream,
+-          "[camoufox-vm-access] op=%s class=%s prop=%s script=%s:%u:%u\n", op,
+-          className ? className : "<null>", prop ? prop : "<null>",
+-          filename ? filename : "<unknown>", line, column);
+-  fflush(stream);
++  char callerRealmBuffer[512];
++  char targetRealmBuffer[512];
++  const char* callerRealm =
++      CurrentRealmName(cx, callerRealmBuffer, sizeof(callerRealmBuffer));
++  const char* targetRealm =
++      ObjectRealmName(cx, obj.get(), targetRealmBuffer,
++                      sizeof(targetRealmBuffer));
+ 
++  std::string logLine;
++  AppendFormat(logLine,
++               "[camoufox-vm-access] op=%s class=%s prop=%s script=%s:%u:%u",
++               op, className ? className : "<null>", prop ? prop : "<null>",
++               filename ? filename : "<unknown>", line, column);
++  AppendRealmFields(logLine, callerRealm, targetRealm);
++  logLine.push_back('\n');
++  EnqueueLogLine(std::move(logLine));
++
+   gIsLogging = false;
+ }
+ 
+@@ -358,32 +588,41 @@
+ 
+   gIsLogging = true;
+ 
+-  FILE* stream = LogStream();
+-  fprintf(stream,
+-          "[camoufox-vm-access] op=%s kind=%s calleeClass=%s callee=%s "
+-          "thisClass=%s argc=%u args=(",
+-          op, kind ? kind : "<unknown>", calleeClass,
+-          functionName ? functionName : "<anonymous>", thisClass,
+-          args.length());
++  std::string logLine;
++  AppendFormat(logLine,
++               "[camoufox-vm-access] op=%s kind=%s calleeClass=%s callee=%s "
++               "thisClass=%s argc=%u args=(",
++               op, kind ? kind : "<unknown>", calleeClass,
++               functionName ? functionName : "<anonymous>", thisClass,
++               args.length());
+ 
+   unsigned maxArgs = args.length() < gMaxCallArgs ? args.length() : gMaxCallArgs;
+   for (unsigned i = 0; i < maxArgs; i++) {
+     if (i) {
+-      fputs(", ", stream);
++      logLine.append(", ");
+     }
+     JS::RootedValue arg(cx, args[i]);
+-    PrintValue(cx, arg);
++    AppendValue(cx, arg, logLine);
+   }
+   if (args.length() > maxArgs) {
+     if (maxArgs) {
+-      fputs(", ", stream);
++      logLine.append(", ");
+     }
+-    fprintf(stream, "...+%u", args.length() - maxArgs);
++    AppendFormat(logLine, "...+%u", args.length() - maxArgs);
+   }
+ 
+-  fprintf(stream, ") script=%s:%u:%u\n", filename ? filename : "<unknown>",
+-          line, column);
+-  fflush(stream);
++  AppendFormat(logLine, ") script=%s:%u:%u", filename ? filename : "<unknown>",
++               line, column);
++  char callerRealmBuffer[512];
++  char targetRealmBuffer[512];
++  const char* callerRealm =
++      CurrentRealmName(cx, callerRealmBuffer, sizeof(callerRealmBuffer));
++  const char* targetRealm = ObjectRealmName(
++      cx, thisObj ? thisObj : calleeObj, targetRealmBuffer,
++      sizeof(targetRealmBuffer));
++  AppendRealmFields(logLine, callerRealm, targetRealm);
++  logLine.push_back('\n');
++  EnqueueLogLine(std::move(logLine));
+ 
+   gIsLogging = false;
+ }
+@@ -405,13 +644,24 @@
+ 
+   gIsLogging = true;
+ 
+-  FILE* stream = LogStream();
+-  fprintf(stream,
+-          "[camoufox-vm-access] op=ownKeys class=%s flags=0x%x script=%s:%u:%u\n",
+-          className ? className : "<null>", flags,
+-          filename ? filename : "<unknown>", line, column);
+-  fflush(stream);
++  char callerRealmBuffer[512];
++  char targetRealmBuffer[512];
++  const char* callerRealm =
++      CurrentRealmName(cx, callerRealmBuffer, sizeof(callerRealmBuffer));
++  const char* targetRealm =
++      ObjectRealmName(cx, obj.get(), targetRealmBuffer,
++                      sizeof(targetRealmBuffer));
+ 
++  std::string logLine;
++  AppendFormat(logLine,
++               "[camoufox-vm-access] op=ownKeys class=%s flags=0x%x "
++               "script=%s:%u:%u",
++               className ? className : "<null>", flags,
++               filename ? filename : "<unknown>", line, column);
++  AppendRealmFields(logLine, callerRealm, targetRealm);
++  logLine.push_back('\n');
++  EnqueueLogLine(std::move(logLine));
++
+   gIsLogging = false;
+ }
+ 
+@@ -445,19 +695,29 @@
+   JS::UniqueChars ownedProp;
+   FormatId(cx, id, propFallback, sizeof(propFallback), &ownedProp, &prop);
+ 
+-  FILE* stream = LogStream();
+-  fprintf(stream,
+-          "[camoufox-vm-access] op=%s-return class=%s prop=%s ok=%s result=",
+-          op, className ? className : "<null>", prop ? prop : "<null>",
+-          ok ? "true" : "false");
++  std::string logLine;
++  AppendFormat(logLine,
++               "[camoufox-vm-access] op=%s-return class=%s prop=%s ok=%s "
++               "result=",
++               op, className ? className : "<null>", prop ? prop : "<null>",
++               ok ? "true" : "false");
+   if (ok) {
+-    PrintValue(cx, value);
++    AppendValue(cx, value, logLine);
+   } else {
+-    fputs("<error>", stream);
++    logLine.append("<error>");
+   }
+-  fprintf(stream, " script=%s:%u:%u\n", filename ? filename : "<unknown>",
+-          line, column);
+-  fflush(stream);
++  AppendFormat(logLine, " script=%s:%u:%u", filename ? filename : "<unknown>",
++               line, column);
++  char callerRealmBuffer[512];
++  char targetRealmBuffer[512];
++  const char* callerRealm =
++      CurrentRealmName(cx, callerRealmBuffer, sizeof(callerRealmBuffer));
++  const char* targetRealm =
++      ObjectRealmName(cx, obj.get(), targetRealmBuffer,
++                      sizeof(targetRealmBuffer));
++  AppendRealmFields(logLine, callerRealm, targetRealm);
++  logLine.push_back('\n');
++  EnqueueLogLine(std::move(logLine));
+ 
+   gIsLogging = false;
+ }
+@@ -505,22 +765,31 @@
+ 
+   gIsLogging = true;
+ 
+-  FILE* stream = LogStream();
+-  fprintf(stream,
+-          "[camoufox-vm-access] op=%s-return kind=%s calleeClass=%s callee=%s "
+-          "thisClass=%s ok=%s result=",
+-          op, kind ? kind : "<unknown>", calleeClass,
+-          functionName ? functionName : "<anonymous>", thisClass,
+-          ok ? "true" : "false");
++  std::string logLine;
++  AppendFormat(logLine,
++               "[camoufox-vm-access] op=%s-return kind=%s calleeClass=%s "
++               "callee=%s thisClass=%s ok=%s result=",
++               op, kind ? kind : "<unknown>", calleeClass,
++               functionName ? functionName : "<anonymous>", thisClass,
++               ok ? "true" : "false");
+   if (ok) {
+     JS::RootedValue rval(cx, args.rval());
+-    PrintValue(cx, rval);
++    AppendValue(cx, rval, logLine);
+   } else {
+-    fputs("<error>", stream);
++    logLine.append("<error>");
+   }
+-  fprintf(stream, " script=%s:%u:%u\n", filename ? filename : "<unknown>",
+-          line, column);
+-  fflush(stream);
++  AppendFormat(logLine, " script=%s:%u:%u", filename ? filename : "<unknown>",
++               line, column);
++  char callerRealmBuffer[512];
++  char targetRealmBuffer[512];
++  const char* callerRealm =
++      CurrentRealmName(cx, callerRealmBuffer, sizeof(callerRealmBuffer));
++  const char* targetRealm = ObjectRealmName(
++      cx, thisObj ? thisObj : calleeObj, targetRealmBuffer,
++      sizeof(targetRealmBuffer));
++  AppendRealmFields(logLine, callerRealm, targetRealm);
++  logLine.push_back('\n');
++  EnqueueLogLine(std::move(logLine));
+ 
+   gIsLogging = false;
+ }
+--- a/js/src/vm/MutexIDs.h
++++ b/js/src/vm/MutexIDs.h
+@@ -17,6 +17,7 @@
+ 
+ #define FOR_EACH_MUTEX(_)             \
+   _(ExecutionTracerGlobalLock, 100)   \
++  _(CamoufoxVMAccessLog, 100)         \
+   _(TestMutex, 100)                   \
+   _(ShellContextWatchdog, 100)        \
+   _(ShellWorkerThreads, 100)          \

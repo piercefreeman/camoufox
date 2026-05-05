@@ -134,6 +134,8 @@ def configure_launch_debug_dump(
     if dump.enabled("vm"):
         env.setdefault("CAMOUFOX_VM_ACCESS_LOG", "1")
         env.setdefault("CAMOUFOX_VM_ACCESS_LOG_FILE", str(dump.path("vm-access.log")))
+        env.setdefault("CAMOUFOX_VM_ACCESS_BUFFERED", "1")
+        env.setdefault("CAMOUFOX_VM_ACCESS_REALM", "1")
     if dump.enabled("returns"):
         env.setdefault("CAMOUFOX_VM_ACCESS_RETURNS", "1")
 
@@ -151,11 +153,16 @@ def configure_launch_debug_dump(
                 "CAMOUFOX_DEBUG_DUMP_DIR": env.get("CAMOUFOX_DEBUG_DUMP_DIR"),
                 "CAMOUFOX_VM_ACCESS_LOG": env.get("CAMOUFOX_VM_ACCESS_LOG"),
                 "CAMOUFOX_VM_ACCESS_LOG_FILE": env.get("CAMOUFOX_VM_ACCESS_LOG_FILE"),
+                "CAMOUFOX_VM_ACCESS_BUFFERED": env.get("CAMOUFOX_VM_ACCESS_BUFFERED"),
+                "CAMOUFOX_VM_ACCESS_REALM": env.get("CAMOUFOX_VM_ACCESS_REALM"),
                 "CAMOUFOX_VM_ACCESS_RETURNS": env.get("CAMOUFOX_VM_ACCESS_RETURNS"),
                 "CAMOUFOX_VM_ACCESS_FILTER": env.get("CAMOUFOX_VM_ACCESS_FILTER"),
                 "CAMOUFOX_VM_ACCESS_OBJECT_FILTER": env.get("CAMOUFOX_VM_ACCESS_OBJECT_FILTER"),
                 "CAMOUFOX_VM_ACCESS_MAX_ARGS": env.get("CAMOUFOX_VM_ACCESS_MAX_ARGS"),
                 "CAMOUFOX_VM_ACCESS_MAX_STRING": env.get("CAMOUFOX_VM_ACCESS_MAX_STRING"),
+                "CAMOUFOX_VM_ACCESS_MAX_QUEUE_BYTES": env.get(
+                    "CAMOUFOX_VM_ACCESS_MAX_QUEUE_BYTES"
+                ),
             },
         },
     )

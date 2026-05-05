@@ -216,8 +216,11 @@ CAMOUFOX_VM_ACCESS_FILTER='fingerprint'
 CAMOUFOX_VM_ACCESS_OBJECT_FILTER='Window'
 CAMOUFOX_VM_ACCESS_SYMBOLS=1
 CAMOUFOX_VM_ACCESS_RETURNS=1
+CAMOUFOX_VM_ACCESS_BUFFERED=1
+CAMOUFOX_VM_ACCESS_REALM=1
 CAMOUFOX_VM_ACCESS_MAX_ARGS=16
 CAMOUFOX_VM_ACCESS_MAX_STRING=256
+CAMOUFOX_VM_ACCESS_MAX_QUEUE_BYTES=67108864
 ```
 
 Under Playwright, browser stderr is not reliably visible from the Python launch
@@ -246,6 +249,18 @@ The logger records:
 - Native and scripted calls, including callee name, `this` class, and arguments.
 - Return previews for calls, property gets, and `in` checks when
   `CAMOUFOX_VM_ACCESS_RETURNS=1`.
+- Native caller and target realm attribution when `CAMOUFOX_VM_ACCESS_REALM=1`,
+  which usually identifies both the script owner and the page/frame/global owner
+  of the object being inspected without adding page-visible wrappers.
+
+When `CAMOUFOX_VM_ACCESS_LOG_FILE` is set, the logger uses a native buffered
+writer thread by default. The JS execution thread still formats each log line,
+but file writes and flushes move off the page path. Set
+`CAMOUFOX_VM_ACCESS_BUFFERED=0` only when debugging the logger itself. If a full
+unfiltered run outpaces the writer, overflow is reported as
+`op=log-dropped ... reason=queue-full`; raise
+`CAMOUFOX_VM_ACCESS_MAX_QUEUE_BYTES` for short local sessions where completeness
+matters more than memory.
 
 ## Debug Dump Mode
 
@@ -283,9 +298,10 @@ The dump is JSONL-first so normal shell tools work:
   patched third-party agents without relying on browser stderr.
 - `vm-access.log`: the existing native VM property/call records. When `vm` is
   enabled, the Python launcher automatically sets `CAMOUFOX_VM_ACCESS_LOG=1` and
-  points `CAMOUFOX_VM_ACCESS_LOG_FILE` at this file. When `returns` is enabled,
-  it also sets `CAMOUFOX_VM_ACCESS_RETURNS=1`, which adds return-preview lines
-  for native/scripted calls plus property `get` and `in` checks.
+  points `CAMOUFOX_VM_ACCESS_LOG_FILE` at this file. It also enables the native
+  buffered writer and realm attribution. When `returns` is enabled, it sets
+  `CAMOUFOX_VM_ACCESS_RETURNS=1`, which adds return-preview lines for
+  native/scripted calls plus property `get` and `in` checks.
 
 Network logging and return logging solve different problems and both are needed:
 
@@ -306,14 +322,21 @@ Implemented:
   is enabled.
 - Add native return previews for calls, property gets, and `in` checks when
   `returns` is enabled.
+- Move native VM file writes and flushes to a buffered writer thread, with a
+  bounded queue and explicit drop markers on overflow.
+- Add caller and target realm-name attribution to VM lines so script reads can
+  be tied back to the native frame/global owner without page-context
+  instrumentation.
 - Add body-size limits, binary hashing, and default redaction for `Cookie`,
   `Authorization`, proxy credentials, and bearer-like strings. Provide an
   explicit raw mode for isolated local repros.
 
 Remaining TODOs:
 
-- Convert native VM logs to JSONL and include browsing context id, user context
-  id, frame URL, and script URL where those are available.
+- Convert native VM logs to JSONL and include stable browsing context id, user
+  context id, frame id, frame URL, and script URL where those are available.
+  Caller and target realm names are useful attribution now, but they are not a
+  complete frame identity model.
 - Add native-only surface logs for fingerprint-heavy APIs: canvas, fonts, WebGL,
   AudioContext, WebRTC, screen/window, navigator, timezone/locale, and
   `Error.stack`. These must be below the page JS layer, not wrappers installed
