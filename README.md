@@ -43,10 +43,10 @@ uvx rotunda fetch
 uvx rotunda agent new-profile --name agent-demo
 ```
 
-Create a browser context from the printed profile index, then navigate the printed page index. The numbers below are examples; use the indexes printed by your commands:
+Create a browser context by passing the profile name to `new-context`, then navigate the printed page index. The page number below is an example; use the index printed by your commands:
 
 ```bash
-uvx rotunda agent new-context 1
+uvx rotunda agent new-context agent-demo
 uvx rotunda agent navigate 3 https://pierce.dev
 ```
 

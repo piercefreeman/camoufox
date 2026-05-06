@@ -890,7 +890,7 @@ def agent_new_profile(name: str | None, headless: bool) -> None:
 @click.argument("profile")
 def agent_new_context(profile: str) -> None:
     """
-    Create or attach to a browser context for a profile idx.
+    Create or attach to a browser context for a profile reference.
     """
     from .agent.store import AgentStore
 
