@@ -18,6 +18,14 @@ import rich_click as click
 from playwright.async_api import BrowserContext, Page, Playwright, async_playwright
 
 from .dom_serializer import DOMSerializer
+from .runtime import (
+    AGENT_HOST,
+    AGENT_IDENTITY_SERVICE,
+    AGENT_PORT_BASE,
+    AGENT_PORT_COUNT,
+    HEARTBEAT_INTERVAL_SECONDS,
+    agent_ports,
+)
 from .store import AgentStore
 
 ELEMENT_INFO_SCRIPT = r"""
@@ -768,6 +776,9 @@ class AgentHTTPServer(ThreadingMixIn, HTTPServer):
     daemon: AgentDaemon
     token: str
     loop: asyncio.AbstractEventLoop
+    instance_id: str
+    started_at: float
+    update_tick: float
     daemon_threads = True
 
     def run_agent(self, awaitable: Any) -> Any:
@@ -787,10 +798,32 @@ class AgentRequestHandler(BaseHTTPRequestHandler):
     server: AgentHTTPServer
 
     def do_GET(self) -> None:
+        if self.path == "/identity":
+            self._json(
+                {
+                    "ok": True,
+                    "service": AGENT_IDENTITY_SERVICE,
+                    "profile_id": self.server.daemon.profile["id"],
+                    "host": AGENT_HOST,
+                    "port": int(self.server.server_address[1]),
+                    "pid": os.getpid(),
+                    "started_at": self.server.started_at,
+                    "instance_id": self.server.instance_id,
+                    "update_tick": self.server.update_tick,
+                }
+            )
+            return
         if not self._authorized():
             return
         if self.path == "/ping":
-            self._json({"ok": True, "profile_id": self.server.daemon.profile["id"]})
+            self._json(
+                {
+                    "ok": True,
+                    "profile_id": self.server.daemon.profile["id"],
+                    "instance_id": self.server.instance_id,
+                    "update_tick": self.server.update_tick,
+                }
+            )
             return
         self._json({"ok": False, "error": "Not found"}, status=404)
 
@@ -1079,15 +1112,31 @@ def resolve_installed_rotunda_executable() -> str:
 
 @click.command()
 @click.option("--profile-id", required=True)
-@click.option("--token", required=True)
+@click.option("--token", default=None)
+@click.option("--token-file", default=None, type=click.Path(path_type=Path))
 @click.option("--ready-file", required=True, type=click.Path(path_type=Path))
 @click.option("--session-file", required=True, type=click.Path(path_type=Path))
-def main(profile_id: str, token: str, ready_file: Path, session_file: Path) -> None:
+@click.option("--port-base", default=AGENT_PORT_BASE, show_default=True, type=int)
+@click.option("--port-count", default=AGENT_PORT_COUNT, show_default=True, type=int)
+def main(
+    profile_id: str,
+    token: str | None,
+    token_file: Path | None,
+    ready_file: Path,
+    session_file: Path,
+    port_base: int,
+    port_count: int,
+) -> None:
+    resolved_token = token or _load_auth_token(token_file)
+    if not resolved_token:
+        raise click.ClickException("Agent daemon requires --token or --token-file.")
     run_daemon(
         profile_id=profile_id,
-        token=token,
+        token=resolved_token,
         ready_file=ready_file,
         session_file=session_file,
+        port_base=port_base,
+        port_count=port_count,
     )
 
 
@@ -1097,12 +1146,17 @@ def run_daemon(
     token: str,
     ready_file: Path,
     session_file: Path,
+    port_base: int = AGENT_PORT_BASE,
+    port_count: int = AGENT_PORT_COUNT,
 ) -> None:
     hide_macos_dock_icon()
     store = AgentStore()
     loop: asyncio.AbstractEventLoop | None = None
     loop_thread: threading.Thread | None = None
     server: AgentHTTPServer | None = None
+    heartbeat_stop: threading.Event | None = None
+    heartbeat_thread: threading.Thread | None = None
+    instance_id = f"daemon_{uuid.uuid4().hex[:12]}"
     try:
         profile = store.load_profile(profile_id)
         daemon = AgentDaemon(profile)
@@ -1114,10 +1168,13 @@ def run_daemon(
             daemon=True,
         )
         loop_thread.start()
-        server = AgentHTTPServer(("127.0.0.1", 0), AgentRequestHandler)
+        server = _bind_agent_server(port_base=port_base, port_count=port_count)
         server.daemon = daemon
         server.token = token
         server.loop = loop
+        server.instance_id = instance_id
+        server.started_at = time.time()
+        server.update_tick = server.started_at
         host = str(server.server_address[0])
         port = int(server.server_address[1])
         session = {
@@ -1126,9 +1183,19 @@ def run_daemon(
             "port": port,
             "token": token,
             "pid": os.getpid(),
-            "started_at": time.time(),
+            "started_at": server.started_at,
+            "instance_id": instance_id,
+            "update_tick": server.update_tick,
         }
-        session_file.write_text(json.dumps(session, indent=2), encoding="utf-8")
+        _write_daemon_state(store, profile_id, session_file, session)
+        heartbeat_stop = threading.Event()
+        heartbeat_thread = threading.Thread(
+            target=_heartbeat_daemon_state,
+            args=(store, profile_id, session_file, session, server, heartbeat_stop),
+            name=f"rotunda-agent-heartbeat-{profile_id}",
+            daemon=True,
+        )
+        heartbeat_thread.start()
         ready_file.write_text(
             json.dumps({"ok": True, "session": session}),
             encoding="utf-8",
@@ -1141,12 +1208,18 @@ def run_daemon(
         )
         raise
     finally:
+        if heartbeat_stop is not None:
+            heartbeat_stop.set()
+        if heartbeat_thread is not None:
+            heartbeat_thread.join(timeout=2)
         if server is not None:
             with suppress(Exception):
                 server.server_close()
             if loop is not None and loop.is_running():
                 with suppress(Exception):
                     server.run_agent(server.daemon.close())
+        store.remove_daemon_record(instance_id=instance_id)
+        _remove_session_if_instance(store, profile_id, instance_id)
         if loop is not None:
             if loop.is_running():
                 loop.call_soon_threadsafe(loop.stop)
@@ -1159,6 +1232,73 @@ def run_daemon(
 def _run_agent_loop(loop: asyncio.AbstractEventLoop) -> None:
     asyncio.set_event_loop(loop)
     loop.run_forever()
+
+
+def _load_auth_token(path: Path | None) -> str | None:
+    if path is None:
+        return None
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (FileNotFoundError, json.JSONDecodeError):
+        return None
+    token = data.get("token") if isinstance(data, dict) else None
+    return str(token) if token else None
+
+
+def _bind_agent_server(*, port_base: int, port_count: int) -> AgentHTTPServer:
+    last_error: OSError | None = None
+    for port in agent_ports(port_base=port_base, port_count=port_count):
+        try:
+            return AgentHTTPServer((AGENT_HOST, port), AgentRequestHandler)
+        except OSError as exc:
+            last_error = exc
+    raise RuntimeError(
+        f"Could not bind Rotunda agent on {AGENT_HOST}:{port_base}-{port_base + port_count - 1}"
+    ) from last_error
+
+
+def _heartbeat_daemon_state(
+    store: AgentStore,
+    profile_id: str,
+    session_file: Path,
+    session: dict[str, Any],
+    server: AgentHTTPServer,
+    stop_event: threading.Event,
+) -> None:
+    while not stop_event.wait(HEARTBEAT_INTERVAL_SECONDS):
+        session["update_tick"] = time.time()
+        server.update_tick = float(session["update_tick"])
+        with suppress(Exception):
+            _write_daemon_state(store, profile_id, session_file, session)
+
+
+def _write_daemon_state(
+    store: AgentStore,
+    profile_id: str,
+    session_file: Path,
+    session: dict[str, Any],
+) -> None:
+    store.save_session(profile_id, session)
+    if session_file != store.session_path(profile_id):
+        store._atomic_write_json(session_file, session)
+    store.save_daemon_record(
+        {
+            "service": AGENT_IDENTITY_SERVICE,
+            "profile_id": session["profile_id"],
+            "host": session["host"],
+            "port": session["port"],
+            "pid": session["pid"],
+            "started_at": session["started_at"],
+            "instance_id": session["instance_id"],
+            "update_tick": session["update_tick"],
+        }
+    )
+
+
+def _remove_session_if_instance(store: AgentStore, profile_id: str, instance_id: str) -> None:
+    session = store.load_session(profile_id)
+    if session and session.get("instance_id") == instance_id:
+        store.remove_session(profile_id)
 
 
 def hide_macos_dock_icon() -> None:

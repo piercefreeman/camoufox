@@ -6,6 +6,9 @@ AGENT_HOME = Path.home() / ".rotunda" / "agent"
 PROFILES_DIR = AGENT_HOME / "profiles"
 SESSIONS_DIR = AGENT_HOME / "sessions"
 LOGS_DIR = AGENT_HOME / "logs"
+AUTH_FILE = AGENT_HOME / "auth.json"
+DAEMON_FILE = AGENT_HOME / "daemon.json"
+LOCK_FILE = AGENT_HOME / "startup.lock"
 RESOURCES_FILE = AGENT_HOME / "resources.json"
 
 

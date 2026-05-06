@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from http.server import HTTPServer
 from pathlib import Path
 from socketserver import ThreadingMixIn
@@ -13,14 +14,16 @@ from rotunda.agent.store import AgentStore
 
 
 def isolate_agent_store(tmp_path, monkeypatch) -> None:
+    def ensure_dirs() -> None:
+        for name in ("profiles", "sessions", "logs"):
+            (tmp_path / name).mkdir(parents=True, exist_ok=True)
+
     monkeypatch.setattr(store_module, "PROFILES_DIR", tmp_path / "profiles")
     monkeypatch.setattr(store_module, "RESOURCES_FILE", tmp_path / "resources.json")
     monkeypatch.setattr(store_module, "SESSIONS_DIR", tmp_path / "sessions")
-    monkeypatch.setattr(
-        store_module,
-        "ensure_agent_dirs",
-        lambda: (tmp_path / "sessions").mkdir(parents=True, exist_ok=True),
-    )
+    monkeypatch.setattr(store_module, "AUTH_FILE", tmp_path / "auth.json")
+    monkeypatch.setattr(store_module, "DAEMON_FILE", tmp_path / "daemon.json")
+    monkeypatch.setattr(store_module, "ensure_agent_dirs", ensure_dirs)
 
 
 def test_agent_http_server_accepts_concurrent_requests_for_async_playwright_api() -> None:
@@ -61,6 +64,90 @@ def test_agent_store_can_refresh_page_element_resources(tmp_path, monkeypatch) -
 
     resources = store.list_resources()
     assert [resource.id for resource in resources] == ["page_1", "other"]
+
+
+def test_agent_store_prunes_stale_runtime_state_but_keeps_profiles(tmp_path, monkeypatch) -> None:
+    isolate_agent_store(tmp_path, monkeypatch)
+    store = AgentStore()
+    profile = store.create_profile(name="demo")
+    profile_resource = store.register(kind="profile", id=profile["id"], label=profile["name"])
+    store.register(
+        kind="context",
+        id="ctx_1",
+        profile_id=profile["id"],
+        parent_id=profile["id"],
+        runtime_id="daemon_old",
+    )
+    store.register(kind="page", id="page_1", profile_id=profile["id"], parent_id="ctx_1", runtime_id="daemon_old")
+    store.save_session(
+        profile["id"],
+        {
+            "profile_id": profile["id"],
+            "host": "127.0.0.1",
+            "port": 1,
+            "token": "token",
+            "instance_id": "daemon_old",
+            "update_tick": time.time() - 120,
+        },
+    )
+    store.save_daemon_record(
+        {
+            "service": "rotunda-agent",
+            "profile_id": profile["id"],
+            "host": "127.0.0.1",
+            "port": 1,
+            "instance_id": "daemon_old",
+            "update_tick": time.time() - 120,
+        }
+    )
+
+    pruned_store = AgentStore()
+
+    assert [(resource.kind, resource.id) for resource in pruned_store.list_resources()] == [
+        ("profile", profile_resource.id)
+    ]
+    assert not store.session_path(profile["id"]).exists()
+    assert not store_module.DAEMON_FILE.exists()
+
+
+def test_agent_store_keeps_runtime_state_for_fresh_heartbeat(tmp_path, monkeypatch) -> None:
+    isolate_agent_store(tmp_path, monkeypatch)
+    store = AgentStore()
+    profile = store.create_profile(name="demo")
+    store.register(kind="profile", id=profile["id"], label=profile["name"])
+    store.register(
+        kind="context",
+        id="ctx_1",
+        profile_id=profile["id"],
+        parent_id=profile["id"],
+        runtime_id="daemon_live",
+    )
+    store.save_session(
+        profile["id"],
+        {
+            "profile_id": profile["id"],
+            "host": "127.0.0.1",
+            "port": 1,
+            "token": "token",
+            "instance_id": "daemon_live",
+            "update_tick": time.time(),
+        },
+    )
+    store.save_daemon_record(
+        {
+            "service": "rotunda-agent",
+            "profile_id": profile["id"],
+            "host": "127.0.0.1",
+            "port": 1,
+            "instance_id": "daemon_live",
+            "update_tick": time.time(),
+        }
+    )
+
+    fresh_store = AgentStore()
+
+    assert [resource.kind for resource in fresh_store.list_resources()] == ["profile", "context"]
+    assert store.session_path(profile["id"]).exists()
 
 
 def test_agent_click_fill_and_type_accept_global_element_refs(tmp_path, monkeypatch) -> None:
@@ -527,7 +614,23 @@ def test_agent_target_parsers_support_page_level_and_global_refs(tmp_path, monke
 def test_agent_screenshot_defaults_to_temp_absolute_path(tmp_path, monkeypatch) -> None:
     isolate_agent_store(tmp_path, monkeypatch)
     store = AgentStore()
-    page = store.register(kind="page", id="page_1", profile_id="prof_1", parent_id="ctx_1")
+    store.save_daemon_record(
+        {
+            "service": "rotunda-agent",
+            "profile_id": "prof_1",
+            "host": "127.0.0.1",
+            "port": 1,
+            "instance_id": "daemon_live",
+            "update_tick": time.time(),
+        }
+    )
+    page = store.register(
+        kind="page",
+        id="page_1",
+        profile_id="prof_1",
+        parent_id="ctx_1",
+        runtime_id="daemon_live",
+    )
     requests: list[tuple[str, dict]] = []
 
     class FakeClient:

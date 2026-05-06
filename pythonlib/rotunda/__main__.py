@@ -945,6 +945,7 @@ def agent_new_context(profile: str) -> None:
         profile_id=profile_resource.id,
         parent_id=profile_resource.id,
         label=f"profile {profile_resource.idx}",
+        runtime_id=client.session.get("instance_id"),
     )
     click.echo(f"[{context_resource.idx}] context {context_resource.id}")
     for page in data.get("pages", []):
@@ -1664,18 +1665,34 @@ def agent_stop(profile: str | None) -> None:
     """
     from contextlib import suppress
 
-    from .agent.client import AgentClient, AgentClientError
+    from .agent.client import AgentClient, AgentClientError, discover_daemon
     from .agent.store import AgentStore
 
     store = AgentStore()
+    if profile is None:
+        client = discover_daemon(store=store)
+        if client is None:
+            store.clear_runtime_state()
+            click.echo("No running daemon.")
+            return
+        stopped_profile = str(client.session.get("profile_id") or "")
+        with suppress(AgentClientError):
+            client.post("/shutdown")
+        store.clear_runtime_state()
+        click.echo(f"Stopped profile {stopped_profile}.")
+        return
+
     profile_resource = _agent_resolve(store, profile, kind="profile")
     session = store.load_session(profile_resource.id)
     if not session:
-        click.echo(f"No running daemon for profile {profile_resource.id}.")
-        return
+        client = discover_daemon(store=store)
+        if client is None or client.session.get("profile_id") != profile_resource.id:
+            click.echo(f"No running daemon for profile {profile_resource.id}.")
+            return
+        session = client.session
     with suppress(AgentClientError):
         AgentClient(session).post("/shutdown")
-    store.remove_session(profile_resource.id)
+    store.clear_runtime_state()
     click.echo(f"Stopped profile {profile_resource.id}.")
 
 
@@ -1799,6 +1816,7 @@ def _agent_register_downloads(store, context_resource, downloads: list[dict[str,
             profile_id=context_resource.profile_id,
             parent_id=context_resource.id,
             label=label,
+            runtime_id=context_resource.runtime_id,
         )
     return resources
 
@@ -1948,6 +1966,7 @@ def _agent_register_page(store, page: dict[str, str], context_resource):
         profile_id=context_resource.profile_id,
         parent_id=context_resource.id,
         label=page.get("url") or "about:blank",
+        runtime_id=context_resource.runtime_id,
     )
     _agent_print_page(page_resource.idx, page)
     return page_resource
@@ -1960,6 +1979,7 @@ def _agent_update_page(store, page: dict[str, str], page_resource):
         profile_id=page_resource.profile_id,
         parent_id=page_resource.parent_id,
         label=page.get("url") or page_resource.label,
+        runtime_id=page_resource.runtime_id,
     )
     _agent_print_page(updated.idx, page)
     return updated
@@ -1977,6 +1997,7 @@ def _agent_register_elements(store, page_resource, items: list[dict[str, Any]]) 
             profile_id=page_resource.profile_id,
             parent_id=page_resource.id,
             label=_agent_element_label(item),
+            runtime_id=page_resource.runtime_id,
         )
 
 
