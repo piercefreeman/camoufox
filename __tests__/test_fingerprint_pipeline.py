@@ -42,6 +42,11 @@ class FakeScreen:
     innerWidth: int = 1360
     screenX: int = 24
     screenY: int = 0
+    pageXOffset: int = 0
+    pageYOffset: int = 0
+    clientWidth: int = 1360
+    clientHeight: int = 880
+    hasHDR: bool = False
     devicePixelRatio: float = 2.0
 
 
@@ -91,6 +96,11 @@ def _install_dependency_shims() -> None:
             innerWidth: int = 0
             screenX: int = 0
             screenY: int = 0
+            pageXOffset: int = 0
+            pageYOffset: int = 0
+            clientWidth: int = 0
+            clientHeight: int = 0
+            hasHDR: bool = False
             devicePixelRatio: float = 1.0
 
         @dataclass
@@ -1031,10 +1041,20 @@ def test_generate_fingerprint_dedupes_repeated_linux_screens(
                 height=864,
                 availWidth=1536,
                 availHeight=864,
+                availTop=0,
+                availLeft=0,
+                colorDepth=24,
+                pixelDepth=24,
                 outerHeight=832,
                 outerWidth=1536,
                 innerHeight=800,
                 innerWidth=1504,
+                pageXOffset=0,
+                pageYOffset=0,
+                screenX=0,
+                clientWidth=1504,
+                clientHeight=800,
+                hasHDR=False,
                 devicePixelRatio=1.25,
             ),
         )
