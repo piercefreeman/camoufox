@@ -162,9 +162,9 @@ copy_or_resize "$BRANDING_DIR/default64.png" "$APPICONSET_DIR/icon_32x32@2x.png"
 copy_or_resize "$BRANDING_DIR/default128.png" "$APPICONSET_DIR/icon_128x128.png" 128
 copy_or_resize "$BRANDING_DIR/default256.png" "$APPICONSET_DIR/icon_128x128@2x.png" 256
 copy_or_resize "$BRANDING_DIR/default256.png" "$APPICONSET_DIR/icon_256x256.png" 256
-copy_or_resize "$BRANDING_DIR/default256.png" "$APPICONSET_DIR/icon_256x256@2x.png" 512
-copy_or_resize "$BRANDING_DIR/default256.png" "$APPICONSET_DIR/icon_512x512.png" 512
-copy_or_resize "$BRANDING_DIR/default256.png" "$APPICONSET_DIR/icon_512x512@2x.png" 1024
+copy_or_resize "$BRANDING_DIR/default512.png" "$APPICONSET_DIR/icon_256x256@2x.png" 512
+copy_or_resize "$BRANDING_DIR/default512.png" "$APPICONSET_DIR/icon_512x512.png" 512
+copy_or_resize "$BRANDING_DIR/default1024.png" "$APPICONSET_DIR/icon_512x512@2x.png" 1024
 
 # Generate Assets.car using actool
 TEMP_DIR=$(mktemp -d)
