@@ -608,11 +608,12 @@ class AgentDaemon:
             self.playwright = await async_playwright().start()
             from rotunda.utils import launch_options
 
+            env: dict[str, str | int | float] = dict(os.environ)
             opts = await asyncio.to_thread(
                 launch_options,
                 headless=headless,
                 executable_path=executable_path,
-                env=dict(os.environ),
+                env=env,
                 humanize=humanize,
             )
             self.context = await self.playwright.firefox.launch_persistent_context(
