@@ -34,6 +34,73 @@ with sync_playwright() as playwright:
     browser.close()
 ```
 
+## Agent
+
+You can also drive Rotunda directly from the command line with `uvx`, without adding it to a project first. The agent commands keep browser profiles, daemon sessions, and short resource indexes under `~/.rotunda`, so later `uvx rotunda ...` calls can attach to the same profile.
+
+For the daemon, resource-index, heartbeat, and singleton process model behind these commands, see [Agent CLI Architecture](docs/agent-cli-architecture.md).
+
+First install the active browser build and create a profile:
+
+```bash
+uvx rotunda fetch
+uvx rotunda agent new-profile --name agent-demo
+```
+
+Create a browser context by passing the profile name to `new-context`, then navigate the printed page index. The page number below is an example; use the index printed by your commands:
+
+```bash
+uvx rotunda agent new-context agent-demo
+uvx rotunda agent navigate 3 https://pierce.dev
+```
+
+Describe the page to get element refs:
+
+```bash
+uvx rotunda agent describe 3
+```
+
+Use those refs directly for actions. You do not need to pass the page index once a ref has been described:
+
+```bash
+uvx rotunda agent click <ref>
+uvx rotunda agent hover <ref>
+uvx rotunda agent info <select-ref>
+uvx rotunda agent select <select-ref> "option-value"
+uvx rotunda agent fill <input-ref> "replacement text"
+uvx rotunda agent type <input-ref> "additional text"
+uvx rotunda agent press <input-ref> Enter
+uvx rotunda agent scroll down
+uvx rotunda agent check <checkbox-ref>
+```
+
+`info` prints the full attributes, state, bounds, and select options for one element. `select` chooses dropdown options by value by default; use `--by label` or `--by index` when that is more convenient. `fill` replaces the field contents, while `type` appends at the focused cursor position. Both use Rotunda's humanized text input path, and mouse actions use Rotunda's path prediction when humanization is enabled.
+
+The agent CLI also includes broader browser primitives for less form-like tasks:
+
+```bash
+uvx rotunda agent pages
+uvx rotunda agent screenshot 3 --full-page
+uvx rotunda agent wait 3 --for text "Done"
+uvx rotunda agent back 3
+uvx rotunda agent forward 3
+uvx rotunda agent reload 3
+uvx rotunda agent extract 3 --format markdown
+uvx rotunda agent upload <file-input-ref> ./document.pdf
+uvx rotunda agent downloads
+uvx rotunda agent save-download <download-ref> ./download.bin
+uvx rotunda agent dialog 3 accept
+uvx rotunda agent close-page 3
+```
+
+`screenshot` can capture the viewport, full page, or one described element with `--element <ref>`; when no path is provided, it writes a randomly named PNG under the system temp directory and prints the absolute filepath. `wait` supports load states, URL patterns, visible text, selectors, and fixed timeouts. `extract` can return text, HTML, markdown, links, or form metadata. `dialog` arms how the next browser dialog on a page should be handled; unarmed dialogs are dismissed and recorded so the browser does not hang.
+
+Stop the profile daemon when you are done:
+
+```bash
+uvx rotunda agent stop 1
+```
+
 ## On stealth browsing
 
 Web automation is incredible. Unfortunately for us, so many people have abused the automation powers of browsers in the past (ticket scalpers, shoe resellers) that sites have poured billions into detecting anything that's not a human. If you run Chrome over CDP with Playwright you'll know what I'm talking about. You get recaptchas, refusals to login, or subtle changes in behavior.
@@ -42,7 +109,7 @@ Web automation is incredible. Unfortunately for us, so many people have abused t
 
 This cat and mouse game has been around since the beginning of the web. As fingerprinting has switched from adhoc to statistical, the burden has shifted dramatically to the stealth implementers. Our view at Rotunda is it's _impossible to compellingly lie about your browser fingerprint_. In the law of large numbers, and the surface area of APIs that browsers have to support, there's some way to detect that you're anomalous. The sites only need one thing wrong to prove that you're faking your whole identity. You need to patch every surface area, simulate the subtleties of every GPU driver, and honestly it's just not a game worth playing.
 
-Instead Rotunda focuses on providing a browser that looks fully human, without lying about its underlying identity. We _want_ to look like it's actually running on your laptop - and instead focus on making sure no automation signatures can be detected. This includes making sure that Playwright can't be detected as the driver controlling your screen, and that any mouse movements tween as if, and that keyboard clicks have some occasional errors. Instead of lying about your fingerprint it's better to fib: tell them what GPU and audio drivers you're running on, but lie about some specifics like accessible fonts or extensions or screen size. It's not out of the ordinary for 10 M1 chips to be browsing their site at the same time.
+Instead Rotunda focuses on providing a browser that looks fully human, without lying about its underlying identity. We _want_ to look like it's actually running on your laptop - and instead focus on making sure no automation signatures can be detected. This includes making sure that Playwright can't be detected as the driver controlling your screen, and that any cursor movements tween as if you're moving a mouse, and that keyboard clicks have some occasional errors. Instead of lying about your fingerprint it's better to fib: tell them what GPU and audio drivers you're running on, but lie about some specifics like accessible fonts or extensions or screen size. It's not out of the ordinary for 10 M1 chips to be browsing their site at the same time - but it is impossible for a Linux GPU to be claiming its macos.
 
 This results in a browser that's not suitable for crawling. For public sites you should be automating that in the cloud anyway via [Browserbase](https://browserbase.com/), [Kernel](https://kernel.sh/), or [ScrapingBee](https://www.scrapingbee.com/). But it's _very_ suitable when you're delegating tasks to your Agents. It's like having a fleet of interns that are doing useful work on your home network.
 
