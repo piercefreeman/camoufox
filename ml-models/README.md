@@ -110,29 +110,40 @@ rotunda-models train-keyboard recordings \
   --epochs 25 --wandb --wandb-project cadence-models
 ```
 
-The training script logs config, data counts, per-epoch `train/*`, `val/*`, and
-`score/loss` metrics. `score/loss` is validation loss when a validation split
-exists, otherwise training loss. Local `metrics.jsonl` and checkpoints are still
-written; by default W&B also receives a model artifact containing `model.pt`,
-`model-best.pt`, and `metrics.jsonl`. Use `--no-wandb-log-artifacts` to skip
-artifact uploads, or `--wandb-mode offline` for local W&B logging.
+Runs still write local checkpoints and `metrics.jsonl`. W&B also logs training
+metrics, optional model artifacts, and rollout diagnostics when validation data
+is available.
 
-Click runs also log post-training rollout diagnostics for validation examples:
-real duration, simulated duration, sim/real duration ratio, duration error,
-step counts, path lengths, and endpoint error. W&B receives a table plus
-duration scatter and histogram charts under `click_rollout/*`. Use
-`--wandb-click-rollout-examples 0` to disable this diagnostic. Use
-`--click-duration-loss-weight` to add an explicit episode-duration loss when
-click rollouts are spatially good but too fast or too slow.
+Keep W&B logs local:
 
-Keyboard runs include an episode-duration loss and log validation rollout
-diagnostics under `keyboard_rollout/*`: exact-match fraction, real/sim duration,
-duration ratio, duration error, and step counts. With the default
-`--keyboard-sequence-mode auto`, focused-text recordings train on raw derived
-edits, while synthetic physical-key recordings train on the constrained
-final-string path. For timing-focused training,
-`--keyboard-min-final-length 2 --keyboard-min-duration-ms 1` removes single-key
-zero-duration episodes that otherwise dominate the timing loss.
+```bash
+rotunda-models train-clicks recordings \
+  --epochs 25 --wandb --wandb-mode offline
+```
+
+Skip model artifact uploads:
+
+```bash
+rotunda-models train-keyboard recordings \
+  --epochs 25 --wandb --no-wandb-log-artifacts
+```
+
+Disable rollout diagnostics:
+
+```bash
+rotunda-models train-clicks recordings \
+  --epochs 25 --wandb --wandb-click-rollout-examples 0
+
+rotunda-models train-keyboard recordings \
+  --epochs 25 --wandb --wandb-keyboard-rollout-examples 0
+```
+
+Filter out very short keyboard examples for timing-focused training:
+
+```bash
+rotunda-models train-keyboard recordings \
+  --epochs 25 --keyboard-min-final-length 2 --keyboard-min-duration-ms 1
+```
 
 ## Generation
 
@@ -158,24 +169,37 @@ rotunda-models generate-keyboard \
   --final-string "hello"
 ```
 
-Keyboard generation uses constrained decoding by default: the model predicts
-timing and action logits, while the decoder masks those logits to actions that
-can still produce the requested final string. This keeps `textAfter` equal to
-`--final-string` while allowing learned corrections/backspaces within
-`--keyboard-structured-extra-steps`. `--keyboard-canonical-bias` controls how
-strongly the decoder prefers the shortest valid edit path over a learned edit.
-Use `--decode-mode canonical` for the older shortest-path behavior. To force
-extra correction events while keeping the same guarantee, pass a typo rate such
-as `--keyboard-typo-rate 0.08 --keyboard-max-typos 2`. The decoder samples
-bounded correction events from
-`--keyboard-typo-mode-weights replace=0.55,forward=0.30,backtrack=0.15`: replace
-types a wrong key then repairs it, forward types one correct key plus bounded
-extra wrong keys then backs up, and backtrack deletes bounded already-correct
-text before retyping it. `--keyboard-typo-min-dt-ms` keeps correction actions
-from collapsing into same-timestamp bursts. Pass `--decode-mode unconstrained`
-to inspect the raw action logits. The generated rows are JSON objects with
-cumulative `offsetMs`, per-step `dtMs`, the emitted action, and a `stepKind`
-label for that timestep.
+By default, generated keyboard output reaches the requested final string.
+
+Use the shortest valid edit path:
+
+```bash
+rotunda-models generate-keyboard \
+  --checkpoint Training/runs/keyboard-YYYYMMDD-HHMMSS/model.pt \
+  --final-string "hello" \
+  --decode-mode canonical
+```
+
+Add bounded typo and correction events:
+
+```bash
+rotunda-models generate-keyboard \
+  --checkpoint Training/runs/keyboard-YYYYMMDD-HHMMSS/model.pt \
+  --final-string "hello" \
+  --keyboard-typo-rate 0.08 --keyboard-max-typos 2
+```
+
+Inspect unconstrained model output:
+
+```bash
+rotunda-models generate-keyboard \
+  --checkpoint Training/runs/keyboard-YYYYMMDD-HHMMSS/model.pt \
+  --final-string "hello" \
+  --decode-mode unconstrained
+```
+
+Generated rows are JSON objects with `offsetMs`, `dtMs`, the emitted action, and
+a `stepKind` label.
 
 ## Debug Videos
 
