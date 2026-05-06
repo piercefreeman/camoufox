@@ -1019,7 +1019,6 @@ def test_generate_fingerprint_dedupes_repeated_linux_screens(
     hosts = importlib.import_module("rotunda.fingerprinting.hosts")
     host_macos = importlib.import_module("rotunda.fingerprinting.host_macos")
     host_linux = importlib.import_module("rotunda.fingerprinting.host_linux")
-    browserforge = importlib.import_module("browserforge.fingerprints")
 
     monkeypatch.setattr(hosts.sys, "platform", "linux")
     monkeypatch.setattr(host_macos.MacOSHostAdapter, "_cached", None)
@@ -1027,7 +1026,7 @@ def test_generate_fingerprint_dedupes_repeated_linux_screens(
     monkeypatch.setattr(fingerprints.FirefoxFingerprintCompiler, "_cached", {})
 
     def _fake_linux_fingerprint() -> Any:
-        return browserforge.Fingerprint(
+        return types.SimpleNamespace(
             navigator=types.SimpleNamespace(
                 userAgent=(
                     "Mozilla/5.0 (X11; Linux x86_64; rv:145.0) "
@@ -1036,7 +1035,7 @@ def test_generate_fingerprint_dedupes_repeated_linux_screens(
                 platform="Linux x86_64",
                 oscpu="Linux x86_64",
             ),
-            screen=browserforge.ScreenFingerprint(
+            screen=types.SimpleNamespace(
                 width=1536,
                 height=864,
                 availWidth=1536,
