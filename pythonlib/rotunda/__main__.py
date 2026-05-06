@@ -41,6 +41,7 @@ from .pkgman import (
     AvailableVersion,
     RepoConfig,
     RotundaFetcher,
+    console,
     installed_verstr,
     list_available_versions,
     rprint,
@@ -850,6 +851,561 @@ def gui(debug):
             "GUI requires PySide6. Install with: pip install 'rotunda\\[gui]'",
             fg="red",
         )
+
+
+@cli.group(name="agent")
+def agent_cmd():
+    """
+    Agent-friendly browser control commands.
+    """
+
+
+@agent_cmd.command(name="new-profile")
+@click.option("--name", default=None, help="Optional profile label.")
+@click.option(
+    "--headless/--headed",
+    default=False,
+    show_default=True,
+    help="Run the browser without visible UI.",
+)
+def agent_new_profile(name: str | None, headless: bool) -> None:
+    """
+    Create an agent profile under ~/.rotunda.
+    """
+    from .agent.store import AgentStore
+
+    store = AgentStore()
+    profile = store.create_profile(name=name, headless=headless)
+    resource = store.register(
+        kind="profile",
+        id=profile["id"],
+        label=profile["name"],
+    )
+    click.echo(f"[{resource.idx}] profile {profile['id']}")
+    click.echo(f"    path: {profile['profile_dir']}")
+    click.echo("    browser: rotunda")
+
+
+@agent_cmd.command(name="new-context")
+@click.argument("profile")
+def agent_new_context(profile: str) -> None:
+    """
+    Create or attach to a browser context for a profile idx.
+    """
+    from .agent.store import AgentStore
+
+    store = AgentStore()
+    profile_resource = _agent_resolve(store, profile, kind="profile")
+    with console.status(
+        f"Starting or attaching agent daemon for profile {profile_resource.idx}...",
+        spinner="dots",
+    ):
+        client = _agent_client(store, profile_resource.id)
+    with console.status(
+        "Launching Rotunda and creating browser context...",
+        spinner="dots",
+    ):
+        data = _agent_post(client, "/new-context")
+    context_resource = store.register(
+        kind="context",
+        id=data["context_id"],
+        profile_id=profile_resource.id,
+        parent_id=profile_resource.id,
+        label=f"profile {profile_resource.idx}",
+    )
+    click.echo(f"[{context_resource.idx}] context {context_resource.id}")
+    for page in data.get("pages", []):
+        _agent_register_page(store, page, context_resource)
+
+
+@agent_cmd.command(name="new-page")
+@click.argument("context")
+def agent_new_page(context: str) -> None:
+    """
+    Create a page from a context idx.
+    """
+    from .agent.store import AgentStore
+
+    store = AgentStore()
+    context_resource = _agent_resolve(store, context, kind="context")
+    if not context_resource.profile_id:
+        raise click.ClickException("Context has no profile.")
+    client = _agent_client(store, context_resource.profile_id)
+    data = _agent_post(client, "/new-page")
+    _agent_register_page(store, data["page"], context_resource)
+
+
+@agent_cmd.command(name="navigate")
+@click.argument("page")
+@click.argument("url")
+@click.option(
+    "--wait-until",
+    default="domcontentloaded",
+    type=click.Choice(["commit", "domcontentloaded", "load", "networkidle"]),
+    help="Playwright navigation wait state.",
+)
+def agent_navigate(page: str, url: str, wait_until: str) -> None:
+    """
+    Navigate a page idx to a URL.
+    """
+    from .agent.store import AgentStore
+
+    store = AgentStore()
+    page_resource = _agent_resolve(store, page, kind="page")
+    if not page_resource.profile_id:
+        raise click.ClickException("Page has no profile.")
+    client = _agent_client(store, page_resource.profile_id)
+    data = _agent_post(
+        client,
+        "/navigate",
+        {
+            "page_id": page_resource.id,
+            "url": _agent_normalize_url(url),
+            "wait_until": wait_until,
+        },
+    )
+    _agent_update_page(store, data["page"], page_resource)
+
+
+@agent_cmd.command(name="describe")
+@click.argument("page")
+@click.option("--max-items", default=200, show_default=True, help="Maximum DOM items.")
+def agent_describe(page: str, max_items: int) -> None:
+    """
+    Dump an agent-friendly DOM representation for a page idx.
+    """
+    _agent_describe(page, max_items)
+
+
+@agent_cmd.command(name="list", hidden=True)
+@click.argument("page")
+@click.option("--max-items", default=200, show_default=True, help="Maximum DOM items.")
+def agent_list(page: str, max_items: int) -> None:
+    """
+    Deprecated alias for describe.
+    """
+    _agent_describe(page, max_items)
+
+
+def _agent_describe(page: str, max_items: int) -> None:
+    from .agent.store import AgentStore
+
+    store = AgentStore()
+    page_resource = _agent_resolve(store, page, kind="page")
+    if not page_resource.profile_id:
+        raise click.ClickException("Page has no profile.")
+    client = _agent_client(store, page_resource.profile_id)
+    data = _agent_post(
+        client,
+        "/describe",
+        {"page_id": page_resource.id, "max_items": max_items},
+    )
+    page_resource = _agent_update_page(store, data["page"], page_resource)
+    _agent_register_elements(store, page_resource, data.get("items", []))
+    if data.get("text"):
+        click.echo(data["text"])
+
+
+@agent_cmd.command(name="click")
+@click.argument("args", nargs=-1, required=True, metavar="[PAGE] REF")
+def agent_click(args: tuple[str, ...]) -> None:
+    """
+    Click a DOM ref from the last describe output.
+
+    \b
+    Arguments:
+      REF   Element ref returned by `rotunda agent describe <page>`.
+      PAGE  Optional page index/reference for the legacy page-qualified form.
+
+    \b
+    Forms:
+      rotunda agent click <ref>
+      rotunda agent click <page> <ref>
+    """
+    from .agent.store import AgentStore
+
+    store = AgentStore()
+    page_resource, ref = _agent_target_from_click_args(store, args)
+    if not page_resource.profile_id:
+        raise click.ClickException("Page has no profile.")
+    client = _agent_client(store, page_resource.profile_id)
+    data = _agent_post(client, "/click", {"page_id": page_resource.id, "ref": ref})
+    page_resource = _agent_update_page(store, data["page"], page_resource)
+    _agent_register_elements(store, page_resource, data.get("items", []))
+    if data.get("text"):
+        click.echo(data["text"])
+
+
+@agent_cmd.command(name="info")
+@click.argument("args", nargs=-1, required=True, metavar="[PAGE] REF")
+def agent_info(args: tuple[str, ...]) -> None:
+    """
+    Dump detailed information for one DOM ref.
+
+    \b
+    Arguments:
+      REF   Element ref returned by `rotunda agent describe <page>`.
+      PAGE  Optional page index/reference for the legacy page-qualified form.
+
+    \b
+    Forms:
+      rotunda agent info <ref>
+      rotunda agent info <page> <ref>
+    """
+    from .agent.store import AgentStore
+
+    store = AgentStore()
+    page_resource, ref = _agent_target_from_click_args(store, args)
+    if not page_resource.profile_id:
+        raise click.ClickException("Page has no profile.")
+    client = _agent_client(store, page_resource.profile_id)
+    data = _agent_post(client, "/info", {"page_id": page_resource.id, "ref": ref})
+    _agent_update_page(store, data["page"], page_resource)
+    if data.get("text"):
+        click.echo(data["text"])
+
+
+@agent_cmd.command(name="fill")
+@click.option("--submit", is_flag=True, help="Press Enter after filling text.")
+@click.argument("args", nargs=-1, required=True, metavar="[PAGE] REF TEXT")
+def agent_fill(args: tuple[str, ...], submit: bool) -> None:
+    """
+    Fill text into a DOM ref from the last describe output.
+
+    \b
+    Arguments:
+      REF   Input element ref returned by `rotunda agent describe <page>`.
+      TEXT  Replacement text. Existing field contents are cleared first.
+      PAGE  Optional page index/reference for the legacy page-qualified form.
+
+    \b
+    Forms:
+      rotunda agent fill <ref> <text>
+      rotunda agent fill <page> <ref> <text>
+    """
+    _agent_fill(args, submit=submit, command_name="fill")
+
+
+def _agent_fill(args: tuple[str, ...], *, submit: bool, command_name: str) -> None:
+    from .agent.store import AgentStore
+
+    store = AgentStore()
+    page_resource, ref, text = _agent_target_from_text_args(store, args, command_name=command_name)
+    if not page_resource.profile_id:
+        raise click.ClickException("Page has no profile.")
+    client = _agent_client(store, page_resource.profile_id)
+    data = _agent_post(
+        client,
+        "/fill",
+        {
+            "page_id": page_resource.id,
+            "ref": ref,
+            "text": text,
+            "submit": submit,
+        },
+    )
+    page_resource = _agent_update_page(store, data["page"], page_resource)
+    _agent_register_elements(store, page_resource, data.get("items", []))
+    if data.get("text"):
+        click.echo(data["text"])
+
+
+@agent_cmd.command(name="select")
+@click.option(
+    "--by",
+    "select_by",
+    default="value",
+    show_default=True,
+    type=click.Choice(["value", "label", "index"]),
+    help="How to match the option.",
+)
+@click.argument("args", nargs=-1, required=True, metavar="[PAGE] REF VALUE...")
+def agent_select(args: tuple[str, ...], select_by: str) -> None:
+    """
+    Select one or more options in a dropdown DOM ref.
+
+    \b
+    Arguments:
+      REF     Select element ref returned by `rotunda agent describe <page>`.
+      VALUE   Option value, label, or index depending on `--by`.
+      PAGE    Optional page index/reference for the legacy page-qualified form.
+
+    \b
+    Forms:
+      rotunda agent select <ref> <value> [value...]
+      rotunda agent select <page> <ref> <value> [value...]
+
+    Use `rotunda agent info <ref>` to inspect available option values.
+    """
+    from .agent.store import AgentStore
+
+    store = AgentStore()
+    page_resource, ref, values = _agent_target_from_values_args(
+        store,
+        args,
+        command_name="select",
+    )
+    if not page_resource.profile_id:
+        raise click.ClickException("Page has no profile.")
+    client = _agent_client(store, page_resource.profile_id)
+    data = _agent_post(
+        client,
+        "/select",
+        {
+            "page_id": page_resource.id,
+            "ref": ref,
+            "values": values,
+            "by": select_by,
+        },
+    )
+    page_resource = _agent_update_page(store, data["page"], page_resource)
+    _agent_register_elements(store, page_resource, data.get("items", []))
+    if data.get("selected") is not None:
+        click.echo(f"selected: {', '.join(str(value) for value in data['selected'])}")
+    if data.get("text"):
+        click.echo(data["text"])
+
+
+@agent_cmd.command(name="type")
+@click.option("--submit", is_flag=True, help="Press Enter after typing text.")
+@click.argument("args", nargs=-1, required=True, metavar="[PAGE] REF TEXT")
+def agent_type(args: tuple[str, ...], submit: bool) -> None:
+    """
+    Type text into a DOM ref from the last describe output.
+
+    \b
+    Arguments:
+      REF   Input element ref returned by `rotunda agent describe <page>`.
+      TEXT  Text to insert at the focused cursor position.
+      PAGE  Optional page index/reference for the legacy page-qualified form.
+
+    \b
+    Forms:
+      rotunda agent type <ref> <text>
+      rotunda agent type <page> <ref> <text>
+    """
+    _agent_type(args, submit=submit)
+
+
+@agent_cmd.command(name="typing", hidden=True)
+@click.option("--submit", is_flag=True, help="Press Enter after typing text.")
+@click.argument("args", nargs=-1, required=True, metavar="[PAGE] REF TEXT")
+def agent_typing(args: tuple[str, ...], submit: bool) -> None:
+    """
+    Deprecated alias for type.
+    """
+    _agent_type(args, submit=submit)
+
+
+def _agent_type(args: tuple[str, ...], *, submit: bool) -> None:
+    from .agent.store import AgentStore
+
+    store = AgentStore()
+    page_resource, ref, text = _agent_target_from_text_args(store, args, command_name="type")
+    if not page_resource.profile_id:
+        raise click.ClickException("Page has no profile.")
+    client = _agent_client(store, page_resource.profile_id)
+    data = _agent_post(
+        client,
+        "/type",
+        {
+            "page_id": page_resource.id,
+            "ref": ref,
+            "text": text,
+            "submit": submit,
+        },
+    )
+    page_resource = _agent_update_page(store, data["page"], page_resource)
+    _agent_register_elements(store, page_resource, data.get("items", []))
+    if data.get("text"):
+        click.echo(data["text"])
+
+
+@agent_cmd.command(name="resources")
+@click.option(
+    "--kind",
+    type=click.Choice(["profile", "context", "page", "element"]),
+    default=None,
+    help="Filter resource kind.",
+)
+def agent_resources(kind: str | None) -> None:
+    """
+    List saved agent resource indexes.
+    """
+    from .agent.store import AgentStore
+
+    store = AgentStore()
+    for resource in store.list_resources(kind=kind):
+        suffix = f" {resource.label}" if resource.label else ""
+        click.echo(f"[{resource.idx}] {resource.kind} {resource.id}{suffix}")
+
+
+@agent_cmd.command(name="stop")
+@click.argument("profile", required=False)
+def agent_stop(profile: str | None) -> None:
+    """
+    Stop the daemon for a profile idx.
+    """
+    from contextlib import suppress
+
+    from .agent.client import AgentClient, AgentClientError
+    from .agent.store import AgentStore
+
+    store = AgentStore()
+    profile_resource = _agent_resolve(store, profile, kind="profile")
+    session = store.load_session(profile_resource.id)
+    if not session:
+        click.echo(f"No running daemon for profile {profile_resource.id}.")
+        return
+    with suppress(AgentClientError):
+        AgentClient(session).post("/shutdown")
+    store.remove_session(profile_resource.id)
+    click.echo(f"Stopped profile {profile_resource.id}.")
+
+
+def _agent_client(store, profile_id: str):
+    from .agent.client import AgentClientError, ensure_daemon
+
+    try:
+        return ensure_daemon(profile_id, store=store)
+    except AgentClientError as exc:
+        raise click.ClickException(_agent_clean_error(exc)) from None
+
+
+def _agent_post(client, path: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
+    from .agent.client import AgentClientError
+
+    try:
+        return client.post(path, payload)
+    except AgentClientError as exc:
+        raise click.ClickException(_agent_clean_error(exc)) from None
+
+
+def _agent_resolve(store, ref: str | None, *, kind: str):
+    try:
+        return store.resolve(ref, kind=kind)
+    except KeyError as exc:
+        raise click.ClickException(_agent_clean_error(exc)) from None
+
+
+def _agent_target_from_click_args(store, args: tuple[str, ...]):
+    if len(args) == 1:
+        return _agent_page_and_ref_for_element_ref(store, args[0])
+    if len(args) == 2:
+        return _agent_resolve(store, args[0], kind="page"), args[1]
+    raise click.ClickException("Usage: rotunda agent click <ref> or rotunda agent click <page> <ref>")
+
+
+def _agent_target_from_text_args(store, args: tuple[str, ...], *, command_name: str):
+    if len(args) == 2:
+        return (*_agent_page_and_ref_for_element_ref(store, args[0]), args[1])
+    if len(args) == 3:
+        return _agent_resolve(store, args[0], kind="page"), args[1], args[2]
+    raise click.ClickException(
+        f"Usage: rotunda agent {command_name} <ref> <text> "
+        f"or rotunda agent {command_name} <page> <ref> <text>"
+    )
+
+
+def _agent_target_from_values_args(store, args: tuple[str, ...], *, command_name: str):
+    if len(args) < 2:
+        raise click.ClickException(
+            f"Usage: rotunda agent {command_name} <ref> <value> [value...] "
+            f"or rotunda agent {command_name} <page> <ref> <value> [value...]"
+        )
+
+    try:
+        page_resource, ref = _agent_page_and_ref_for_element_ref(store, args[0])
+        return page_resource, ref, list(args[1:])
+    except click.ClickException:
+        if len(args) < 3:
+            raise
+
+    page_resource = _agent_resolve(store, args[0], kind="page")
+    return page_resource, args[1], list(args[2:])
+
+
+def _agent_page_and_ref_for_element_ref(store, ref: str):
+    try:
+        element_resource = store.resolve(ref, kind="element")
+    except KeyError as exc:
+        message = _agent_clean_error(exc)
+        raise click.ClickException(
+            f"{message}. Run `rotunda agent describe <page>` before using a global element ref."
+        ) from None
+    if not element_resource.parent_id:
+        raise click.ClickException(f"Element ref {ref} is not attached to a page.")
+    try:
+        page_resource = store.resolve(element_resource.parent_id, kind="page")
+    except KeyError as exc:
+        message = _agent_clean_error(exc)
+        raise click.ClickException(f"{message} for element ref {ref}.") from None
+    return page_resource, element_resource.id
+
+
+def _agent_register_page(store, page: dict[str, str], context_resource):
+    page_resource = store.register(
+        kind="page",
+        id=page["id"],
+        profile_id=context_resource.profile_id,
+        parent_id=context_resource.id,
+        label=page.get("url") or "about:blank",
+    )
+    _agent_print_page(page_resource.idx, page)
+    return page_resource
+
+
+def _agent_update_page(store, page: dict[str, str], page_resource):
+    updated = store.register(
+        kind="page",
+        id=page["id"],
+        profile_id=page_resource.profile_id,
+        parent_id=page_resource.parent_id,
+        label=page.get("url") or page_resource.label,
+    )
+    _agent_print_page(updated.idx, page)
+    return updated
+
+
+def _agent_register_elements(store, page_resource, items: list[dict[str, Any]]) -> None:
+    store.remove_children(page_resource.id, kind="element")
+    for item in items:
+        ref = str(item.get("ref") or "")
+        if not ref:
+            continue
+        store.register(
+            kind="element",
+            id=ref,
+            profile_id=page_resource.profile_id,
+            parent_id=page_resource.id,
+            label=_agent_element_label(item),
+        )
+
+
+def _agent_element_label(item: dict[str, Any]) -> str:
+    kind = str(item.get("role") or item.get("tag") or "element")
+    label = str(item.get("name") or item.get("text") or "")
+    if label:
+        return f'{kind} "{label}"'
+    return kind
+
+
+def _agent_print_page(idx: int, page: dict[str, str]) -> None:
+    title = f" title={page['title']!r}" if page.get("title") else ""
+    click.echo(f"[{idx}] page {page['id']} {page.get('url', '')}{title}")
+
+
+def _agent_normalize_url(url: str) -> str:
+    if "://" in url or url.startswith(("about:", "data:", "file:")):
+        return url
+    return f"https://{url}"
+
+
+def _agent_clean_error(exc: BaseException) -> str:
+    message = str(exc)
+    if len(message) >= 2 and message[0] == message[-1] == "'":
+        message = message[1:-1]
+    return message
 
 
 class VersionInfo:
