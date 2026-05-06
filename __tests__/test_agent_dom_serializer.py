@@ -6,8 +6,18 @@ from rotunda.agent.dom_serializer import DOM_SERIALIZER_SCRIPT
 
 
 class FakeLocator:
-    def __init__(self, count: int) -> None:
+    def __init__(
+        self,
+        count: int,
+        *,
+        visible: bool = True,
+        visible_indexes: set[int] | None = None,
+        index: int | None = None,
+    ) -> None:
         self._count = count
+        self._visible = visible
+        self._visible_indexes = visible_indexes
+        self.index = index
 
     def count(self) -> int:
         return self._count
@@ -16,14 +26,35 @@ class FakeLocator:
     def first(self) -> FakeLocator:
         return self
 
+    def nth(self, index: int) -> FakeLocator:
+        if self._visible_indexes is None:
+            visible = self._visible
+        else:
+            visible = index in self._visible_indexes
+        return FakeLocator(1, visible=visible, index=index)
+
+    def is_visible(self) -> bool:
+        return self._visible
+
+    def element_handle(self, *, timeout: float | None = None) -> FakeLocator:
+        return self
+
 
 class FakeFrame:
-    def __init__(self, url: str, items: list[dict], *, name: str = "") -> None:
+    def __init__(
+        self,
+        url: str,
+        items: list[dict],
+        *,
+        name: str = "",
+        visible_indexes: set[int] | None = None,
+    ) -> None:
         self.url = url
         self.name = name
         self.parent_frame = None
         self.items = items
         self.selectors: list[str] = []
+        self.visible_indexes = visible_indexes
 
     def evaluate(self, script: str, options: dict) -> list[dict]:
         assert script == DOM_SERIALIZER_SCRIPT
@@ -33,7 +64,10 @@ class FakeFrame:
 
     def locator(self, selector: str) -> FakeLocator:
         self.selectors.append(selector)
-        return FakeLocator(1 if selector == self.items[0]["css"] else 0)
+        if selector not in {self.items[0]["css"], f"xpath={self.items[0]['xpath']}"}:
+            return FakeLocator(0)
+        count = 1 if self.visible_indexes is None else len(self.visible_indexes) + 1
+        return FakeLocator(count, visible_indexes=self.visible_indexes)
 
 
 class FakePage:
@@ -117,7 +151,7 @@ def test_resolve_locator_uses_in_memory_reference_selectors() -> None:
     locator = serializer.resolve_locator(page, snapshot.items[0].ref)
 
     assert isinstance(locator, FakeLocator)
-    assert frame.selectors == ["css=button#login"]
+    assert frame.selectors == ["xpath=/html/body/button[1]"]
 
 
 def test_resolve_locator_matches_frame_url_before_falling_back_to_index() -> None:
@@ -131,7 +165,34 @@ def test_resolve_locator_matches_frame_url_before_falling_back_to_index() -> Non
 
     assert isinstance(locator, FakeLocator)
     assert other.selectors == []
-    assert moved.selectors == ["css=button#login"]
+    assert moved.selectors == []
+
+
+def test_resolve_locator_prefers_visible_match_for_selector() -> None:
+    frame = FakeFrame(
+        "https://example.com",
+        [raw_button(xpath="/html/body/button[1]")],
+        visible_indexes={1},
+    )
+    serializer = DOMSerializer(hash_length=6)
+    snapshot = serializer.serialize(FakePage([frame]))
+
+    locator = serializer.resolve_locator(FakePage([frame]), snapshot.items[0].ref)
+
+    assert isinstance(locator, FakeLocator)
+    assert locator.index == 1
+
+
+def test_resolve_locator_uses_captured_handle_before_selectors() -> None:
+    frame = FakeFrame("https://example.com", [raw_button(xpath="/html/body/button[1]")])
+    serializer = DOMSerializer(hash_length=6)
+    snapshot = serializer.serialize(FakePage([frame]))
+    frame.selectors.clear()
+
+    locator = serializer.resolve_locator(FakePage([frame]), snapshot.items[0].ref)
+
+    assert isinstance(locator, FakeLocator)
+    assert frame.selectors == []
 
 
 def test_unknown_reference_raises_key_error() -> None:

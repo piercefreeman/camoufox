@@ -548,6 +548,7 @@ class DOMSnapshot:
 class DOMReference:
     element: DOMElement
     selectors: tuple[str, ...] = field(default_factory=tuple)
+    handle: Any | None = None
 
 
 class DOMSerializer:
@@ -621,13 +622,11 @@ class DOMSerializer:
                     key_counts=key_counts,
                 )
                 items.append(element)
+                selectors = _selectors_for_element(element)
                 self._references[element.ref] = DOMReference(
                     element=element,
-                    selectors=tuple(
-                        selector
-                        for selector in (element.css, f"xpath={element.xpath}" if element.xpath else "")
-                        if selector
-                    ),
+                    selectors=selectors,
+                    handle=_capture_element_handle(frame, selectors),
                 )
 
         text = self.render(items, dom_frames)
@@ -672,13 +671,11 @@ class DOMSerializer:
                     key_counts=key_counts,
                 )
                 items.append(element)
+                selectors = _selectors_for_element(element)
                 self._references[element.ref] = DOMReference(
                     element=element,
-                    selectors=tuple(
-                        selector
-                        for selector in (element.css, f"xpath={element.xpath}" if element.xpath else "")
-                        if selector
-                    ),
+                    selectors=selectors,
+                    handle=await _async_capture_element_handle(frame, selectors),
                 )
 
         text = self.render(items, dom_frames)
@@ -692,6 +689,9 @@ class DOMSerializer:
 
     def resolve_locator(self, page: Any, ref: str) -> Any:
         reference = self.get_reference(ref)
+        if reference.handle is not None:
+            return reference.handle
+
         frame = _frame_for_reference(page, reference)
 
         last_error: Exception | None = None
@@ -699,7 +699,7 @@ class DOMSerializer:
             try:
                 locator = frame.locator(selector)
                 if locator.count() > 0:
-                    return locator.first
+                    return _first_visible_locator(locator)
             except Exception as exc:
                 last_error = exc
 
@@ -709,6 +709,9 @@ class DOMSerializer:
 
     async def async_resolve_locator(self, page: Any, ref: str) -> Any:
         reference = self.get_reference(ref)
+        if reference.handle is not None:
+            return reference.handle
+
         frame = _frame_for_reference(page, reference)
 
         last_error: Exception | None = None
@@ -716,7 +719,7 @@ class DOMSerializer:
             try:
                 locator = frame.locator(selector)
                 if await locator.count() > 0:
-                    return locator.first
+                    return await _async_first_visible_locator(locator)
             except Exception as exc:
                 last_error = exc
 
@@ -883,6 +886,60 @@ def _frame_matches_element(frame: Any, element: DOMElement) -> bool:
     if expected_url and url != expected_url:
         return False
     return not element.frame_name or name == element.frame_name
+
+
+def _selectors_for_element(element: DOMElement) -> tuple[str, ...]:
+    return tuple(
+        selector
+        for selector in (f"xpath={element.xpath}" if element.xpath else "", element.css)
+        if selector
+    )
+
+
+def _capture_element_handle(frame: Any, selectors: tuple[str, ...]) -> Any | None:
+    for selector in selectors:
+        try:
+            locator = frame.locator(selector)
+            if locator.count() > 0:
+                return _first_visible_locator(locator).element_handle(timeout=0)
+        except Exception:
+            continue
+    return None
+
+
+async def _async_capture_element_handle(frame: Any, selectors: tuple[str, ...]) -> Any | None:
+    for selector in selectors:
+        try:
+            locator = frame.locator(selector)
+            if await locator.count() > 0:
+                return await (await _async_first_visible_locator(locator)).element_handle(timeout=0)
+        except Exception:
+            continue
+    return None
+
+
+def _first_visible_locator(locator: Any) -> Any:
+    count = locator.count()
+    for index in range(min(count, 20)):
+        try:
+            candidate = locator.nth(index)
+            if candidate.is_visible():
+                return candidate
+        except Exception:
+            continue
+    return locator.first
+
+
+async def _async_first_visible_locator(locator: Any) -> Any:
+    count = await locator.count()
+    for index in range(min(count, 20)):
+        try:
+            candidate = locator.nth(index)
+            if await candidate.is_visible():
+                return candidate
+        except Exception:
+            continue
+    return locator.first
 
 
 def _compact_url(value: str, *, limit: int = 72) -> str:

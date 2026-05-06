@@ -3,11 +3,12 @@ from __future__ import annotations
 import json
 import os
 import signal
+import sys
 import time
 import uuid
 from contextlib import suppress
 from dataclasses import asdict
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from typing import Any, Literal, cast
 
@@ -64,7 +65,7 @@ class AgentDaemon:
         self.page_serializers.pop(page_id, None)
         return {"page": self._page_payload(page_id, page)}
 
-    def list_page(self, page_id: str, max_items: int = 200) -> dict[str, Any]:
+    def describe_page(self, page_id: str, max_items: int = 200) -> dict[str, Any]:
         page = self._page(page_id)
         serializer = DOMSerializer(max_items=max_items)
         snapshot = serializer.serialize(page)
@@ -76,27 +77,49 @@ class AgentDaemon:
             "items": [asdict(item) for item in snapshot.items],
         }
 
+    def list_page(self, page_id: str, max_items: int = 200) -> dict[str, Any]:
+        return self.describe_page(page_id, max_items)
+
     def click(self, page_id: str, ref: str) -> dict[str, Any]:
         page = self._page(page_id)
         serializer = self._serializer_for(page_id, page)
         locator = serializer.resolve_locator(page, ref)
         locator.click(timeout=15_000)
         self._settle(page)
-        return self.list_page(page_id)
+        return self.describe_page(page_id)
 
-    def enter(self, page_id: str, ref: str, text: str, *, submit: bool = False) -> dict[str, Any]:
+    def fill_text(self, page_id: str, ref: str, text: str, *, submit: bool = False) -> dict[str, Any]:
         page = self._page(page_id)
         serializer = self._serializer_for(page_id, page)
         locator = serializer.resolve_locator(page, ref)
-        try:
-            locator.fill(text, timeout=15_000)
-        except Exception:
-            locator.click(timeout=15_000)
-            page.keyboard.type(text)
+        locator.click(timeout=15_000)
+        locator.press("ControlOrMeta+A", timeout=15_000)
+        locator.press("Backspace", timeout=15_000)
+        if text:
+            page.keyboard.insert_text(text)
         if submit:
             locator.press("Enter")
         self._settle(page)
-        return self.list_page(page_id)
+        return self.describe_page(page_id)
+
+    def type_text(
+        self,
+        page_id: str,
+        ref: str,
+        text: str,
+        *,
+        submit: bool = False,
+    ) -> dict[str, Any]:
+        page = self._page(page_id)
+        serializer = self._serializer_for(page_id, page)
+        locator = serializer.resolve_locator(page, ref)
+        locator.click(timeout=15_000)
+        if text:
+            page.keyboard.insert_text(text)
+        if submit:
+            locator.press("Enter")
+        self._settle(page)
+        return self.describe_page(page_id)
 
     def _ensure_context(self) -> BrowserContext:
         if self.context:
@@ -104,7 +127,8 @@ class AgentDaemon:
 
         user_data_dir = Path(str(self.profile["user_data_dir"]))
         user_data_dir.mkdir(parents=True, exist_ok=True)
-        headless = bool(self.profile.get("headless", True))
+        headless = bool(self.profile.get("headless", False))
+        humanize = bool(self.profile.get("humanize", True))
         executable_path = resolve_installed_rotunda_executable()
 
         self.playwright = sync_playwright().start()
@@ -114,6 +138,7 @@ class AgentDaemon:
             headless=headless,
             executable_path=executable_path,
             env=dict(os.environ),
+            humanize=humanize,
         )
         self.context = self.playwright.firefox.launch_persistent_context(
             str(user_data_dir),
@@ -164,7 +189,7 @@ class AgentDaemon:
         return {"id": page_id, "url": page.url, "title": title}
 
 
-class AgentHTTPServer(ThreadingHTTPServer):
+class AgentHTTPServer(HTTPServer):
     daemon: AgentDaemon
     token: str
 
@@ -196,15 +221,22 @@ class AgentRequestHandler(BaseHTTPRequestHandler):
                     str(payload["url"]),
                     wait_until,
                 )
-            elif self.path == "/list":
-                result = self.server.daemon.list_page(
+            elif self.path in {"/describe", "/list"}:
+                result = self.server.daemon.describe_page(
                     str(payload["page_id"]),
                     int(payload.get("max_items") or 200),
                 )
             elif self.path == "/click":
                 result = self.server.daemon.click(str(payload["page_id"]), str(payload["ref"]))
-            elif self.path == "/enter":
-                result = self.server.daemon.enter(
+            elif self.path == "/fill":
+                result = self.server.daemon.fill_text(
+                    str(payload["page_id"]),
+                    str(payload["ref"]),
+                    str(payload["text"]),
+                    submit=bool(payload.get("submit", False)),
+                )
+            elif self.path == "/type":
+                result = self.server.daemon.type_text(
                     str(payload["page_id"]),
                     str(payload["ref"]),
                     str(payload["text"]),
@@ -282,6 +314,7 @@ def run_daemon(
     ready_file: Path,
     session_file: Path,
 ) -> None:
+    hide_macos_dock_icon()
     store = AgentStore()
     try:
         profile = store.load_profile(profile_id)
@@ -311,6 +344,37 @@ def run_daemon(
             encoding="utf-8",
         )
         raise
+
+
+def hide_macos_dock_icon() -> None:
+    if sys.platform != "darwin":
+        return
+
+    with suppress(Exception):
+        import ctypes
+        from ctypes import Structure, byref, c_int32, c_uint32
+
+        class ProcessSerialNumber(Structure):
+            _fields_ = [
+                ("highLongOfPSN", c_uint32),
+                ("lowLongOfPSN", c_uint32),
+            ]
+
+        current_process = ProcessSerialNumber(0, 2)
+        transform_to_background_application = 2
+        app_services = ctypes.CDLL(
+            "/System/Library/Frameworks/ApplicationServices.framework/ApplicationServices"
+        )
+        app_services.TransformProcessType.argtypes = [
+            ctypes.POINTER(ProcessSerialNumber),
+            c_uint32,
+        ]
+        app_services.TransformProcessType.restype = c_int32
+        app_services.TransformProcessType(
+            byref(current_process),
+            transform_to_background_application,
+        )
+
 
 def _wait_until(value: str) -> Literal["commit", "domcontentloaded", "load", "networkidle"]:
     if value in {"commit", "domcontentloaded", "load", "networkidle"}:

@@ -30,7 +30,7 @@ class AgentStore:
         self,
         *,
         name: str | None = None,
-        headless: bool = True,
+        headless: bool = False,
     ) -> dict[str, Any]:
         profile_id = f"prof_{uuid.uuid4().hex[:12]}"
         profile_dir = PROFILES_DIR / profile_id
@@ -40,6 +40,7 @@ class AgentStore:
             "name": name or profile_id,
             "browser": "rotunda",
             "headless": headless,
+            "humanize": True,
             "created_at": time.time(),
             "profile_dir": str(profile_dir),
             "user_data_dir": str(profile_dir / "browser-data"),
@@ -121,6 +122,17 @@ class AgentStore:
         state["resources"].append(raw)
         self._save_resources(state)
         return AgentResource(**raw)
+
+    def remove_children(self, parent_id: str, *, kind: str | None = None) -> None:
+        state = self._load_resources()
+        original_count = len(state["resources"])
+        state["resources"] = [
+            raw
+            for raw in state["resources"]
+            if not (raw.get("parent_id") == parent_id and (kind is None or raw.get("kind") == kind))
+        ]
+        if len(state["resources"]) != original_count:
+            self._save_resources(state)
 
     def resolve(self, ref: str | None, *, kind: str | None = None) -> AgentResource:
         state = self._load_resources()

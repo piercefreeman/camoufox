@@ -32,6 +32,44 @@ with sync_playwright() as playwright:
     browser.close()
 ```
 
+## Agent
+
+You can also drive Rotunda directly from the command line with `uvx`, without adding it to a project first. The agent commands keep browser profiles, daemon sessions, and short resource indexes under `~/.rotunda`, so later `uvx rotunda ...` calls can attach to the same profile.
+
+First install the active browser build and create a profile:
+
+```bash
+uvx rotunda fetch
+uvx rotunda agent new-profile --name agent-demo
+```
+
+Create a browser context from the printed profile index, then navigate the printed page index. The numbers below are examples; use the indexes printed by your commands:
+
+```bash
+uvx rotunda agent new-context 1
+uvx rotunda agent navigate 3 https://pierce.dev
+```
+
+Describe the page to get element refs:
+
+```bash
+uvx rotunda agent describe 3
+```
+
+Use those refs directly for actions. You do not need to pass the page index once a ref has been described:
+
+```bash
+uvx rotunda agent click <ref>
+uvx rotunda agent fill <input-ref> "replacement text"
+uvx rotunda agent type <input-ref> "additional text"
+```
+
+`fill` replaces the field contents, while `type` appends at the focused cursor position. Both use Rotunda's humanized text input path, and mouse actions use Rotunda's path prediction when humanization is enabled. Stop the profile daemon when you are done:
+
+```bash
+uvx rotunda agent stop 1
+```
+
 ## On stealth browsing
 
 Web automation is incredible. Unfortunately for us, so many people have abused the automation powers of browsers in the past (ticket scalpers, shoe resellers) that sites have poured billions into detecting anything that's not a human. If you run Chrome over CDP with Playwright you'll know what I'm talking about. You get recaptchas, refusals to login, or subtle changes in behavior.
