@@ -23,9 +23,9 @@ def isolate_agent_store(tmp_path, monkeypatch) -> None:
     )
 
 
-def test_agent_http_server_is_single_threaded_for_playwright_sync_api() -> None:
+def test_agent_http_server_accepts_concurrent_requests_for_async_playwright_api() -> None:
     assert issubclass(AgentHTTPServer, HTTPServer)
-    assert not issubclass(AgentHTTPServer, ThreadingMixIn)
+    assert issubclass(AgentHTTPServer, ThreadingMixIn)
 
 
 def test_agent_profile_defaults_to_headed(tmp_path, monkeypatch) -> None:
@@ -107,10 +107,10 @@ class FakeKeyboard:
     def __init__(self, events: list[tuple]) -> None:
         self.events = events
 
-    def insert_text(self, text: str) -> None:
+    async def insert_text(self, text: str) -> None:
         self.events.append(("insert_text", text))
 
-    def press(self, key: str) -> None:
+    async def press(self, key: str) -> None:
         self.events.append(("keyboard_press", key))
 
 
@@ -118,10 +118,10 @@ class FakeMouse:
     def __init__(self, events: list[tuple]) -> None:
         self.events = events
 
-    def down(self) -> None:
+    async def down(self) -> None:
         self.events.append(("mouse_down",))
 
-    def up(self) -> None:
+    async def up(self) -> None:
         self.events.append(("mouse_up",))
 
 
@@ -131,21 +131,23 @@ class FakePage:
         self.mouse = FakeMouse(events)
         self.events = events
         self.url = "https://example.test"
-        self.title = lambda: "Example"
 
-    def screenshot(self, *, path: str, full_page: bool, timeout: int) -> None:
+    async def title(self) -> str:
+        return "Example"
+
+    async def screenshot(self, *, path: str, full_page: bool, timeout: int) -> None:
         self.events.append(("page_screenshot", path, full_page, timeout))
 
-    def wait_for_load_state(self, state: str, *, timeout: int) -> None:
+    async def wait_for_load_state(self, state: str, *, timeout: int) -> None:
         self.events.append(("wait_for_load_state", state, timeout))
 
-    def wait_for_timeout(self, timeout: int) -> None:
+    async def wait_for_timeout(self, timeout: int) -> None:
         self.events.append(("wait_for_timeout", timeout))
 
-    def wait_for_url(self, value: str, *, timeout: int) -> None:
+    async def wait_for_url(self, value: str, *, timeout: int) -> None:
         self.events.append(("wait_for_url", value, timeout))
 
-    def evaluate(self, script: str, arg=None):
+    async def evaluate(self, script: str, arg=None):
         self.events.append(("page_evaluate", script, arg))
         if "blocks.join" in script:
             return "# Example"
@@ -155,7 +157,7 @@ class FakePage:
             return [{"index": 0, "fields": []}]
         return {"ok": True}
 
-    def content(self) -> str:
+    async def content(self) -> str:
         self.events.append(("content",))
         return "<html></html>"
 
@@ -167,10 +169,10 @@ class FakePage:
             def first(self):
                 return self
 
-            def inner_text(self, *, timeout: int) -> str:
+            async def inner_text(self, *, timeout: int) -> str:
                 return "Example text"
 
-            def wait_for(self, *, state: str, timeout: int) -> None:
+            async def wait_for(self, *, state: str, timeout: int) -> None:
                 events.append(("locator_wait_for", selector, state, timeout))
 
         events = self.events
@@ -184,7 +186,7 @@ class FakePage:
             def first(self):
                 return self
 
-            def wait_for(self, *, state: str, timeout: int) -> None:
+            async def wait_for(self, *, state: str, timeout: int) -> None:
                 events.append(("text_wait_for", text, state, timeout))
 
         events = self.events
@@ -195,13 +197,13 @@ class FakeLocator:
     def __init__(self, events: list[tuple]) -> None:
         self.events = events
 
-    def click(self, *, timeout: int) -> None:
+    async def click(self, *, timeout: int) -> None:
         self.events.append(("click", timeout))
 
-    def press(self, key: str, *, timeout: int | None = None) -> None:
+    async def press(self, key: str, *, timeout: int | None = None) -> None:
         self.events.append(("press", key, timeout))
 
-    def evaluate(self, script: str, arg=None) -> dict:
+    async def evaluate(self, script: str, arg=None) -> dict:
         self.events.append(("evaluate", script, arg))
         return {
             "tag": "select",
@@ -235,7 +237,7 @@ class FakeLocator:
             "outerHTML": '<select id="country"></select>',
         }
 
-    def select_option(
+    async def select_option(
         self,
         value: str | list[str] | None = None,
         *,
@@ -253,22 +255,22 @@ class FakeLocator:
             return [str(item) for item in indexes]
         return []
 
-    def hover(self, *, timeout: int) -> None:
+    async def hover(self, *, timeout: int) -> None:
         self.events.append(("hover", timeout))
 
-    def drag_to(self, target, *, timeout: int) -> None:
+    async def drag_to(self, target, *, timeout: int) -> None:
         self.events.append(("drag_to", target, timeout))
 
-    def check(self, *, timeout: int) -> None:
+    async def check(self, *, timeout: int) -> None:
         self.events.append(("check", timeout))
 
-    def uncheck(self, *, timeout: int) -> None:
+    async def uncheck(self, *, timeout: int) -> None:
         self.events.append(("uncheck", timeout))
 
-    def set_input_files(self, paths: list[str], *, timeout: int) -> None:
+    async def set_input_files(self, paths: list[str], *, timeout: int) -> None:
         self.events.append(("set_input_files", paths, timeout))
 
-    def screenshot(self, *, path: str, timeout: int) -> None:
+    async def screenshot(self, *, path: str, timeout: int) -> None:
         self.events.append(("locator_screenshot", path, timeout))
 
 
@@ -277,6 +279,9 @@ class FakeSerializer:
         self.locator = locator
 
     def resolve_locator(self, page: FakePage, ref: str) -> FakeLocator:
+        return self.locator
+
+    async def async_resolve_locator(self, page: FakePage, ref: str) -> FakeLocator:
         return self.locator
 
     def get_reference(self, ref: str):
@@ -291,14 +296,18 @@ class FakeSerializer:
         return Reference()
 
 
-def test_agent_click_uses_playwright_click_path_for_juggler_humanization() -> None:
+async def _fake_describe_page(page_id: str, max_items: int = 200) -> dict:
+    return {"page": {"id": page_id}, "max_items": max_items}
+
+
+async def test_agent_click_uses_playwright_click_path_for_juggler_humanization() -> None:
     events: list[tuple] = []
     daemon = AgentDaemon({"id": "prof_1"})
     daemon.pages["page_1"] = FakePage(events)
     daemon.page_serializers["page_1"] = FakeSerializer(FakeLocator(events))
-    daemon.describe_page = lambda page_id: {"page": {"id": page_id}}
+    daemon._describe_page_unlocked = _fake_describe_page
 
-    daemon.click("page_1", "button_ref")
+    await daemon.click("page_1", "button_ref")
 
     action_events = [event for event in events if event[0] != "wait_for_load_state"]
     assert action_events == [
@@ -306,14 +315,14 @@ def test_agent_click_uses_playwright_click_path_for_juggler_humanization() -> No
     ]
 
 
-def test_agent_fill_uses_playwright_click_and_rotunda_insert_text_path() -> None:
+async def test_agent_fill_uses_playwright_click_and_rotunda_insert_text_path() -> None:
     events: list[tuple] = []
     daemon = AgentDaemon({"id": "prof_1"})
     daemon.pages["page_1"] = FakePage(events)
     daemon.page_serializers["page_1"] = FakeSerializer(FakeLocator(events))
-    daemon.describe_page = lambda page_id: {"page": {"id": page_id}}
+    daemon._describe_page_unlocked = _fake_describe_page
 
-    daemon.fill_text("page_1", "input_ref", "hello", submit=True)
+    await daemon.fill_text("page_1", "input_ref", "hello", submit=True)
 
     action_events = [event for event in events if event[0] != "wait_for_load_state"]
     assert action_events == [
@@ -325,14 +334,14 @@ def test_agent_fill_uses_playwright_click_and_rotunda_insert_text_path() -> None
     ]
 
 
-def test_agent_type_uses_playwright_click_and_rotunda_insert_text_path() -> None:
+async def test_agent_type_uses_playwright_click_and_rotunda_insert_text_path() -> None:
     events: list[tuple] = []
     daemon = AgentDaemon({"id": "prof_1"})
     daemon.pages["page_1"] = FakePage(events)
     daemon.page_serializers["page_1"] = FakeSerializer(FakeLocator(events))
-    daemon.describe_page = lambda page_id: {"page": {"id": page_id}}
+    daemon._describe_page_unlocked = _fake_describe_page
 
-    daemon.type_text("page_1", "input_ref", "hello", submit=True)
+    await daemon.type_text("page_1", "input_ref", "hello", submit=True)
 
     action_events = [event for event in events if event[0] != "wait_for_load_state"]
     assert action_events == [
@@ -342,30 +351,34 @@ def test_agent_type_uses_playwright_click_and_rotunda_insert_text_path() -> None
     ]
 
 
-def test_agent_info_includes_select_options() -> None:
+async def test_agent_info_includes_select_options() -> None:
     events: list[tuple] = []
     daemon = AgentDaemon({"id": "prof_1"})
     daemon.pages["page_1"] = FakePage(events)
     daemon.page_serializers["page_1"] = FakeSerializer(FakeLocator(events))
-    daemon._page_payload = lambda page_id, page: {"id": page_id, "url": "https://example.test"}
 
-    result = daemon.element_info("page_1", "select_ref")
+    async def fake_page_payload(page_id, page):
+        return {"id": page_id, "url": "https://example.test"}
+
+    daemon._page_payload = fake_page_payload
+
+    result = await daemon.element_info("page_1", "select_ref")
 
     assert result["info"]["options"][1]["value"] == "ca"
     assert "value='ca'" in result["text"]
     assert "selectedValues: [\"us\"]" in result["text"]
 
 
-def test_agent_select_can_match_by_value_label_or_index() -> None:
+async def test_agent_select_can_match_by_value_label_or_index() -> None:
     events: list[tuple] = []
     daemon = AgentDaemon({"id": "prof_1"})
     daemon.pages["page_1"] = FakePage(events)
     daemon.page_serializers["page_1"] = FakeSerializer(FakeLocator(events))
-    daemon.describe_page = lambda page_id: {"page": {"id": page_id}}
+    daemon._describe_page_unlocked = _fake_describe_page
 
-    by_value = daemon.select_options("page_1", "select_ref", ["ca"])
-    by_label = daemon.select_options("page_1", "select_ref", ["Canada"], by="label")
-    by_index = daemon.select_options("page_1", "select_ref", ["1"], by="index")
+    by_value = await daemon.select_options("page_1", "select_ref", ["ca"])
+    by_label = await daemon.select_options("page_1", "select_ref", ["Canada"], by="label")
+    by_index = await daemon.select_options("page_1", "select_ref", ["1"], by="index")
 
     assert by_value["selected"] == ["ca"]
     assert by_label["selected"] == ["Canada"]
@@ -378,22 +391,22 @@ def test_agent_select_can_match_by_value_label_or_index() -> None:
     ]
 
 
-def test_agent_press_hover_drag_check_scroll_and_upload_primitives() -> None:
+async def test_agent_press_hover_drag_check_scroll_and_upload_primitives() -> None:
     events: list[tuple] = []
     daemon = AgentDaemon({"id": "prof_1"})
     daemon.pages["page_1"] = FakePage(events)
     daemon.page_serializers["page_1"] = FakeSerializer(FakeLocator(events))
-    daemon.describe_page = lambda page_id: {"page": {"id": page_id}}
+    daemon._describe_page_unlocked = _fake_describe_page
 
-    daemon.press_key("page_1", "Enter", ref="button_ref")
-    daemon.press_key("page_1", "Escape")
-    daemon.hover("page_1", "button_ref")
-    daemon.drag("page_1", "source_ref", "target_ref")
-    daemon.set_checked("page_1", "checkbox_ref", checked=True)
-    daemon.set_checked("page_1", "checkbox_ref", checked=False)
-    daemon.scroll("page_1", direction="down", amount=300, ref="panel_ref")
-    daemon.scroll("page_1", direction="up", amount=200)
-    daemon.upload_files("page_1", "file_ref", ["/tmp/example.txt"])
+    await daemon.press_key("page_1", "Enter", ref="button_ref")
+    await daemon.press_key("page_1", "Escape")
+    await daemon.hover("page_1", "button_ref")
+    await daemon.drag("page_1", "source_ref", "target_ref")
+    await daemon.set_checked("page_1", "checkbox_ref", checked=True)
+    await daemon.set_checked("page_1", "checkbox_ref", checked=False)
+    await daemon.scroll("page_1", direction="down", amount=300, ref="panel_ref")
+    await daemon.scroll("page_1", direction="up", amount=200)
+    await daemon.upload_files("page_1", "file_ref", ["/tmp/example.txt"])
 
     assert ("press", "Enter", 15_000) in events
     assert ("keyboard_press", "Escape") in events
@@ -406,7 +419,7 @@ def test_agent_press_hover_drag_check_scroll_and_upload_primitives() -> None:
     assert ("set_input_files", ["/tmp/example.txt"], 15_000) in events
 
 
-def test_agent_screenshot_wait_extract_download_and_dialog_primitives(tmp_path) -> None:
+async def test_agent_screenshot_wait_extract_download_and_dialog_primitives(tmp_path) -> None:
     events: list[tuple] = []
     daemon = AgentDaemon({"id": "prof_1"})
     daemon.pages["page_1"] = FakePage(events)
@@ -414,12 +427,12 @@ def test_agent_screenshot_wait_extract_download_and_dialog_primitives(tmp_path) 
 
     page_path = tmp_path / "page.png"
     element_path = tmp_path / "element.png"
-    daemon.screenshot("page_1", str(page_path), full_page=True)
-    daemon.screenshot("page_1", str(element_path), ref="button_ref")
-    daemon.wait_for("page_1", target="selector", value="main", state="visible", timeout_ms=123)
-    daemon.wait_for("page_1", target="text", value="Done", timeout_ms=456)
-    daemon.wait_for("page_1", target="url", value="**/done", timeout_ms=789)
-    daemon.wait_for("page_1", target="timeout", timeout_ms=50)
+    await daemon.screenshot("page_1", str(page_path), full_page=True)
+    await daemon.screenshot("page_1", str(element_path), ref="button_ref")
+    await daemon.wait_for("page_1", target="selector", value="main", state="visible", timeout_ms=123)
+    await daemon.wait_for("page_1", target="text", value="Done", timeout_ms=456)
+    await daemon.wait_for("page_1", target="url", value="**/done", timeout_ms=789)
+    await daemon.wait_for("page_1", target="timeout", timeout_ms=50)
 
     assert ("page_screenshot", str(page_path), True, 30_000) in events
     assert ("locator_screenshot", str(element_path), 15_000) in events
@@ -428,11 +441,11 @@ def test_agent_screenshot_wait_extract_download_and_dialog_primitives(tmp_path) 
     assert ("wait_for_url", "**/done", 789) in events
     assert ("wait_for_timeout", 50) in events
 
-    assert daemon.extract("page_1", "text")["text"] == "Example text"
-    assert daemon.extract("page_1", "html")["text"] == "<html></html>"
-    assert "Home" in daemon.extract("page_1", "links")["text"]
-    assert "fields" in daemon.extract("page_1", "forms")["text"]
-    assert daemon.extract("page_1", "markdown")["text"] == "# Example"
+    assert (await daemon.extract("page_1", "text"))["text"] == "Example text"
+    assert (await daemon.extract("page_1", "html"))["text"] == "<html></html>"
+    assert "Home" in (await daemon.extract("page_1", "links"))["text"]
+    assert "fields" in (await daemon.extract("page_1", "forms"))["text"]
+    assert (await daemon.extract("page_1", "markdown"))["text"] == "# Example"
 
     class FakeDownload:
         url = "https://example.test/file.txt"
@@ -441,17 +454,17 @@ def test_agent_screenshot_wait_extract_download_and_dialog_primitives(tmp_path) 
         def __init__(self) -> None:
             self.saved = ""
 
-        def path(self) -> str:
+        async def path(self) -> str:
             return "/tmp/browser-download"
 
-        def save_as(self, path: str) -> None:
+        async def save_as(self, path: str) -> None:
             self.saved = path
 
     download = FakeDownload()
     daemon._record_download("page_1", download)
     download_id = next(iter(daemon.downloads))
-    assert daemon.list_downloads()["downloads"][0]["suggested_filename"] == "file.txt"
-    saved = daemon.save_download(download_id, str(tmp_path / "file.txt"))
+    assert (await daemon.list_downloads())["downloads"][0]["suggested_filename"] == "file.txt"
+    saved = await daemon.save_download(download_id, str(tmp_path / "file.txt"))
     assert saved["download"]["saved_as"] == str(tmp_path / "file.txt")
     assert download.saved == str(tmp_path / "file.txt")
 
@@ -464,17 +477,17 @@ def test_agent_screenshot_wait_extract_download_and_dialog_primitives(tmp_path) 
             self.accepted = None
             self.dismissed = False
 
-        def accept(self, prompt_text: str | None = None) -> None:
+        async def accept(self, prompt_text: str | None = None) -> None:
             self.accepted = prompt_text
 
-        def dismiss(self) -> None:
+        async def dismiss(self) -> None:
             self.dismissed = True
 
-    daemon.dialog("page_1", "fill", text="Pierce")
+    await daemon.dialog("page_1", "fill", text="Pierce")
     dialog = FakeDialog()
-    daemon._handle_dialog("page_1", dialog)
+    await daemon._handle_dialog("page_1", dialog)
     assert dialog.accepted == "Pierce"
-    assert daemon.dialog("page_1", "list")["dialogs"][0]["action"] == "fill"
+    assert (await daemon.dialog("page_1", "list"))["dialogs"][0]["action"] == "fill"
 
 
 def test_agent_target_parsers_support_page_level_and_global_refs(tmp_path, monkeypatch) -> None:
@@ -555,6 +568,10 @@ def test_agent_help_exposes_describe_not_list() -> None:
     assert "info" in result.output
     assert "select" in result.output
     assert "type" in result.output
+    assert "navigate PAGE URL" in result.output
+    assert "click [PAGE] REF" in result.output
+    assert "screenshot PAGE [PATH]" in result.output
+    assert "upload [PAGE] REF PATH..." in result.output
     assert " list " not in result.output
     assert " enter " not in result.output
 

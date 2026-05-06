@@ -1,19 +1,21 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import os
-import signal
 import sys
+import threading
 import time
 import uuid
 from contextlib import suppress
 from dataclasses import asdict
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
+from socketserver import ThreadingMixIn
 from typing import Any, Literal, cast
 
 import rich_click as click
-from playwright.sync_api import BrowserContext, Page, Playwright, sync_playwright
+from playwright.async_api import BrowserContext, Page, Playwright, async_playwright
 
 from .dom_serializer import DOMSerializer
 from .store import AgentStore
@@ -202,142 +204,149 @@ class AgentDaemon:
         self._download_objects: dict[str, Any] = {}
         self.dialogs: list[dict[str, Any]] = []
         self.next_dialog_policy: dict[str, dict[str, str]] = {}
+        self._context_lock = asyncio.Lock()
+        self._page_locks: dict[str, asyncio.Lock] = {}
 
-    def close(self) -> None:
+    async def close(self) -> None:
         try:
             if self.context:
-                self.context.close()
+                await self.context.close()
         finally:
             self.context = None
+            self.pages.clear()
+            self.page_serializers.clear()
+            self._page_locks.clear()
             if self.playwright:
-                self.playwright.stop()
+                await self.playwright.stop()
                 self.playwright = None
 
-    def new_context(self) -> dict[str, Any]:
-        context = self._ensure_context()
+    async def new_context(self) -> dict[str, Any]:
+        context = await self._ensure_context()
         self._adopt_pages(context.pages)
         assert self.context_id is not None
         return {
             "context_id": self.context_id,
-            "pages": [self._page_payload(page_id, page) for page_id, page in self.pages.items()],
+            "pages": await self._page_payloads(self.pages.items()),
         }
 
-    def new_page(self) -> dict[str, Any]:
-        context = self._ensure_context()
-        page = context.new_page()
-        page_id = self._register_page(page)
-        return {"page": self._page_payload(page_id, page)}
+    async def new_page(self) -> dict[str, Any]:
+        context = await self._ensure_context()
+        async with self._context_lock:
+            page = await context.new_page()
+            page_id = self._register_page(page)
+        return {"page": await self._page_payload(page_id, page)}
 
-    def list_pages(self) -> dict[str, Any]:
-        context = self._ensure_context()
+    async def list_pages(self) -> dict[str, Any]:
+        context = await self._ensure_context()
         self._adopt_pages(context.pages)
-        return {"pages": [self._page_payload(page_id, page) for page_id, page in self.pages.items()]}
+        return {"pages": await self._page_payloads(self.pages.items())}
 
-    def close_page(self, page_id: str) -> dict[str, Any]:
-        page = self._page(page_id)
-        with suppress(Exception):
-            page.close()
-        self.pages.pop(page_id, None)
-        self.page_serializers.pop(page_id, None)
-        return {"closed": page_id, **self.list_pages()}
+    async def close_page(self, page_id: str) -> dict[str, Any]:
+        async with self._page_lock(page_id):
+            page = self._page(page_id)
+            with suppress(Exception):
+                await page.close()
+            self.pages.pop(page_id, None)
+            self.page_serializers.pop(page_id, None)
+            self._page_locks.pop(page_id, None)
+        return {"closed": page_id, **await self.list_pages()}
 
-    def navigate(
+    async def navigate(
         self,
         page_id: str,
         url: str,
         wait_until: Literal["commit", "domcontentloaded", "load", "networkidle"] = "domcontentloaded",
     ) -> dict[str, Any]:
-        page = self._page(page_id)
-        page.goto(url, wait_until=wait_until, timeout=60_000)
-        self._settle(page)
-        self.page_serializers.pop(page_id, None)
-        return {"page": self._page_payload(page_id, page)}
+        async with self._page_lock(page_id):
+            page = self._page(page_id)
+            await page.goto(url, wait_until=wait_until, timeout=60_000)
+            await self._settle(page)
+            self.page_serializers.pop(page_id, None)
+            return {"page": await self._page_payload(page_id, page)}
 
-    def go_back(self, page_id: str) -> dict[str, Any]:
-        page = self._page(page_id)
-        page.go_back(wait_until="domcontentloaded", timeout=60_000)
-        self._settle(page)
-        self.page_serializers.pop(page_id, None)
-        return {"page": self._page_payload(page_id, page)}
+    async def go_back(self, page_id: str) -> dict[str, Any]:
+        async with self._page_lock(page_id):
+            page = self._page(page_id)
+            await page.go_back(wait_until="domcontentloaded", timeout=60_000)
+            await self._settle(page)
+            self.page_serializers.pop(page_id, None)
+            return {"page": await self._page_payload(page_id, page)}
 
-    def go_forward(self, page_id: str) -> dict[str, Any]:
-        page = self._page(page_id)
-        page.go_forward(wait_until="domcontentloaded", timeout=60_000)
-        self._settle(page)
-        self.page_serializers.pop(page_id, None)
-        return {"page": self._page_payload(page_id, page)}
+    async def go_forward(self, page_id: str) -> dict[str, Any]:
+        async with self._page_lock(page_id):
+            page = self._page(page_id)
+            await page.go_forward(wait_until="domcontentloaded", timeout=60_000)
+            await self._settle(page)
+            self.page_serializers.pop(page_id, None)
+            return {"page": await self._page_payload(page_id, page)}
 
-    def reload(self, page_id: str) -> dict[str, Any]:
-        page = self._page(page_id)
-        page.reload(wait_until="domcontentloaded", timeout=60_000)
-        self._settle(page)
-        self.page_serializers.pop(page_id, None)
-        return {"page": self._page_payload(page_id, page)}
+    async def reload(self, page_id: str) -> dict[str, Any]:
+        async with self._page_lock(page_id):
+            page = self._page(page_id)
+            await page.reload(wait_until="domcontentloaded", timeout=60_000)
+            await self._settle(page)
+            self.page_serializers.pop(page_id, None)
+            return {"page": await self._page_payload(page_id, page)}
 
-    def describe_page(self, page_id: str, max_items: int = 200) -> dict[str, Any]:
-        page = self._page(page_id)
-        serializer = DOMSerializer(max_items=max_items)
-        snapshot = serializer.serialize(page)
-        self.page_serializers[page_id] = serializer
-        return {
-            "page": self._page_payload(page_id, page),
-            "text": snapshot.text,
-            "frames": [asdict(frame) for frame in snapshot.frames],
-            "items": [asdict(item) for item in snapshot.items],
-        }
+    async def describe_page(self, page_id: str, max_items: int = 200) -> dict[str, Any]:
+        async with self._page_lock(page_id):
+            return await self._describe_page_unlocked(page_id, max_items)
 
-    def list_page(self, page_id: str, max_items: int = 200) -> dict[str, Any]:
-        return self.describe_page(page_id, max_items)
+    async def list_page(self, page_id: str, max_items: int = 200) -> dict[str, Any]:
+        return await self.describe_page(page_id, max_items)
 
-    def click(self, page_id: str, ref: str) -> dict[str, Any]:
-        page = self._page(page_id)
-        before_pages = set(self.pages)
-        serializer = self._serializer_for(page_id, page)
-        locator = serializer.resolve_locator(page, ref)
-        locator.click(timeout=15_000)
-        self._settle(page)
-        result = self.describe_page(page_id)
-        result["pages"] = self._pages_since(before_pages)
-        return result
+    async def click(self, page_id: str, ref: str) -> dict[str, Any]:
+        async with self._page_lock(page_id):
+            page = self._page(page_id)
+            before_pages = set(self.pages)
+            serializer = await self._serializer_for(page_id, page)
+            locator = await serializer.async_resolve_locator(page, ref)
+            await locator.click(timeout=15_000)
+            await self._settle(page)
+            result = await self._describe_page_unlocked(page_id)
+            result["pages"] = await self._pages_since(before_pages)
+            return result
 
-    def element_info(self, page_id: str, ref: str) -> dict[str, Any]:
-        page = self._page(page_id)
-        serializer = self._serializer_for(page_id, page)
-        element = serializer.get_reference(ref).element
-        locator = serializer.resolve_locator(page, ref)
-        info = locator.evaluate(ELEMENT_INFO_SCRIPT)
-        if not isinstance(info, dict):
-            raise ValueError(f"Unable to read info for DOM reference: {ref}")
-        info["ref"] = ref
-        info["frame"] = {
-            "index": element.frame_index,
-            "url": element.frame_url,
-            "name": element.frame_name,
-        }
-        return {
-            "page": self._page_payload(page_id, page),
-            "info": info,
-            "text": render_element_info(info),
-        }
+    async def element_info(self, page_id: str, ref: str) -> dict[str, Any]:
+        async with self._page_lock(page_id):
+            page = self._page(page_id)
+            serializer = await self._serializer_for(page_id, page)
+            element = serializer.get_reference(ref).element
+            locator = await serializer.async_resolve_locator(page, ref)
+            info = await locator.evaluate(ELEMENT_INFO_SCRIPT)
+            if not isinstance(info, dict):
+                raise ValueError(f"Unable to read info for DOM reference: {ref}")
+            info["ref"] = ref
+            info["frame"] = {
+                "index": element.frame_index,
+                "url": element.frame_url,
+                "name": element.frame_name,
+            }
+            return {
+                "page": await self._page_payload(page_id, page),
+                "info": info,
+                "text": render_element_info(info),
+            }
 
-    def fill_text(self, page_id: str, ref: str, text: str, *, submit: bool = False) -> dict[str, Any]:
-        page = self._page(page_id)
-        before_pages = set(self.pages)
-        serializer = self._serializer_for(page_id, page)
-        locator = serializer.resolve_locator(page, ref)
-        locator.click(timeout=15_000)
-        locator.press("ControlOrMeta+A", timeout=15_000)
-        locator.press("Backspace", timeout=15_000)
-        if text:
-            page.keyboard.insert_text(text)
-        if submit:
-            locator.press("Enter")
-        self._settle(page)
-        result = self.describe_page(page_id)
-        result["pages"] = self._pages_since(before_pages)
-        return result
+    async def fill_text(self, page_id: str, ref: str, text: str, *, submit: bool = False) -> dict[str, Any]:
+        async with self._page_lock(page_id):
+            page = self._page(page_id)
+            before_pages = set(self.pages)
+            serializer = await self._serializer_for(page_id, page)
+            locator = await serializer.async_resolve_locator(page, ref)
+            await locator.click(timeout=15_000)
+            await locator.press("ControlOrMeta+A", timeout=15_000)
+            await locator.press("Backspace", timeout=15_000)
+            if text:
+                await page.keyboard.insert_text(text)
+            if submit:
+                await locator.press("Enter")
+            await self._settle(page)
+            result = await self._describe_page_unlocked(page_id)
+            result["pages"] = await self._pages_since(before_pages)
+            return result
 
-    def select_options(
+    async def select_options(
         self,
         page_id: str,
         ref: str,
@@ -347,34 +356,35 @@ class AgentDaemon:
     ) -> dict[str, Any]:
         if not values:
             raise ValueError("Select requires at least one value.")
-        page = self._page(page_id)
-        before_pages = set(self.pages)
-        serializer = self._serializer_for(page_id, page)
-        locator = serializer.resolve_locator(page, ref)
-        selected: list[str]
-        if by == "index":
-            indexes = [int(value) for value in values]
-            selected = locator.select_option(
-                index=indexes[0] if len(indexes) == 1 else indexes,
-                timeout=15_000,
-            )
-        elif by == "label":
-            selected = locator.select_option(
-                label=values[0] if len(values) == 1 else values,
-                timeout=15_000,
-            )
-        else:
-            selected = locator.select_option(
-                value=values[0] if len(values) == 1 else values,
-                timeout=15_000,
-            )
-        self._settle(page)
-        result = self.describe_page(page_id)
-        result["selected"] = selected
-        result["pages"] = self._pages_since(before_pages)
-        return result
+        async with self._page_lock(page_id):
+            page = self._page(page_id)
+            before_pages = set(self.pages)
+            serializer = await self._serializer_for(page_id, page)
+            locator = await serializer.async_resolve_locator(page, ref)
+            selected: list[str]
+            if by == "index":
+                indexes = [int(value) for value in values]
+                selected = await locator.select_option(
+                    index=indexes[0] if len(indexes) == 1 else indexes,
+                    timeout=15_000,
+                )
+            elif by == "label":
+                selected = await locator.select_option(
+                    label=values[0] if len(values) == 1 else values,
+                    timeout=15_000,
+                )
+            else:
+                selected = await locator.select_option(
+                    value=values[0] if len(values) == 1 else values,
+                    timeout=15_000,
+                )
+            await self._settle(page)
+            result = await self._describe_page_unlocked(page_id)
+            result["selected"] = selected
+            result["pages"] = await self._pages_since(before_pages)
+            return result
 
-    def type_text(
+    async def type_text(
         self,
         page_id: str,
         ref: str,
@@ -382,21 +392,22 @@ class AgentDaemon:
         *,
         submit: bool = False,
     ) -> dict[str, Any]:
-        page = self._page(page_id)
-        before_pages = set(self.pages)
-        serializer = self._serializer_for(page_id, page)
-        locator = serializer.resolve_locator(page, ref)
-        locator.click(timeout=15_000)
-        if text:
-            page.keyboard.insert_text(text)
-        if submit:
-            locator.press("Enter")
-        self._settle(page)
-        result = self.describe_page(page_id)
-        result["pages"] = self._pages_since(before_pages)
-        return result
+        async with self._page_lock(page_id):
+            page = self._page(page_id)
+            before_pages = set(self.pages)
+            serializer = await self._serializer_for(page_id, page)
+            locator = await serializer.async_resolve_locator(page, ref)
+            await locator.click(timeout=15_000)
+            if text:
+                await page.keyboard.insert_text(text)
+            if submit:
+                await locator.press("Enter")
+            await self._settle(page)
+            result = await self._describe_page_unlocked(page_id)
+            result["pages"] = await self._pages_since(before_pages)
+            return result
 
-    def screenshot(
+    async def screenshot(
         self,
         page_id: str,
         path: str,
@@ -404,18 +415,19 @@ class AgentDaemon:
         full_page: bool = False,
         ref: str | None = None,
     ) -> dict[str, Any]:
-        page = self._page(page_id)
-        output = Path(path)
-        output.parent.mkdir(parents=True, exist_ok=True)
-        if ref:
-            serializer = self._serializer_for(page_id, page)
-            locator = serializer.resolve_locator(page, ref)
-            locator.screenshot(path=str(output), timeout=15_000)
-        else:
-            page.screenshot(path=str(output), full_page=full_page, timeout=30_000)
-        return {"page": self._page_payload(page_id, page), "path": str(output)}
+        async with self._page_lock(page_id):
+            page = self._page(page_id)
+            output = Path(path)
+            output.parent.mkdir(parents=True, exist_ok=True)
+            if ref:
+                serializer = await self._serializer_for(page_id, page)
+                locator = await serializer.async_resolve_locator(page, ref)
+                await locator.screenshot(path=str(output), timeout=15_000)
+            else:
+                await page.screenshot(path=str(output), full_page=full_page, timeout=30_000)
+            return {"page": await self._page_payload(page_id, page), "path": str(output)}
 
-    def wait_for(
+    async def wait_for(
         self,
         page_id: str,
         *,
@@ -424,54 +436,57 @@ class AgentDaemon:
         state: str = "visible",
         timeout_ms: int = 15_000,
     ) -> dict[str, Any]:
-        page = self._page(page_id)
-        if target in {"load", "domcontentloaded", "networkidle"}:
-            load_state = cast(Literal["load", "domcontentloaded", "networkidle"], target)
-            page.wait_for_load_state(load_state, timeout=timeout_ms)
-        elif target == "timeout":
-            page.wait_for_timeout(timeout_ms)
-        elif target == "selector":
-            if not value:
-                raise ValueError("wait --for selector requires a selector value.")
-            wait_state = cast(Literal["attached", "detached", "hidden", "visible"], state)
-            page.locator(value).first.wait_for(state=wait_state, timeout=timeout_ms)
-        elif target == "text":
-            if not value:
-                raise ValueError("wait --for text requires a text value.")
-            wait_state = cast(Literal["attached", "detached", "hidden", "visible"], state)
-            page.get_by_text(value).first.wait_for(state=wait_state, timeout=timeout_ms)
-        elif target == "url":
-            if not value:
-                raise ValueError("wait --for url requires a URL pattern.")
-            page.wait_for_url(value, timeout=timeout_ms)
-        else:
-            raise ValueError(f"Unsupported wait target: {target}")
-        self._settle(page)
-        return {"page": self._page_payload(page_id, page)}
+        async with self._page_lock(page_id):
+            page = self._page(page_id)
+            if target in {"load", "domcontentloaded", "networkidle"}:
+                load_state = cast(Literal["load", "domcontentloaded", "networkidle"], target)
+                await page.wait_for_load_state(load_state, timeout=timeout_ms)
+            elif target == "timeout":
+                await page.wait_for_timeout(timeout_ms)
+            elif target == "selector":
+                if not value:
+                    raise ValueError("wait --for selector requires a selector value.")
+                wait_state = cast(Literal["attached", "detached", "hidden", "visible"], state)
+                await page.locator(value).first.wait_for(state=wait_state, timeout=timeout_ms)
+            elif target == "text":
+                if not value:
+                    raise ValueError("wait --for text requires a text value.")
+                wait_state = cast(Literal["attached", "detached", "hidden", "visible"], state)
+                await page.get_by_text(value).first.wait_for(state=wait_state, timeout=timeout_ms)
+            elif target == "url":
+                if not value:
+                    raise ValueError("wait --for url requires a URL pattern.")
+                await page.wait_for_url(value, timeout=timeout_ms)
+            else:
+                raise ValueError(f"Unsupported wait target: {target}")
+            await self._settle(page)
+            return {"page": await self._page_payload(page_id, page)}
 
-    def press_key(self, page_id: str, key: str, *, ref: str | None = None) -> dict[str, Any]:
-        page = self._page(page_id)
-        before_pages = set(self.pages)
-        if ref:
-            serializer = self._serializer_for(page_id, page)
-            locator = serializer.resolve_locator(page, ref)
-            locator.press(key, timeout=15_000)
-        else:
-            page.keyboard.press(key)
-        self._settle(page)
-        result = self.describe_page(page_id)
-        result["pages"] = self._pages_since(before_pages)
-        return result
+    async def press_key(self, page_id: str, key: str, *, ref: str | None = None) -> dict[str, Any]:
+        async with self._page_lock(page_id):
+            page = self._page(page_id)
+            before_pages = set(self.pages)
+            if ref:
+                serializer = await self._serializer_for(page_id, page)
+                locator = await serializer.async_resolve_locator(page, ref)
+                await locator.press(key, timeout=15_000)
+            else:
+                await page.keyboard.press(key)
+            await self._settle(page)
+            result = await self._describe_page_unlocked(page_id)
+            result["pages"] = await self._pages_since(before_pages)
+            return result
 
-    def hover(self, page_id: str, ref: str) -> dict[str, Any]:
-        page = self._page(page_id)
-        serializer = self._serializer_for(page_id, page)
-        locator = serializer.resolve_locator(page, ref)
-        locator.hover(timeout=15_000)
-        self._settle(page)
-        return self.describe_page(page_id)
+    async def hover(self, page_id: str, ref: str) -> dict[str, Any]:
+        async with self._page_lock(page_id):
+            page = self._page(page_id)
+            serializer = await self._serializer_for(page_id, page)
+            locator = await serializer.async_resolve_locator(page, ref)
+            await locator.hover(timeout=15_000)
+            await self._settle(page)
+            return await self._describe_page_unlocked(page_id)
 
-    def scroll(
+    async def scroll(
         self,
         page_id: str,
         *,
@@ -479,74 +494,79 @@ class AgentDaemon:
         amount: int = 600,
         ref: str | None = None,
     ) -> dict[str, Any]:
-        page = self._page(page_id)
-        delta = _scroll_delta(direction, amount)
-        if ref:
-            serializer = self._serializer_for(page_id, page)
-            locator = serializer.resolve_locator(page, ref)
-            locator.evaluate(SCROLL_ELEMENT_SCRIPT, delta)
-        else:
-            page.evaluate(SCROLL_PAGE_SCRIPT, delta)
-        self._settle(page)
-        return self.describe_page(page_id)
+        async with self._page_lock(page_id):
+            page = self._page(page_id)
+            delta = _scroll_delta(direction, amount)
+            if ref:
+                serializer = await self._serializer_for(page_id, page)
+                locator = await serializer.async_resolve_locator(page, ref)
+                await locator.evaluate(SCROLL_ELEMENT_SCRIPT, delta)
+            else:
+                await page.evaluate(SCROLL_PAGE_SCRIPT, delta)
+            await self._settle(page)
+            return await self._describe_page_unlocked(page_id)
 
-    def drag(self, page_id: str, source_ref: str, target_ref: str) -> dict[str, Any]:
-        page = self._page(page_id)
-        before_pages = set(self.pages)
-        serializer = self._serializer_for(page_id, page)
-        source = serializer.resolve_locator(page, source_ref)
-        target = serializer.resolve_locator(page, target_ref)
-        if hasattr(source, "drag_to"):
-            source.drag_to(target, timeout=15_000)
-        else:
-            source.hover(timeout=15_000)
-            page.mouse.down()
-            target.hover(timeout=15_000)
-            page.mouse.up()
-        self._settle(page)
-        result = self.describe_page(page_id)
-        result["pages"] = self._pages_since(before_pages)
-        return result
+    async def drag(self, page_id: str, source_ref: str, target_ref: str) -> dict[str, Any]:
+        async with self._page_lock(page_id):
+            page = self._page(page_id)
+            before_pages = set(self.pages)
+            serializer = await self._serializer_for(page_id, page)
+            source = await serializer.async_resolve_locator(page, source_ref)
+            target = await serializer.async_resolve_locator(page, target_ref)
+            if hasattr(source, "drag_to"):
+                await source.drag_to(target, timeout=15_000)
+            else:
+                await source.hover(timeout=15_000)
+                await page.mouse.down()
+                await target.hover(timeout=15_000)
+                await page.mouse.up()
+            await self._settle(page)
+            result = await self._describe_page_unlocked(page_id)
+            result["pages"] = await self._pages_since(before_pages)
+            return result
 
-    def set_checked(self, page_id: str, ref: str, *, checked: bool) -> dict[str, Any]:
-        page = self._page(page_id)
-        before_pages = set(self.pages)
-        serializer = self._serializer_for(page_id, page)
-        locator = serializer.resolve_locator(page, ref)
-        if checked:
-            locator.check(timeout=15_000)
-        else:
-            locator.uncheck(timeout=15_000)
-        self._settle(page)
-        result = self.describe_page(page_id)
-        result["pages"] = self._pages_since(before_pages)
-        return result
+    async def set_checked(self, page_id: str, ref: str, *, checked: bool) -> dict[str, Any]:
+        async with self._page_lock(page_id):
+            page = self._page(page_id)
+            before_pages = set(self.pages)
+            serializer = await self._serializer_for(page_id, page)
+            locator = await serializer.async_resolve_locator(page, ref)
+            if checked:
+                await locator.check(timeout=15_000)
+            else:
+                await locator.uncheck(timeout=15_000)
+            await self._settle(page)
+            result = await self._describe_page_unlocked(page_id)
+            result["pages"] = await self._pages_since(before_pages)
+            return result
 
-    def upload_files(self, page_id: str, ref: str, paths: list[str]) -> dict[str, Any]:
+    async def upload_files(self, page_id: str, ref: str, paths: list[str]) -> dict[str, Any]:
         if not paths:
             raise ValueError("upload requires at least one file path.")
-        page = self._page(page_id)
-        serializer = self._serializer_for(page_id, page)
-        locator = serializer.resolve_locator(page, ref)
-        locator.set_input_files(paths, timeout=15_000)
-        self._settle(page)
-        return self.describe_page(page_id)
+        async with self._page_lock(page_id):
+            page = self._page(page_id)
+            serializer = await self._serializer_for(page_id, page)
+            locator = await serializer.async_resolve_locator(page, ref)
+            await locator.set_input_files(paths, timeout=15_000)
+            await self._settle(page)
+            return await self._describe_page_unlocked(page_id)
 
-    def list_downloads(self) -> dict[str, Any]:
-        return {"downloads": [self._download_payload(download_id) for download_id in self.downloads]}
+    async def list_downloads(self) -> dict[str, Any]:
+        downloads = [await self._download_payload(download_id) for download_id in self.downloads]
+        return {"downloads": downloads}
 
-    def save_download(self, download_id: str, path: str) -> dict[str, Any]:
+    async def save_download(self, download_id: str, path: str) -> dict[str, Any]:
         try:
             download = self._download_objects[download_id]
         except KeyError:
             raise KeyError(f"Unknown download: {download_id}") from None
         output = Path(path)
         output.parent.mkdir(parents=True, exist_ok=True)
-        download.save_as(str(output))
+        await download.save_as(str(output))
         self.downloads[download_id]["saved_as"] = str(output)
-        return {"download": self._download_payload(download_id)}
+        return {"download": await self._download_payload(download_id)}
 
-    def dialog(self, page_id: str, action: str, *, text: str = "") -> dict[str, Any]:
+    async def dialog(self, page_id: str, action: str, *, text: str = "") -> dict[str, Any]:
         if action == "list":
             return {"dialogs": self.dialogs}
         if action not in {"accept", "dismiss", "fill"}:
@@ -554,57 +574,63 @@ class AgentDaemon:
         self.next_dialog_policy[page_id] = {"action": action, "text": text}
         return {"armed": {"page_id": page_id, "action": action, "text": text}}
 
-    def extract(self, page_id: str, format: str) -> dict[str, Any]:
-        page = self._page(page_id)
-        if format == "html":
-            text = page.content()
-        elif format == "links":
-            text = json.dumps(page.evaluate(EXTRACT_LINKS_SCRIPT), indent=2, ensure_ascii=False)
-        elif format == "forms":
-            text = json.dumps(page.evaluate(EXTRACT_FORMS_SCRIPT), indent=2, ensure_ascii=False)
-        elif format == "markdown":
-            text = str(page.evaluate(EXTRACT_MARKDOWN_SCRIPT) or "")
-        elif format == "text":
-            text = str(page.locator("body").inner_text(timeout=15_000))
-        else:
-            raise ValueError(f"Unsupported extract format: {format}")
-        return {"page": self._page_payload(page_id, page), "format": format, "text": text}
+    async def extract(self, page_id: str, format: str) -> dict[str, Any]:
+        async with self._page_lock(page_id):
+            page = self._page(page_id)
+            if format == "html":
+                text = await page.content()
+            elif format == "links":
+                text = json.dumps(await page.evaluate(EXTRACT_LINKS_SCRIPT), indent=2, ensure_ascii=False)
+            elif format == "forms":
+                text = json.dumps(await page.evaluate(EXTRACT_FORMS_SCRIPT), indent=2, ensure_ascii=False)
+            elif format == "markdown":
+                text = str(await page.evaluate(EXTRACT_MARKDOWN_SCRIPT) or "")
+            elif format == "text":
+                text = str(await page.locator("body").inner_text(timeout=15_000))
+            else:
+                raise ValueError(f"Unsupported extract format: {format}")
+            return {"page": await self._page_payload(page_id, page), "format": format, "text": text}
 
-    def _ensure_context(self) -> BrowserContext:
+    async def _ensure_context(self) -> BrowserContext:
         if self.context:
             return self.context
 
-        user_data_dir = Path(str(self.profile["user_data_dir"]))
-        user_data_dir.mkdir(parents=True, exist_ok=True)
-        headless = bool(self.profile.get("headless", False))
-        humanize = bool(self.profile.get("humanize", True))
-        executable_path = resolve_installed_rotunda_executable()
+        async with self._context_lock:
+            if self.context:
+                return self.context
 
-        self.playwright = sync_playwright().start()
-        from rotunda.utils import launch_options
+            user_data_dir = Path(str(self.profile["user_data_dir"]))
+            user_data_dir.mkdir(parents=True, exist_ok=True)
+            headless = bool(self.profile.get("headless", False))
+            humanize = bool(self.profile.get("humanize", True))
+            executable_path = resolve_installed_rotunda_executable()
 
-        opts = launch_options(
-            headless=headless,
-            executable_path=executable_path,
-            env=dict(os.environ),
-            humanize=humanize,
-        )
-        self.context = self.playwright.firefox.launch_persistent_context(
-            str(user_data_dir),
-            **opts,
-        )
+            self.playwright = await async_playwright().start()
+            from rotunda.utils import launch_options
 
-        def on_page(page: Page) -> None:
-            self._register_page(page)
+            opts = await asyncio.to_thread(
+                launch_options,
+                headless=headless,
+                executable_path=executable_path,
+                env=dict(os.environ),
+                humanize=humanize,
+            )
+            self.context = await self.playwright.firefox.launch_persistent_context(
+                str(user_data_dir),
+                **opts,
+            )
 
-        self.context.on(cast(Any, "page"), on_page)
+            def on_page(page: Page) -> None:
+                self._register_page(page)
 
-        self.context_id = f"ctx_{uuid.uuid4().hex[:10]}"
-        self._adopt_pages(self.context.pages)
-        if not self.pages:
-            page = self.context.new_page()
-            self._register_page(page)
-        return self.context
+            self.context.on(cast(Any, "page"), on_page)
+
+            self.context_id = f"ctx_{uuid.uuid4().hex[:10]}"
+            self._adopt_pages(self.context.pages)
+            if not self.pages:
+                page = await self.context.new_page()
+                self._register_page(page)
+            return self.context
 
     def _adopt_pages(self, pages: list[Page]) -> list[str]:
         new_page_ids: list[str] = []
@@ -621,8 +647,12 @@ class AgentDaemon:
                 return existing_id
         page_id = f"page_{uuid.uuid4().hex[:10]}"
         self.pages[page_id] = page
+        self._page_locks[page_id] = asyncio.Lock()
         page.on("download", lambda download, page_id=page_id: self._record_download(page_id, download))
-        page.on("dialog", lambda dialog, page_id=page_id: self._handle_dialog(page_id, dialog))
+        page.on(
+            "dialog",
+            lambda dialog, page_id=page_id: asyncio.create_task(self._handle_dialog(page_id, dialog)),
+        )
         return page_id
 
     def _page(self, page_id: str) -> Page:
@@ -631,33 +661,55 @@ class AgentDaemon:
         except KeyError:
             raise KeyError(f"Unknown page: {page_id}") from None
 
-    def _serializer_for(self, page_id: str, page: Page) -> DOMSerializer:
+    def _page_lock(self, page_id: str) -> asyncio.Lock:
+        lock = self._page_locks.get(page_id)
+        if lock is None:
+            lock = asyncio.Lock()
+            self._page_locks[page_id] = lock
+        return lock
+
+    async def _serializer_for(self, page_id: str, page: Page) -> DOMSerializer:
         serializer = self.page_serializers.get(page_id)
         if serializer is None:
             serializer = DOMSerializer()
-            serializer.serialize(page)
+            await serializer.async_serialize(page)
             self.page_serializers[page_id] = serializer
         return serializer
 
-    def _settle(self, page: Page) -> None:
+    async def _describe_page_unlocked(self, page_id: str, max_items: int = 200) -> dict[str, Any]:
+        page = self._page(page_id)
+        serializer = DOMSerializer(max_items=max_items)
+        snapshot = await serializer.async_serialize(page)
+        self.page_serializers[page_id] = serializer
+        return {
+            "page": await self._page_payload(page_id, page),
+            "text": snapshot.text,
+            "frames": [asdict(frame) for frame in snapshot.frames],
+            "items": [asdict(item) for item in snapshot.items],
+        }
+
+    async def _settle(self, page: Page) -> None:
         with suppress(Exception):
-            page.wait_for_load_state("domcontentloaded", timeout=5_000)
+            await page.wait_for_load_state("domcontentloaded", timeout=5_000)
         if self.context:
             self._adopt_pages(self.context.pages)
 
-    def _page_payload(self, page_id: str, page: Page) -> dict[str, str]:
+    async def _page_payload(self, page_id: str, page: Page) -> dict[str, str]:
         try:
-            title = page.title()
+            title = await page.title()
         except Exception:
             title = ""
         return {"id": page_id, "url": page.url, "title": title}
 
-    def _pages_since(self, before_pages: set[str]) -> list[dict[str, str]]:
+    async def _page_payloads(self, pages: Any) -> list[dict[str, str]]:
+        return [await self._page_payload(page_id, page) for page_id, page in list(pages)]
+
+    async def _pages_since(self, before_pages: set[str]) -> list[dict[str, str]]:
         if self.context:
             self._adopt_pages(self.context.pages)
         return [
-            self._page_payload(page_id, page)
-            for page_id, page in self.pages.items()
+            await self._page_payload(page_id, page)
+            for page_id, page in list(self.pages.items())
             if page_id not in before_pages
         ]
 
@@ -672,17 +724,17 @@ class AgentDaemon:
             "created_at": time.time(),
         }
 
-    def _download_payload(self, download_id: str) -> dict[str, Any]:
+    async def _download_payload(self, download_id: str) -> dict[str, Any]:
         try:
             download = self._download_objects[download_id]
-            path = download.path()
+            path = await download.path()
         except Exception:
             path = ""
         payload = dict(self.downloads[download_id])
         payload["path"] = str(path or "")
         return payload
 
-    def _handle_dialog(self, page_id: str, dialog: Any) -> None:
+    async def _handle_dialog(self, page_id: str, dialog: Any) -> None:
         policy = self.next_dialog_policy.pop(page_id, {"action": "dismiss", "text": ""})
         action = policy.get("action") or "dismiss"
         prompt_text = policy.get("text") or ""
@@ -697,19 +749,37 @@ class AgentDaemon:
         }
         try:
             if action == "dismiss":
-                dialog.dismiss()
+                await dialog.dismiss()
             elif action == "fill":
-                dialog.accept(prompt_text=prompt_text)
+                await dialog.accept(prompt_text=prompt_text)
             else:
-                dialog.accept()
+                await dialog.accept()
         except Exception as exc:
             record["error"] = str(exc)
         self.dialogs.append(record)
 
 
-class AgentHTTPServer(HTTPServer):
+class AgentRouteNotFound(Exception):
+    pass
+
+
+class AgentHTTPServer(ThreadingMixIn, HTTPServer):
     daemon: AgentDaemon
     token: str
+    loop: asyncio.AbstractEventLoop
+    daemon_threads = True
+
+    def run_agent(self, awaitable: Any) -> Any:
+        future = asyncio.run_coroutine_threadsafe(awaitable, self.loop)
+        return future.result()
+
+    def initiate_shutdown(self) -> None:
+        def shutdown() -> None:
+            with suppress(Exception):
+                self.run_agent(self.daemon.close())
+            self.shutdown()
+
+        threading.Thread(target=shutdown, name="rotunda-agent-shutdown", daemon=True).start()
 
 
 class AgentRequestHandler(BaseHTTPRequestHandler):
@@ -728,139 +798,14 @@ class AgentRequestHandler(BaseHTTPRequestHandler):
             return
         try:
             payload = self._read_payload()
-            if self.path == "/new-context":
-                result = self.server.daemon.new_context()
-            elif self.path == "/new-page":
-                result = self.server.daemon.new_page()
-            elif self.path == "/pages":
-                result = self.server.daemon.list_pages()
-            elif self.path == "/close-page":
-                result = self.server.daemon.close_page(str(payload["page_id"]))
-            elif self.path == "/navigate":
-                wait_until = _wait_until(str(payload.get("wait_until") or "domcontentloaded"))
-                result = self.server.daemon.navigate(
-                    str(payload["page_id"]),
-                    str(payload["url"]),
-                    wait_until,
-                )
-            elif self.path == "/back":
-                result = self.server.daemon.go_back(str(payload["page_id"]))
-            elif self.path == "/forward":
-                result = self.server.daemon.go_forward(str(payload["page_id"]))
-            elif self.path == "/reload":
-                result = self.server.daemon.reload(str(payload["page_id"]))
-            elif self.path in {"/describe", "/list"}:
-                result = self.server.daemon.describe_page(
-                    str(payload["page_id"]),
-                    int(payload.get("max_items") or 200),
-                )
-            elif self.path == "/click":
-                result = self.server.daemon.click(str(payload["page_id"]), str(payload["ref"]))
-            elif self.path == "/info":
-                result = self.server.daemon.element_info(
-                    str(payload["page_id"]),
-                    str(payload["ref"]),
-                )
-            elif self.path == "/fill":
-                result = self.server.daemon.fill_text(
-                    str(payload["page_id"]),
-                    str(payload["ref"]),
-                    str(payload["text"]),
-                    submit=bool(payload.get("submit", False)),
-                )
-            elif self.path == "/select":
-                result = self.server.daemon.select_options(
-                    str(payload["page_id"]),
-                    str(payload["ref"]),
-                    _string_list(payload.get("values")),
-                    by=_select_by(str(payload.get("by") or "value")),
-                )
-            elif self.path == "/type":
-                result = self.server.daemon.type_text(
-                    str(payload["page_id"]),
-                    str(payload["ref"]),
-                    str(payload["text"]),
-                    submit=bool(payload.get("submit", False)),
-                )
-            elif self.path == "/screenshot":
-                result = self.server.daemon.screenshot(
-                    str(payload["page_id"]),
-                    str(payload["path"]),
-                    full_page=bool(payload.get("full_page", False)),
-                    ref=str(payload["ref"]) if payload.get("ref") else None,
-                )
-            elif self.path == "/wait":
-                result = self.server.daemon.wait_for(
-                    str(payload["page_id"]),
-                    target=str(payload["target"]),
-                    value=str(payload["value"]) if payload.get("value") is not None else None,
-                    state=str(payload.get("state") or "visible"),
-                    timeout_ms=int(payload.get("timeout_ms") or 15_000),
-                )
-            elif self.path == "/press":
-                result = self.server.daemon.press_key(
-                    str(payload["page_id"]),
-                    str(payload["key"]),
-                    ref=str(payload["ref"]) if payload.get("ref") else None,
-                )
-            elif self.path == "/hover":
-                result = self.server.daemon.hover(str(payload["page_id"]), str(payload["ref"]))
-            elif self.path == "/scroll":
-                result = self.server.daemon.scroll(
-                    str(payload["page_id"]),
-                    direction=str(payload["direction"]),
-                    amount=int(payload.get("amount") or 600),
-                    ref=str(payload["ref"]) if payload.get("ref") else None,
-                )
-            elif self.path == "/drag":
-                result = self.server.daemon.drag(
-                    str(payload["page_id"]),
-                    str(payload["source_ref"]),
-                    str(payload["target_ref"]),
-                )
-            elif self.path == "/check":
-                result = self.server.daemon.set_checked(
-                    str(payload["page_id"]),
-                    str(payload["ref"]),
-                    checked=True,
-                )
-            elif self.path == "/uncheck":
-                result = self.server.daemon.set_checked(
-                    str(payload["page_id"]),
-                    str(payload["ref"]),
-                    checked=False,
-                )
-            elif self.path == "/upload":
-                result = self.server.daemon.upload_files(
-                    str(payload["page_id"]),
-                    str(payload["ref"]),
-                    _string_list(payload.get("paths")),
-                )
-            elif self.path == "/downloads":
-                result = self.server.daemon.list_downloads()
-            elif self.path == "/save-download":
-                result = self.server.daemon.save_download(
-                    str(payload["download_id"]),
-                    str(payload["path"]),
-                )
-            elif self.path == "/dialog":
-                result = self.server.daemon.dialog(
-                    str(payload["page_id"]),
-                    str(payload["action"]),
-                    text=str(payload.get("text") or ""),
-                )
-            elif self.path == "/extract":
-                result = self.server.daemon.extract(str(payload["page_id"]), str(payload["format"]))
-            elif self.path == "/shutdown":
-                result = {"stopping": True}
-                self._json({"ok": True, **result})
-                self.server.daemon.close()
-                signal.raise_signal(signal.SIGTERM)
+            if self.path == "/shutdown":
+                self._json({"ok": True, "stopping": True})
+                self.server.initiate_shutdown()
                 return
-            else:
-                self._json({"ok": False, "error": "Not found"}, status=404)
-                return
+            result = self.server.run_agent(_dispatch_agent_request(self.server.daemon, self.path, payload))
             self._json({"ok": True, **result})
+        except AgentRouteNotFound:
+            self._json({"ok": False, "error": "Not found"}, status=404)
         except Exception as exc:
             self._json({"ok": False, "error": str(exc)}, status=500)
 
@@ -887,6 +832,137 @@ class AgentRequestHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
+
+
+async def _dispatch_agent_request(
+    daemon: AgentDaemon,
+    path: str,
+    payload: dict[str, Any],
+) -> dict[str, Any]:
+    if path == "/new-context":
+        return await daemon.new_context()
+    if path == "/new-page":
+        return await daemon.new_page()
+    if path == "/pages":
+        return await daemon.list_pages()
+    if path == "/close-page":
+        return await daemon.close_page(str(payload["page_id"]))
+    if path == "/navigate":
+        wait_until = _wait_until(str(payload.get("wait_until") or "domcontentloaded"))
+        return await daemon.navigate(
+            str(payload["page_id"]),
+            str(payload["url"]),
+            wait_until,
+        )
+    if path == "/back":
+        return await daemon.go_back(str(payload["page_id"]))
+    if path == "/forward":
+        return await daemon.go_forward(str(payload["page_id"]))
+    if path == "/reload":
+        return await daemon.reload(str(payload["page_id"]))
+    if path in {"/describe", "/list"}:
+        return await daemon.describe_page(
+            str(payload["page_id"]),
+            int(payload.get("max_items") or 200),
+        )
+    if path == "/click":
+        return await daemon.click(str(payload["page_id"]), str(payload["ref"]))
+    if path == "/info":
+        return await daemon.element_info(
+            str(payload["page_id"]),
+            str(payload["ref"]),
+        )
+    if path == "/fill":
+        return await daemon.fill_text(
+            str(payload["page_id"]),
+            str(payload["ref"]),
+            str(payload["text"]),
+            submit=bool(payload.get("submit", False)),
+        )
+    if path == "/select":
+        return await daemon.select_options(
+            str(payload["page_id"]),
+            str(payload["ref"]),
+            _string_list(payload.get("values")),
+            by=_select_by(str(payload.get("by") or "value")),
+        )
+    if path == "/type":
+        return await daemon.type_text(
+            str(payload["page_id"]),
+            str(payload["ref"]),
+            str(payload["text"]),
+            submit=bool(payload.get("submit", False)),
+        )
+    if path == "/screenshot":
+        return await daemon.screenshot(
+            str(payload["page_id"]),
+            str(payload["path"]),
+            full_page=bool(payload.get("full_page", False)),
+            ref=str(payload["ref"]) if payload.get("ref") else None,
+        )
+    if path == "/wait":
+        return await daemon.wait_for(
+            str(payload["page_id"]),
+            target=str(payload["target"]),
+            value=str(payload["value"]) if payload.get("value") is not None else None,
+            state=str(payload.get("state") or "visible"),
+            timeout_ms=int(payload.get("timeout_ms") or 15_000),
+        )
+    if path == "/press":
+        return await daemon.press_key(
+            str(payload["page_id"]),
+            str(payload["key"]),
+            ref=str(payload["ref"]) if payload.get("ref") else None,
+        )
+    if path == "/hover":
+        return await daemon.hover(str(payload["page_id"]), str(payload["ref"]))
+    if path == "/scroll":
+        return await daemon.scroll(
+            str(payload["page_id"]),
+            direction=str(payload["direction"]),
+            amount=int(payload.get("amount") or 600),
+            ref=str(payload["ref"]) if payload.get("ref") else None,
+        )
+    if path == "/drag":
+        return await daemon.drag(
+            str(payload["page_id"]),
+            str(payload["source_ref"]),
+            str(payload["target_ref"]),
+        )
+    if path == "/check":
+        return await daemon.set_checked(
+            str(payload["page_id"]),
+            str(payload["ref"]),
+            checked=True,
+        )
+    if path == "/uncheck":
+        return await daemon.set_checked(
+            str(payload["page_id"]),
+            str(payload["ref"]),
+            checked=False,
+        )
+    if path == "/upload":
+        return await daemon.upload_files(
+            str(payload["page_id"]),
+            str(payload["ref"]),
+            _string_list(payload.get("paths")),
+        )
+    if path == "/downloads":
+        return await daemon.list_downloads()
+    if path == "/save-download":
+        return await daemon.save_download(
+            str(payload["download_id"]),
+            str(payload["path"]),
+        )
+    if path == "/dialog":
+        return await daemon.dialog(
+            str(payload["page_id"]),
+            str(payload["action"]),
+            text=str(payload.get("text") or ""),
+        )
+    if path == "/extract":
+        return await daemon.extract(str(payload["page_id"]), str(payload["format"]))
+    raise AgentRouteNotFound
 
 
 def render_element_info(info: dict[str, Any]) -> str:
@@ -1023,12 +1099,24 @@ def run_daemon(
 ) -> None:
     hide_macos_dock_icon()
     store = AgentStore()
+    loop: asyncio.AbstractEventLoop | None = None
+    loop_thread: threading.Thread | None = None
+    server: AgentHTTPServer | None = None
     try:
         profile = store.load_profile(profile_id)
         daemon = AgentDaemon(profile)
+        loop = asyncio.new_event_loop()
+        loop_thread = threading.Thread(
+            target=_run_agent_loop,
+            args=(loop,),
+            name=f"rotunda-agent-{profile_id}",
+            daemon=True,
+        )
+        loop_thread.start()
         server = AgentHTTPServer(("127.0.0.1", 0), AgentRequestHandler)
         server.daemon = daemon
         server.token = token
+        server.loop = loop
         host = str(server.server_address[0])
         port = int(server.server_address[1])
         session = {
@@ -1051,6 +1139,25 @@ def run_daemon(
             encoding="utf-8",
         )
         raise
+    finally:
+        if server is not None:
+            with suppress(Exception):
+                server.server_close()
+            if loop is not None and loop.is_running():
+                with suppress(Exception):
+                    server.run_agent(server.daemon.close())
+        if loop is not None:
+            if loop.is_running():
+                loop.call_soon_threadsafe(loop.stop)
+            if loop_thread is not None:
+                loop_thread.join(timeout=5)
+            with suppress(Exception):
+                loop.close()
+
+
+def _run_agent_loop(loop: asyncio.AbstractEventLoop) -> None:
+    asyncio.set_event_loop(loop)
+    loop.run_forever()
 
 
 def hide_macos_dock_icon() -> None:

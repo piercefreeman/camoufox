@@ -855,7 +855,38 @@ def gui(debug):
         )
 
 
-@cli.group(name="agent")
+class AgentCommand(click.RichCommand):
+    def get_rich_table_row(self, ctx, formatter, panel=None):
+        row = super().get_rich_table_row(ctx, formatter, panel)
+        name = _agent_registered_command_name(ctx, self)
+        usage = _agent_command_usage(ctx, name, self)
+        if usage and row:
+            from rich.text import Text
+
+            row[0] = Text(f"{name} {usage}", style=formatter.config.style_command)
+        return row
+
+
+class AgentCommandGroup(click.RichGroup):
+    command_class = AgentCommand
+
+
+def _agent_registered_command_name(ctx, cmd) -> str:
+    group = ctx.command
+    if isinstance(group, click.Group):
+        for name, registered in group.commands.items():
+            if registered is cmd:
+                return name
+    return cmd.name or ""
+
+
+def _agent_command_usage(ctx, subcommand: str, cmd) -> str:
+    sub_ctx = click.Context(cmd, info_name=subcommand, parent=ctx)
+    pieces = [piece for piece in cmd.collect_usage_pieces(sub_ctx) if piece != cmd.options_metavar]
+    return " ".join(pieces)
+
+
+@cli.group(name="agent", cls=AgentCommandGroup)
 def agent_cmd():
     """
     Agent-friendly browser control commands.
@@ -1063,6 +1094,8 @@ def agent_screenshot(page: str, path: str | None, full_page: bool, element_ref: 
         },
     )
     _agent_update_page(store, data["page"], page_resource)
+    # Keep the absolute screenshot path in stdout so agents can read the image
+    # as a follow-up observation without guessing where the file was written.
     click.echo(f"screenshot: {data['path']}")
 
 
