@@ -60,13 +60,38 @@ Use those refs directly for actions. You do not need to pass the page index once
 
 ```bash
 uvx rotunda agent click <ref>
+uvx rotunda agent hover <ref>
 uvx rotunda agent info <select-ref>
 uvx rotunda agent select <select-ref> "option-value"
 uvx rotunda agent fill <input-ref> "replacement text"
 uvx rotunda agent type <input-ref> "additional text"
+uvx rotunda agent press <input-ref> Enter
+uvx rotunda agent scroll down
+uvx rotunda agent check <checkbox-ref>
 ```
 
-`info` prints the full attributes, state, bounds, and select options for one element. `select` chooses dropdown options by value by default; use `--by label` or `--by index` when that is more convenient. `fill` replaces the field contents, while `type` appends at the focused cursor position. Both use Rotunda's humanized text input path, and mouse actions use Rotunda's path prediction when humanization is enabled. Stop the profile daemon when you are done:
+`info` prints the full attributes, state, bounds, and select options for one element. `select` chooses dropdown options by value by default; use `--by label` or `--by index` when that is more convenient. `fill` replaces the field contents, while `type` appends at the focused cursor position. Both use Rotunda's humanized text input path, and mouse actions use Rotunda's path prediction when humanization is enabled.
+
+The agent CLI also includes broader browser primitives for less form-like tasks:
+
+```bash
+uvx rotunda agent pages
+uvx rotunda agent screenshot 3 --full-page
+uvx rotunda agent wait 3 --for text "Done"
+uvx rotunda agent back 3
+uvx rotunda agent forward 3
+uvx rotunda agent reload 3
+uvx rotunda agent extract 3 --format markdown
+uvx rotunda agent upload <file-input-ref> ./document.pdf
+uvx rotunda agent downloads
+uvx rotunda agent save-download <download-ref> ./download.bin
+uvx rotunda agent dialog 3 accept
+uvx rotunda agent close-page 3
+```
+
+`screenshot` can capture the viewport, full page, or one described element with `--element <ref>`; when no path is provided, it writes a randomly named PNG under the system temp directory and prints the absolute filepath. `wait` supports load states, URL patterns, visible text, selectors, and fixed timeouts. `extract` can return text, HTML, markdown, links, or form metadata. `dialog` arms how the next browser dialog on a page should be handled; unarmed dialogs are dismissed and recorded so the browser does not hang.
+
+Stop the profile daemon when you are done:
 
 ```bash
 uvx rotunda agent stop 1

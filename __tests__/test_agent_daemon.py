@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from http.server import HTTPServer
+from pathlib import Path
 from socketserver import ThreadingMixIn
 
 from click.testing import CliRunner
@@ -109,10 +110,85 @@ class FakeKeyboard:
     def insert_text(self, text: str) -> None:
         self.events.append(("insert_text", text))
 
+    def press(self, key: str) -> None:
+        self.events.append(("keyboard_press", key))
+
+
+class FakeMouse:
+    def __init__(self, events: list[tuple]) -> None:
+        self.events = events
+
+    def down(self) -> None:
+        self.events.append(("mouse_down",))
+
+    def up(self) -> None:
+        self.events.append(("mouse_up",))
+
 
 class FakePage:
     def __init__(self, events: list[tuple]) -> None:
         self.keyboard = FakeKeyboard(events)
+        self.mouse = FakeMouse(events)
+        self.events = events
+        self.url = "https://example.test"
+        self.title = lambda: "Example"
+
+    def screenshot(self, *, path: str, full_page: bool, timeout: int) -> None:
+        self.events.append(("page_screenshot", path, full_page, timeout))
+
+    def wait_for_load_state(self, state: str, *, timeout: int) -> None:
+        self.events.append(("wait_for_load_state", state, timeout))
+
+    def wait_for_timeout(self, timeout: int) -> None:
+        self.events.append(("wait_for_timeout", timeout))
+
+    def wait_for_url(self, value: str, *, timeout: int) -> None:
+        self.events.append(("wait_for_url", value, timeout))
+
+    def evaluate(self, script: str, arg=None):
+        self.events.append(("page_evaluate", script, arg))
+        if "blocks.join" in script:
+            return "# Example"
+        if "querySelectorAll(\"a[href]\")" in script:
+            return [{"text": "Home", "href": "https://example.test", "title": "", "target": ""}]
+        if "document.forms" in script:
+            return [{"index": 0, "fields": []}]
+        return {"ok": True}
+
+    def content(self) -> str:
+        self.events.append(("content",))
+        return "<html></html>"
+
+    def locator(self, selector: str):
+        self.events.append(("page_locator", selector))
+
+        class BodyLocator:
+            @property
+            def first(self):
+                return self
+
+            def inner_text(self, *, timeout: int) -> str:
+                return "Example text"
+
+            def wait_for(self, *, state: str, timeout: int) -> None:
+                events.append(("locator_wait_for", selector, state, timeout))
+
+        events = self.events
+        return BodyLocator()
+
+    def get_by_text(self, text: str):
+        self.events.append(("get_by_text", text))
+
+        class TextLocator:
+            @property
+            def first(self):
+                return self
+
+            def wait_for(self, *, state: str, timeout: int) -> None:
+                events.append(("text_wait_for", text, state, timeout))
+
+        events = self.events
+        return TextLocator()
 
 
 class FakeLocator:
@@ -125,8 +201,8 @@ class FakeLocator:
     def press(self, key: str, *, timeout: int | None = None) -> None:
         self.events.append(("press", key, timeout))
 
-    def evaluate(self, script: str) -> dict:
-        self.events.append(("evaluate", script))
+    def evaluate(self, script: str, arg=None) -> dict:
+        self.events.append(("evaluate", script, arg))
         return {
             "tag": "select",
             "role": "",
@@ -177,6 +253,24 @@ class FakeLocator:
             return [str(item) for item in indexes]
         return []
 
+    def hover(self, *, timeout: int) -> None:
+        self.events.append(("hover", timeout))
+
+    def drag_to(self, target, *, timeout: int) -> None:
+        self.events.append(("drag_to", target, timeout))
+
+    def check(self, *, timeout: int) -> None:
+        self.events.append(("check", timeout))
+
+    def uncheck(self, *, timeout: int) -> None:
+        self.events.append(("uncheck", timeout))
+
+    def set_input_files(self, paths: list[str], *, timeout: int) -> None:
+        self.events.append(("set_input_files", paths, timeout))
+
+    def screenshot(self, *, path: str, timeout: int) -> None:
+        self.events.append(("locator_screenshot", path, timeout))
+
 
 class FakeSerializer:
     def __init__(self, locator: FakeLocator) -> None:
@@ -206,7 +300,8 @@ def test_agent_click_uses_playwright_click_path_for_juggler_humanization() -> No
 
     daemon.click("page_1", "button_ref")
 
-    assert events == [
+    action_events = [event for event in events if event[0] != "wait_for_load_state"]
+    assert action_events == [
         ("click", 15_000),
     ]
 
@@ -220,7 +315,8 @@ def test_agent_fill_uses_playwright_click_and_rotunda_insert_text_path() -> None
 
     daemon.fill_text("page_1", "input_ref", "hello", submit=True)
 
-    assert events == [
+    action_events = [event for event in events if event[0] != "wait_for_load_state"]
+    assert action_events == [
         ("click", 15_000),
         ("press", "ControlOrMeta+A", 15_000),
         ("press", "Backspace", 15_000),
@@ -238,7 +334,8 @@ def test_agent_type_uses_playwright_click_and_rotunda_insert_text_path() -> None
 
     daemon.type_text("page_1", "input_ref", "hello", submit=True)
 
-    assert events == [
+    action_events = [event for event in events if event[0] != "wait_for_load_state"]
+    assert action_events == [
         ("click", 15_000),
         ("insert_text", "hello"),
         ("press", "Enter", None),
@@ -273,11 +370,174 @@ def test_agent_select_can_match_by_value_label_or_index() -> None:
     assert by_value["selected"] == ["ca"]
     assert by_label["selected"] == ["Canada"]
     assert by_index["selected"] == ["1"]
-    assert events == [
+    action_events = [event for event in events if event[0] != "wait_for_load_state"]
+    assert action_events == [
         ("select_option", "ca", None, None, 15_000),
         ("select_option", None, None, "Canada", 15_000),
         ("select_option", None, 1, None, 15_000),
     ]
+
+
+def test_agent_press_hover_drag_check_scroll_and_upload_primitives() -> None:
+    events: list[tuple] = []
+    daemon = AgentDaemon({"id": "prof_1"})
+    daemon.pages["page_1"] = FakePage(events)
+    daemon.page_serializers["page_1"] = FakeSerializer(FakeLocator(events))
+    daemon.describe_page = lambda page_id: {"page": {"id": page_id}}
+
+    daemon.press_key("page_1", "Enter", ref="button_ref")
+    daemon.press_key("page_1", "Escape")
+    daemon.hover("page_1", "button_ref")
+    daemon.drag("page_1", "source_ref", "target_ref")
+    daemon.set_checked("page_1", "checkbox_ref", checked=True)
+    daemon.set_checked("page_1", "checkbox_ref", checked=False)
+    daemon.scroll("page_1", direction="down", amount=300, ref="panel_ref")
+    daemon.scroll("page_1", direction="up", amount=200)
+    daemon.upload_files("page_1", "file_ref", ["/tmp/example.txt"])
+
+    assert ("press", "Enter", 15_000) in events
+    assert ("keyboard_press", "Escape") in events
+    assert ("hover", 15_000) in events
+    assert any(event[0] == "drag_to" for event in events)
+    assert ("check", 15_000) in events
+    assert ("uncheck", 15_000) in events
+    assert any(event[0] == "evaluate" for event in events)
+    assert any(event[0] == "page_evaluate" for event in events)
+    assert ("set_input_files", ["/tmp/example.txt"], 15_000) in events
+
+
+def test_agent_screenshot_wait_extract_download_and_dialog_primitives(tmp_path) -> None:
+    events: list[tuple] = []
+    daemon = AgentDaemon({"id": "prof_1"})
+    daemon.pages["page_1"] = FakePage(events)
+    daemon.page_serializers["page_1"] = FakeSerializer(FakeLocator(events))
+
+    page_path = tmp_path / "page.png"
+    element_path = tmp_path / "element.png"
+    daemon.screenshot("page_1", str(page_path), full_page=True)
+    daemon.screenshot("page_1", str(element_path), ref="button_ref")
+    daemon.wait_for("page_1", target="selector", value="main", state="visible", timeout_ms=123)
+    daemon.wait_for("page_1", target="text", value="Done", timeout_ms=456)
+    daemon.wait_for("page_1", target="url", value="**/done", timeout_ms=789)
+    daemon.wait_for("page_1", target="timeout", timeout_ms=50)
+
+    assert ("page_screenshot", str(page_path), True, 30_000) in events
+    assert ("locator_screenshot", str(element_path), 15_000) in events
+    assert ("locator_wait_for", "main", "visible", 123) in events
+    assert ("text_wait_for", "Done", "visible", 456) in events
+    assert ("wait_for_url", "**/done", 789) in events
+    assert ("wait_for_timeout", 50) in events
+
+    assert daemon.extract("page_1", "text")["text"] == "Example text"
+    assert daemon.extract("page_1", "html")["text"] == "<html></html>"
+    assert "Home" in daemon.extract("page_1", "links")["text"]
+    assert "fields" in daemon.extract("page_1", "forms")["text"]
+    assert daemon.extract("page_1", "markdown")["text"] == "# Example"
+
+    class FakeDownload:
+        url = "https://example.test/file.txt"
+        suggested_filename = "file.txt"
+
+        def __init__(self) -> None:
+            self.saved = ""
+
+        def path(self) -> str:
+            return "/tmp/browser-download"
+
+        def save_as(self, path: str) -> None:
+            self.saved = path
+
+    download = FakeDownload()
+    daemon._record_download("page_1", download)
+    download_id = next(iter(daemon.downloads))
+    assert daemon.list_downloads()["downloads"][0]["suggested_filename"] == "file.txt"
+    saved = daemon.save_download(download_id, str(tmp_path / "file.txt"))
+    assert saved["download"]["saved_as"] == str(tmp_path / "file.txt")
+    assert download.saved == str(tmp_path / "file.txt")
+
+    class FakeDialog:
+        type = "prompt"
+        message = "Name?"
+        default_value = ""
+
+        def __init__(self) -> None:
+            self.accepted = None
+            self.dismissed = False
+
+        def accept(self, prompt_text: str | None = None) -> None:
+            self.accepted = prompt_text
+
+        def dismiss(self) -> None:
+            self.dismissed = True
+
+    daemon.dialog("page_1", "fill", text="Pierce")
+    dialog = FakeDialog()
+    daemon._handle_dialog("page_1", dialog)
+    assert dialog.accepted == "Pierce"
+    assert daemon.dialog("page_1", "list")["dialogs"][0]["action"] == "fill"
+
+
+def test_agent_target_parsers_support_page_level_and_global_refs(tmp_path, monkeypatch) -> None:
+    isolate_agent_store(tmp_path, monkeypatch)
+    store = AgentStore()
+    page = store.register(kind="page", id="page_1", profile_id="prof_1", parent_id="ctx_1")
+    store.register(kind="element", id="input_ref", profile_id="prof_1", parent_id=page.id)
+    store.register(kind="element", id="target_ref", profile_id="prof_1", parent_id=page.id)
+
+    page_resource, ref, key = cli_module._agent_target_from_key_args(
+        store,
+        ("input_ref", "Enter"),
+        command_name="press",
+    )
+    assert page_resource.id == "page_1"
+    assert ref == "input_ref"
+    assert key == "Enter"
+
+    page_resource, ref, direction = cli_module._agent_target_from_direction_args(
+        store,
+        ("page_1", "down"),
+        command_name="scroll",
+    )
+    assert page_resource.id == "page_1"
+    assert ref is None
+    assert direction == "down"
+
+    page_resource, source_ref, target_ref = cli_module._agent_target_from_drag_args(
+        store,
+        ("input_ref", "target_ref"),
+    )
+    assert page_resource.id == "page_1"
+    assert source_ref == "input_ref"
+    assert target_ref == "target_ref"
+
+
+def test_agent_screenshot_defaults_to_temp_absolute_path(tmp_path, monkeypatch) -> None:
+    isolate_agent_store(tmp_path, monkeypatch)
+    store = AgentStore()
+    page = store.register(kind="page", id="page_1", profile_id="prof_1", parent_id="ctx_1")
+    requests: list[tuple[str, dict]] = []
+
+    class FakeClient:
+        def post(self, path: str, payload: dict | None = None) -> dict:
+            requests.append((path, payload or {}))
+            return {
+                "page": {"id": page.id, "url": "https://example.test", "title": ""},
+                "path": payload["path"],
+            }
+
+    monkeypatch.setattr(cli_module, "_agent_client", lambda store, profile_id: FakeClient())
+    monkeypatch.setattr(cli_module.tempfile, "gettempdir", lambda: str(tmp_path))
+
+    result = CliRunner().invoke(cli, ["agent", "screenshot", str(page.idx)])
+
+    assert result.exit_code == 0
+    payload = requests[0][1]
+    screenshot_path = payload["path"]
+    assert Path(screenshot_path).is_absolute()
+    assert Path(screenshot_path).parent == tmp_path
+    assert Path(screenshot_path).name.startswith("rotunda-agent-screenshot-")
+    assert Path(screenshot_path).suffix == ".png"
+    assert f"screenshot: {screenshot_path}" in result.output
 
 
 def test_agent_help_exposes_describe_not_list() -> None:
@@ -285,6 +545,12 @@ def test_agent_help_exposes_describe_not_list() -> None:
 
     assert result.exit_code == 0
     assert "describe" in result.output
+    assert "screenshot" in result.output
+    assert "wait" in result.output
+    assert "press" in result.output
+    assert "scroll" in result.output
+    assert "upload" in result.output
+    assert "extract" in result.output
     assert "fill" in result.output
     assert "info" in result.output
     assert "select" in result.output

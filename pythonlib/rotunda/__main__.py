@@ -2,6 +2,8 @@
 CLI package manager for Rotunda
 """
 
+import tempfile
+import uuid
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as pkg_version
 from os import environ
@@ -935,6 +937,42 @@ def agent_new_page(context: str) -> None:
     _agent_register_page(store, data["page"], context_resource)
 
 
+@agent_cmd.command(name="pages")
+@click.argument("context", required=False, metavar="[CONTEXT_OR_PROFILE]")
+def agent_pages(context: str | None) -> None:
+    """
+    List pages known to a browser context.
+    """
+    from .agent.store import AgentStore
+
+    store = AgentStore()
+    context_resource = _agent_context_from_ref(store, context)
+    if not context_resource.profile_id:
+        raise click.ClickException("Context has no profile.")
+    client = _agent_client(store, context_resource.profile_id)
+    data = _agent_post(client, "/pages")
+    _agent_register_pages(store, context_resource, data.get("pages", []))
+
+
+@agent_cmd.command(name="close-page")
+@click.argument("page")
+def agent_close_page(page: str) -> None:
+    """
+    Close a page and remove its saved resource refs.
+    """
+    from .agent.store import AgentStore
+
+    store = AgentStore()
+    page_resource = _agent_resolve(store, page, kind="page")
+    if not page_resource.profile_id:
+        raise click.ClickException("Page has no profile.")
+    client = _agent_client(store, page_resource.profile_id)
+    _agent_post(client, "/close-page", {"page_id": page_resource.id})
+    store.remove_children(page_resource.id, kind="element")
+    store.remove(kind="page", id=page_resource.id)
+    click.echo(f"closed page {page_resource.id}")
+
+
 @agent_cmd.command(name="navigate")
 @click.argument("page")
 @click.argument("url")
@@ -962,6 +1000,111 @@ def agent_navigate(page: str, url: str, wait_until: str) -> None:
             "page_id": page_resource.id,
             "url": _agent_normalize_url(url),
             "wait_until": wait_until,
+        },
+    )
+    _agent_update_page(store, data["page"], page_resource)
+
+
+@agent_cmd.command(name="back")
+@click.argument("page")
+def agent_back(page: str) -> None:
+    """
+    Navigate a page back in history.
+    """
+    _agent_page_endpoint(page, "/back")
+
+
+@agent_cmd.command(name="forward")
+@click.argument("page")
+def agent_forward(page: str) -> None:
+    """
+    Navigate a page forward in history.
+    """
+    _agent_page_endpoint(page, "/forward")
+
+
+@agent_cmd.command(name="reload")
+@click.argument("page")
+def agent_reload(page: str) -> None:
+    """
+    Reload a page.
+    """
+    _agent_page_endpoint(page, "/reload")
+
+
+@agent_cmd.command(name="screenshot")
+@click.argument("page")
+@click.argument("path", required=False)
+@click.option("--full-page/--viewport", default=False, show_default=True, help="Capture the full page.")
+@click.option("--element", "element_ref", default=None, help="Capture one described element ref.")
+def agent_screenshot(page: str, path: str | None, full_page: bool, element_ref: str | None) -> None:
+    """
+    Capture a page or element screenshot.
+    """
+    from .agent.store import AgentStore
+
+    store = AgentStore()
+    page_resource = _agent_resolve(store, page, kind="page")
+    if not page_resource.profile_id:
+        raise click.ClickException("Page has no profile.")
+    if path:
+        output = Path(path).expanduser().resolve()
+    else:
+        output = Path(tempfile.gettempdir()) / f"rotunda-agent-screenshot-{uuid.uuid4().hex}.png"
+    client = _agent_client(store, page_resource.profile_id)
+    data = _agent_post(
+        client,
+        "/screenshot",
+        {
+            "page_id": page_resource.id,
+            "path": str(output),
+            "full_page": full_page,
+            "ref": element_ref,
+        },
+    )
+    _agent_update_page(store, data["page"], page_resource)
+    click.echo(f"screenshot: {data['path']}")
+
+
+@agent_cmd.command(name="wait")
+@click.argument("page")
+@click.argument("value", required=False)
+@click.option(
+    "--for",
+    "wait_for",
+    default="load",
+    show_default=True,
+    type=click.Choice(["load", "domcontentloaded", "networkidle", "selector", "text", "url", "timeout"]),
+    help="What to wait for.",
+)
+@click.option(
+    "--state",
+    default="visible",
+    show_default=True,
+    type=click.Choice(["attached", "detached", "visible", "hidden"]),
+    help="Selector/text wait state.",
+)
+@click.option("--timeout-ms", default=15_000, show_default=True, help="Maximum wait time.")
+def agent_wait(page: str, value: str | None, wait_for: str, state: str, timeout_ms: int) -> None:
+    """
+    Wait for page load, URL, text, selector, or a fixed timeout.
+    """
+    from .agent.store import AgentStore
+
+    store = AgentStore()
+    page_resource = _agent_resolve(store, page, kind="page")
+    if not page_resource.profile_id:
+        raise click.ClickException("Page has no profile.")
+    client = _agent_client(store, page_resource.profile_id)
+    data = _agent_post(
+        client,
+        "/wait",
+        {
+            "page_id": page_resource.id,
+            "target": wait_for,
+            "value": value,
+            "state": state,
+            "timeout_ms": timeout_ms,
         },
     )
     _agent_update_page(store, data["page"], page_resource)
@@ -1030,10 +1173,7 @@ def agent_click(args: tuple[str, ...]) -> None:
         raise click.ClickException("Page has no profile.")
     client = _agent_client(store, page_resource.profile_id)
     data = _agent_post(client, "/click", {"page_id": page_resource.id, "ref": ref})
-    page_resource = _agent_update_page(store, data["page"], page_resource)
-    _agent_register_elements(store, page_resource, data.get("items", []))
-    if data.get("text"):
-        click.echo(data["text"])
+    _agent_handle_action_result(store, page_resource, data)
 
 
 @agent_cmd.command(name="info")
@@ -1104,10 +1244,7 @@ def _agent_fill(args: tuple[str, ...], *, submit: bool, command_name: str) -> No
             "submit": submit,
         },
     )
-    page_resource = _agent_update_page(store, data["page"], page_resource)
-    _agent_register_elements(store, page_resource, data.get("items", []))
-    if data.get("text"):
-        click.echo(data["text"])
+    _agent_handle_action_result(store, page_resource, data)
 
 
 @agent_cmd.command(name="select")
@@ -1158,12 +1295,7 @@ def agent_select(args: tuple[str, ...], select_by: str) -> None:
             "by": select_by,
         },
     )
-    page_resource = _agent_update_page(store, data["page"], page_resource)
-    _agent_register_elements(store, page_resource, data.get("items", []))
-    if data.get("selected") is not None:
-        click.echo(f"selected: {', '.join(str(value) for value in data['selected'])}")
-    if data.get("text"):
-        click.echo(data["text"])
+    _agent_handle_action_result(store, page_resource, data)
 
 
 @agent_cmd.command(name="type")
@@ -1215,16 +1347,267 @@ def _agent_type(args: tuple[str, ...], *, submit: bool) -> None:
             "submit": submit,
         },
     )
-    page_resource = _agent_update_page(store, data["page"], page_resource)
-    _agent_register_elements(store, page_resource, data.get("items", []))
-    if data.get("text"):
-        click.echo(data["text"])
+    _agent_handle_action_result(store, page_resource, data)
+
+
+@agent_cmd.command(name="press")
+@click.argument("args", nargs=-1, required=True, metavar="[PAGE] [REF] KEY")
+def agent_press(args: tuple[str, ...]) -> None:
+    """
+    Press a keyboard key globally or on a DOM ref.
+    """
+    from .agent.store import AgentStore
+
+    store = AgentStore()
+    page_resource, ref, key = _agent_target_from_key_args(store, args, command_name="press")
+    if not page_resource.profile_id:
+        raise click.ClickException("Page has no profile.")
+    client = _agent_client(store, page_resource.profile_id)
+    data = _agent_post(
+        client,
+        "/press",
+        {
+            "page_id": page_resource.id,
+            "ref": ref,
+            "key": key,
+        },
+    )
+    _agent_handle_action_result(store, page_resource, data)
+
+
+@agent_cmd.command(name="hover")
+@click.argument("args", nargs=-1, required=True, metavar="[PAGE] REF")
+def agent_hover(args: tuple[str, ...]) -> None:
+    """
+    Hover a DOM ref.
+    """
+    _agent_ref_action(args, "/hover")
+
+
+@agent_cmd.command(name="scroll")
+@click.option("--amount", default=600, show_default=True, help="Scroll distance in pixels.")
+@click.argument("args", nargs=-1, required=True, metavar="[PAGE] [REF] DIRECTION")
+def agent_scroll(args: tuple[str, ...], amount: int) -> None:
+    """
+    Scroll a page or scrollable DOM ref.
+    """
+    from .agent.store import AgentStore
+
+    store = AgentStore()
+    page_resource, ref, direction = _agent_target_from_direction_args(store, args, command_name="scroll")
+    if direction not in {"up", "down", "left", "right"}:
+        raise click.ClickException("Direction must be one of: up, down, left, right.")
+    if not page_resource.profile_id:
+        raise click.ClickException("Page has no profile.")
+    client = _agent_client(store, page_resource.profile_id)
+    data = _agent_post(
+        client,
+        "/scroll",
+        {
+            "page_id": page_resource.id,
+            "ref": ref,
+            "direction": direction,
+            "amount": amount,
+        },
+    )
+    _agent_handle_action_result(store, page_resource, data)
+
+
+@agent_cmd.command(name="drag")
+@click.argument("args", nargs=-1, required=True, metavar="[PAGE] FROM_REF TO_REF")
+def agent_drag(args: tuple[str, ...]) -> None:
+    """
+    Drag one DOM ref onto another.
+    """
+    from .agent.store import AgentStore
+
+    store = AgentStore()
+    page_resource, source_ref, target_ref = _agent_target_from_drag_args(store, args)
+    if not page_resource.profile_id:
+        raise click.ClickException("Page has no profile.")
+    client = _agent_client(store, page_resource.profile_id)
+    data = _agent_post(
+        client,
+        "/drag",
+        {
+            "page_id": page_resource.id,
+            "source_ref": source_ref,
+            "target_ref": target_ref,
+        },
+    )
+    _agent_handle_action_result(store, page_resource, data)
+
+
+@agent_cmd.command(name="check")
+@click.argument("args", nargs=-1, required=True, metavar="[PAGE] REF")
+def agent_check(args: tuple[str, ...]) -> None:
+    """
+    Check a checkbox or radio DOM ref.
+    """
+    _agent_ref_action(args, "/check")
+
+
+@agent_cmd.command(name="uncheck")
+@click.argument("args", nargs=-1, required=True, metavar="[PAGE] REF")
+def agent_uncheck(args: tuple[str, ...]) -> None:
+    """
+    Uncheck a checkbox DOM ref.
+    """
+    _agent_ref_action(args, "/uncheck")
+
+
+@agent_cmd.command(name="upload")
+@click.argument("args", nargs=-1, required=True, metavar="[PAGE] REF PATH...")
+def agent_upload(args: tuple[str, ...]) -> None:
+    """
+    Upload one or more files through a file input DOM ref.
+    """
+    from .agent.store import AgentStore
+
+    store = AgentStore()
+    page_resource, ref, paths = _agent_target_from_paths_args(store, args, command_name="upload")
+    if not page_resource.profile_id:
+        raise click.ClickException("Page has no profile.")
+    resolved_paths = [str(Path(path).expanduser().resolve()) for path in paths]
+    client = _agent_client(store, page_resource.profile_id)
+    data = _agent_post(
+        client,
+        "/upload",
+        {
+            "page_id": page_resource.id,
+            "ref": ref,
+            "paths": resolved_paths,
+        },
+    )
+    _agent_handle_action_result(store, page_resource, data)
+
+
+@agent_cmd.command(name="downloads")
+@click.argument("context", required=False, metavar="[CONTEXT_OR_PROFILE]")
+def agent_downloads(context: str | None) -> None:
+    """
+    List downloads captured by a browser context.
+    """
+    from .agent.store import AgentStore
+
+    store = AgentStore()
+    context_resource = _agent_context_from_ref(store, context)
+    if not context_resource.profile_id:
+        raise click.ClickException("Context has no profile.")
+    client = _agent_client(store, context_resource.profile_id)
+    data = _agent_post(client, "/downloads")
+    downloads = data.get("downloads", [])
+    resources = _agent_register_downloads(store, context_resource, downloads)
+    for item in downloads:
+        _agent_print_download(item, resources.get(str(item.get("id") or "")))
+
+
+@agent_cmd.command(name="save-download")
+@click.argument("download")
+@click.argument("path")
+def agent_save_download(download: str, path: str) -> None:
+    """
+    Save a captured download to a path.
+    """
+    from .agent.store import AgentStore
+
+    store = AgentStore()
+    download_resource = _agent_resolve(store, download, kind="download")
+    if not download_resource.profile_id:
+        raise click.ClickException("Download has no profile.")
+    output = Path(path).expanduser().resolve()
+    client = _agent_client(store, download_resource.profile_id)
+    data = _agent_post(
+        client,
+        "/save-download",
+        {
+            "download_id": download_resource.id,
+            "path": str(output),
+        },
+    )
+    _agent_print_download(data["download"], download_resource)
+
+
+@agent_cmd.command(name="dialog")
+@click.argument("page")
+@click.argument("action", type=click.Choice(["list", "accept", "dismiss", "fill"]))
+@click.argument("text", required=False)
+def agent_dialog(page: str, action: str, text: str | None) -> None:
+    """
+    List handled dialogs or arm how the next dialog should be handled.
+    """
+    from .agent.store import AgentStore
+
+    store = AgentStore()
+    page_resource = _agent_resolve(store, page, kind="page")
+    if not page_resource.profile_id:
+        raise click.ClickException("Page has no profile.")
+    client = _agent_client(store, page_resource.profile_id)
+    data = _agent_post(
+        client,
+        "/dialog",
+        {
+            "page_id": page_resource.id,
+            "action": action,
+            "text": text or "",
+        },
+    )
+    if action == "list":
+        for item in data.get("dialogs", []):
+            suffix = f" error={item['error']!r}" if item.get("error") else ""
+            click.echo(
+                f"[{item.get('id')}] {item.get('type', 'dialog')} "
+                f"{item.get('action', '')} {item.get('message', '')!r}{suffix}"
+            )
+    else:
+        armed = data.get("armed", {})
+        click.echo(f"dialog armed: {armed.get('action')}")
+
+
+@agent_cmd.command(name="extract")
+@click.argument("page")
+@click.option(
+    "--format",
+    "extract_format",
+    default="text",
+    show_default=True,
+    type=click.Choice(["text", "html", "markdown", "links", "forms"]),
+    help="Extraction format.",
+)
+@click.option("--output", type=click.Path(path_type=Path), default=None, help="Write extracted content to a file.")
+def agent_extract(page: str, extract_format: str, output: Path | None) -> None:
+    """
+    Extract text, HTML, markdown, links, or forms from a page.
+    """
+    from .agent.store import AgentStore
+
+    store = AgentStore()
+    page_resource = _agent_resolve(store, page, kind="page")
+    if not page_resource.profile_id:
+        raise click.ClickException("Page has no profile.")
+    client = _agent_client(store, page_resource.profile_id)
+    data = _agent_post(
+        client,
+        "/extract",
+        {
+            "page_id": page_resource.id,
+            "format": extract_format,
+        },
+    )
+    text = str(data.get("text") or "")
+    if output:
+        output = output.expanduser().resolve()
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(text, encoding="utf-8")
+        click.echo(f"extracted: {output}")
+    else:
+        click.echo(text)
 
 
 @agent_cmd.command(name="resources")
 @click.option(
     "--kind",
-    type=click.Choice(["profile", "context", "page", "element"]),
+    type=click.Choice(["profile", "context", "page", "element", "download"]),
     default=None,
     help="Filter resource kind.",
 )
@@ -1288,6 +1671,115 @@ def _agent_resolve(store, ref: str | None, *, kind: str):
         raise click.ClickException(_agent_clean_error(exc)) from None
 
 
+def _agent_context_from_ref(store, ref: str | None):
+    if not ref:
+        return _agent_resolve(store, None, kind="context")
+
+    try:
+        return store.resolve(ref, kind="context")
+    except KeyError:
+        pass
+
+    try:
+        profile_resource = store.resolve(ref, kind="profile")
+    except KeyError as exc:
+        raise click.ClickException(_agent_clean_error(exc)) from None
+
+    matches = [
+        resource
+        for resource in store.list_resources(kind="context")
+        if resource.profile_id == profile_resource.id or resource.parent_id == profile_resource.id
+    ]
+    if not matches:
+        raise click.ClickException(f"No context has been created for profile {ref}.")
+    return max(matches, key=lambda resource: resource.idx)
+
+
+def _agent_context_for_page(store, page_resource):
+    if not page_resource.parent_id:
+        raise click.ClickException("Page has no context.")
+    return _agent_resolve(store, page_resource.parent_id, kind="context")
+
+
+def _agent_page_endpoint(page: str, endpoint: str) -> None:
+    from .agent.store import AgentStore
+
+    store = AgentStore()
+    page_resource = _agent_resolve(store, page, kind="page")
+    if not page_resource.profile_id:
+        raise click.ClickException("Page has no profile.")
+    client = _agent_client(store, page_resource.profile_id)
+    data = _agent_post(client, endpoint, {"page_id": page_resource.id})
+    _agent_update_page(store, data["page"], page_resource)
+
+
+def _agent_ref_action(args: tuple[str, ...], endpoint: str) -> None:
+    from .agent.store import AgentStore
+
+    store = AgentStore()
+    page_resource, ref = _agent_target_from_click_args(store, args)
+    if not page_resource.profile_id:
+        raise click.ClickException("Page has no profile.")
+    client = _agent_client(store, page_resource.profile_id)
+    data = _agent_post(client, endpoint, {"page_id": page_resource.id, "ref": ref})
+    _agent_handle_action_result(store, page_resource, data)
+
+
+def _agent_handle_action_result(store, page_resource, data: dict[str, Any]) -> None:
+    updated = _agent_update_page(store, data["page"], page_resource)
+    _agent_register_response_pages(store, updated, data)
+    _agent_register_elements(store, updated, data.get("items", []))
+    if data.get("selected") is not None:
+        click.echo(f"selected: {', '.join(str(value) for value in data['selected'])}")
+    if data.get("text"):
+        click.echo(data["text"])
+
+
+def _agent_register_response_pages(store, page_resource, data: dict[str, Any]) -> None:
+    pages = data.get("pages") or []
+    if not pages:
+        return
+    context_resource = _agent_context_for_page(store, page_resource)
+    _agent_register_pages(store, context_resource, pages)
+
+
+def _agent_register_pages(store, context_resource, pages: list[dict[str, str]]) -> None:
+    seen: set[str] = set()
+    for page in pages:
+        page_id = str(page.get("id") or "")
+        if not page_id or page_id in seen:
+            continue
+        seen.add(page_id)
+        _agent_register_page(store, page, context_resource)
+
+
+def _agent_register_downloads(store, context_resource, downloads: list[dict[str, Any]]) -> dict[str, Any]:
+    resources = {}
+    for item in downloads:
+        download_id = str(item.get("id") or "")
+        if not download_id:
+            continue
+        label = str(item.get("suggested_filename") or item.get("url") or "download")
+        resources[download_id] = store.register(
+            kind="download",
+            id=download_id,
+            profile_id=context_resource.profile_id,
+            parent_id=context_resource.id,
+            label=label,
+        )
+    return resources
+
+
+def _agent_print_download(item: dict[str, Any], resource=None) -> None:
+    filename = item.get("suggested_filename") or ""
+    path = item.get("saved_as") or item.get("path") or ""
+    suffix = f" {filename}" if filename else ""
+    if path:
+        suffix += f" path={path}"
+    prefix = f"[{resource.idx}] " if resource else ""
+    click.echo(f"{prefix}download {item.get('id', '')} {item.get('url', '')}{suffix}")
+
+
 def _agent_target_from_click_args(store, args: tuple[str, ...]):
     if len(args) == 1:
         return _agent_page_and_ref_for_element_ref(store, args[0])
@@ -1323,6 +1815,79 @@ def _agent_target_from_values_args(store, args: tuple[str, ...], *, command_name
 
     page_resource = _agent_resolve(store, args[0], kind="page")
     return page_resource, args[1], list(args[2:])
+
+
+def _agent_target_from_paths_args(store, args: tuple[str, ...], *, command_name: str):
+    if len(args) < 2:
+        raise click.ClickException(
+            f"Usage: rotunda agent {command_name} <ref> <path> [path...] "
+            f"or rotunda agent {command_name} <page> <ref> <path> [path...]"
+        )
+    try:
+        page_resource, ref = _agent_page_and_ref_for_element_ref(store, args[0])
+        return page_resource, ref, list(args[1:])
+    except click.ClickException:
+        if len(args) < 3:
+            raise
+    page_resource = _agent_resolve(store, args[0], kind="page")
+    return page_resource, args[1], list(args[2:])
+
+
+def _agent_target_from_key_args(store, args: tuple[str, ...], *, command_name: str):
+    if len(args) == 1:
+        return _agent_resolve(store, None, kind="page"), None, args[0]
+    if len(args) == 2:
+        try:
+            page_resource, ref = _agent_page_and_ref_for_element_ref(store, args[0])
+            return page_resource, ref, args[1]
+        except click.ClickException:
+            return _agent_resolve(store, args[0], kind="page"), None, args[1]
+    if len(args) == 3:
+        return _agent_resolve(store, args[0], kind="page"), args[1], args[2]
+    raise click.ClickException(
+        f"Usage: rotunda agent {command_name} <key>, "
+        f"rotunda agent {command_name} <ref> <key>, "
+        f"or rotunda agent {command_name} <page> <ref> <key>"
+    )
+
+
+def _agent_target_from_direction_args(store, args: tuple[str, ...], *, command_name: str):
+    if len(args) == 1:
+        return _agent_resolve(store, None, kind="page"), None, args[0]
+    if len(args) == 2:
+        try:
+            page_resource, ref = _agent_page_and_ref_for_element_ref(store, args[0])
+            return page_resource, ref, args[1]
+        except click.ClickException:
+            return _agent_resolve(store, args[0], kind="page"), None, args[1]
+    if len(args) == 3:
+        return _agent_resolve(store, args[0], kind="page"), args[1], args[2]
+    raise click.ClickException(
+        f"Usage: rotunda agent {command_name} <direction>, "
+        f"rotunda agent {command_name} <ref> <direction>, "
+        f"or rotunda agent {command_name} <page> <ref> <direction>"
+    )
+
+
+def _agent_target_from_drag_args(store, args: tuple[str, ...]):
+    if len(args) == 2:
+        page_resource, source_ref = _agent_page_and_ref_for_element_ref(store, args[0])
+        target_ref = _agent_ref_on_page(store, args[1], page_resource.id)
+        return page_resource, source_ref, target_ref
+    if len(args) == 3:
+        page_resource = _agent_resolve(store, args[0], kind="page")
+        return page_resource, args[1], args[2]
+    raise click.ClickException("Usage: rotunda agent drag <from-ref> <to-ref> or rotunda agent drag <page> <from-ref> <to-ref>")
+
+
+def _agent_ref_on_page(store, ref: str, page_id: str) -> str:
+    try:
+        element_resource = store.resolve(ref, kind="element")
+    except KeyError:
+        return ref
+    if element_resource.parent_id and element_resource.parent_id != page_id:
+        raise click.ClickException(f"Element ref {ref} is attached to a different page.")
+    return element_resource.id
 
 
 def _agent_page_and_ref_for_element_ref(store, ref: str):

@@ -134,6 +134,15 @@ class AgentStore:
         if len(state["resources"]) != original_count:
             self._save_resources(state)
 
+    def remove(self, *, kind: str, id: str) -> None:
+        state = self._load_resources()
+        original_count = len(state["resources"])
+        state["resources"] = [
+            raw for raw in state["resources"] if not (raw.get("kind") == kind and raw.get("id") == id)
+        ]
+        if len(state["resources"]) != original_count:
+            self._save_resources(state)
+
     def resolve(self, ref: str | None, *, kind: str | None = None) -> AgentResource:
         state = self._load_resources()
         resources = [AgentResource(**raw) for raw in state["resources"]]
