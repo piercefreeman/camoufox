@@ -1,0 +1,41 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "rotunda-models"
+version = "0.1.0"
+description = "Cadence model training and generation utilities for Rotunda."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [
+    { name = "Pierce Freeman", email = "pierce@freeman.vc" },
+]
+dependencies = [
+    "numpy>=1.26",
+    "Pillow>=10",
+    "rich>=13",
+    "torch>=2.2",
+]
+
+[project.optional-dependencies]
+wandb = ["wandb>=0.16"]
+
+[project.scripts]
+rotunda-models = "rotunda_models.cli.main:main"
+rotunda-models-render-debug-videos = "rotunda_models.render_debug_videos:main"
+rotunda-models-sweep = "rotunda_models.random_sweep:main"
+
+[tool.setuptools]
+include-package-data = true
+
+[tool.setuptools.packages.find]
+include = ["rotunda_models*"]
+
+[tool.ruff]
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "I", "UP", "B", "SIM", "RUF"]
+ignore = ["E501", "B008"]

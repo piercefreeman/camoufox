@@ -51,6 +51,34 @@ closedsrc
 # Playwright integration tests depend on committed TLS fixtures under __tests__/playwright.
 !__tests__/playwright/**/*.pem
 .DS_store
+.DS_Store
+
+# rotunda_models local environments and package metadata
+/ml-models/.venv/
+/ml-models/.ruff_cache/
+/ml-models/rotunda_models.egg-info/
+
+# rotunda_models training outputs, W&B runs, checkpoints, and debug media
+/Training/runs/
+/Training/sweeps/
+/Training/debug_media/
+/wandb/
+/ml-models/Training/runs/
+/ml-models/Training/sweeps/
+/ml-models/Training/debug_media/
+/ml-models/wandb/
+/Training/**/*.pt
+/Training/**/*.pth
+/Training/**/*.ckpt
+/Training/**/*.safetensors
+/Training/**/*.mp4
+/Training/**/*.mov
+/ml-models/Training/**/*.pt
+/ml-models/Training/**/*.pth
+/ml-models/Training/**/*.ckpt
+/ml-models/Training/**/*.safetensors
+/ml-models/Training/**/*.mp4
+/ml-models/Training/**/*.mov
 
 # Build outputs
 *.so
