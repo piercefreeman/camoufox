@@ -60,11 +60,13 @@ Use those refs directly for actions. You do not need to pass the page index once
 
 ```bash
 uvx rotunda agent click <ref>
+uvx rotunda agent info <select-ref>
+uvx rotunda agent select <select-ref> "option-value"
 uvx rotunda agent fill <input-ref> "replacement text"
 uvx rotunda agent type <input-ref> "additional text"
 ```
 
-`fill` replaces the field contents, while `type` appends at the focused cursor position. Both use Rotunda's humanized text input path, and mouse actions use Rotunda's path prediction when humanization is enabled. Stop the profile daemon when you are done:
+`info` prints the full attributes, state, bounds, and select options for one element. `select` chooses dropdown options by value by default; use `--by label` or `--by index` when that is more convenient. `fill` replaces the field contents, while `type` appends at the focused cursor position. Both use Rotunda's humanized text input path, and mouse actions use Rotunda's path prediction when humanization is enabled. Stop the profile daemon when you are done:
 
 ```bash
 uvx rotunda agent stop 1

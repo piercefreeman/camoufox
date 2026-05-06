@@ -1011,6 +1011,16 @@ def _agent_describe(page: str, max_items: int) -> None:
 def agent_click(args: tuple[str, ...]) -> None:
     """
     Click a DOM ref from the last describe output.
+
+    \b
+    Arguments:
+      REF   Element ref returned by `rotunda agent describe <page>`.
+      PAGE  Optional page index/reference for the legacy page-qualified form.
+
+    \b
+    Forms:
+      rotunda agent click <ref>
+      rotunda agent click <page> <ref>
     """
     from .agent.store import AgentStore
 
@@ -1026,12 +1036,52 @@ def agent_click(args: tuple[str, ...]) -> None:
         click.echo(data["text"])
 
 
+@agent_cmd.command(name="info")
+@click.argument("args", nargs=-1, required=True, metavar="[PAGE] REF")
+def agent_info(args: tuple[str, ...]) -> None:
+    """
+    Dump detailed information for one DOM ref.
+
+    \b
+    Arguments:
+      REF   Element ref returned by `rotunda agent describe <page>`.
+      PAGE  Optional page index/reference for the legacy page-qualified form.
+
+    \b
+    Forms:
+      rotunda agent info <ref>
+      rotunda agent info <page> <ref>
+    """
+    from .agent.store import AgentStore
+
+    store = AgentStore()
+    page_resource, ref = _agent_target_from_click_args(store, args)
+    if not page_resource.profile_id:
+        raise click.ClickException("Page has no profile.")
+    client = _agent_client(store, page_resource.profile_id)
+    data = _agent_post(client, "/info", {"page_id": page_resource.id, "ref": ref})
+    _agent_update_page(store, data["page"], page_resource)
+    if data.get("text"):
+        click.echo(data["text"])
+
+
 @agent_cmd.command(name="fill")
 @click.option("--submit", is_flag=True, help="Press Enter after filling text.")
 @click.argument("args", nargs=-1, required=True, metavar="[PAGE] REF TEXT")
 def agent_fill(args: tuple[str, ...], submit: bool) -> None:
     """
     Fill text into a DOM ref from the last describe output.
+
+    \b
+    Arguments:
+      REF   Input element ref returned by `rotunda agent describe <page>`.
+      TEXT  Replacement text. Existing field contents are cleared first.
+      PAGE  Optional page index/reference for the legacy page-qualified form.
+
+    \b
+    Forms:
+      rotunda agent fill <ref> <text>
+      rotunda agent fill <page> <ref> <text>
     """
     _agent_fill(args, submit=submit, command_name="fill")
 
@@ -1060,12 +1110,79 @@ def _agent_fill(args: tuple[str, ...], *, submit: bool, command_name: str) -> No
         click.echo(data["text"])
 
 
+@agent_cmd.command(name="select")
+@click.option(
+    "--by",
+    "select_by",
+    default="value",
+    show_default=True,
+    type=click.Choice(["value", "label", "index"]),
+    help="How to match the option.",
+)
+@click.argument("args", nargs=-1, required=True, metavar="[PAGE] REF VALUE...")
+def agent_select(args: tuple[str, ...], select_by: str) -> None:
+    """
+    Select one or more options in a dropdown DOM ref.
+
+    \b
+    Arguments:
+      REF     Select element ref returned by `rotunda agent describe <page>`.
+      VALUE   Option value, label, or index depending on `--by`.
+      PAGE    Optional page index/reference for the legacy page-qualified form.
+
+    \b
+    Forms:
+      rotunda agent select <ref> <value> [value...]
+      rotunda agent select <page> <ref> <value> [value...]
+
+    Use `rotunda agent info <ref>` to inspect available option values.
+    """
+    from .agent.store import AgentStore
+
+    store = AgentStore()
+    page_resource, ref, values = _agent_target_from_values_args(
+        store,
+        args,
+        command_name="select",
+    )
+    if not page_resource.profile_id:
+        raise click.ClickException("Page has no profile.")
+    client = _agent_client(store, page_resource.profile_id)
+    data = _agent_post(
+        client,
+        "/select",
+        {
+            "page_id": page_resource.id,
+            "ref": ref,
+            "values": values,
+            "by": select_by,
+        },
+    )
+    page_resource = _agent_update_page(store, data["page"], page_resource)
+    _agent_register_elements(store, page_resource, data.get("items", []))
+    if data.get("selected") is not None:
+        click.echo(f"selected: {', '.join(str(value) for value in data['selected'])}")
+    if data.get("text"):
+        click.echo(data["text"])
+
+
 @agent_cmd.command(name="type")
 @click.option("--submit", is_flag=True, help="Press Enter after typing text.")
 @click.argument("args", nargs=-1, required=True, metavar="[PAGE] REF TEXT")
 def agent_type(args: tuple[str, ...], submit: bool) -> None:
     """
     Type text into a DOM ref from the last describe output.
+
+    \b
+    Arguments:
+      REF   Input element ref returned by `rotunda agent describe <page>`.
+      TEXT  Text to insert at the focused cursor position.
+      PAGE  Optional page index/reference for the legacy page-qualified form.
+
+    \b
+    Forms:
+      rotunda agent type <ref> <text>
+      rotunda agent type <page> <ref> <text>
     """
     _agent_type(args, submit=submit)
 
@@ -1188,6 +1305,24 @@ def _agent_target_from_text_args(store, args: tuple[str, ...], *, command_name: 
         f"Usage: rotunda agent {command_name} <ref> <text> "
         f"or rotunda agent {command_name} <page> <ref> <text>"
     )
+
+
+def _agent_target_from_values_args(store, args: tuple[str, ...], *, command_name: str):
+    if len(args) < 2:
+        raise click.ClickException(
+            f"Usage: rotunda agent {command_name} <ref> <value> [value...] "
+            f"or rotunda agent {command_name} <page> <ref> <value> [value...]"
+        )
+
+    try:
+        page_resource, ref = _agent_page_and_ref_for_element_ref(store, args[0])
+        return page_resource, ref, list(args[1:])
+    except click.ClickException:
+        if len(args) < 3:
+            raise
+
+    page_resource = _agent_resolve(store, args[0], kind="page")
+    return page_resource, args[1], list(args[2:])
 
 
 def _agent_page_and_ref_for_element_ref(store, ref: str):

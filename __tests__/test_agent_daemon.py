@@ -78,6 +78,16 @@ def test_agent_click_fill_and_type_accept_global_element_refs(tmp_path, monkeypa
     assert type_ref == "button_ref"
     assert typed_text == "typed"
 
+    select_page, select_ref, values = cli_module._agent_target_from_values_args(
+        store,
+        ("button_ref", "one", "two"),
+        command_name="select",
+    )
+
+    assert select_page.id == page.id
+    assert select_ref == "button_ref"
+    assert values == ["one", "two"]
+
 
 class FakeKeyboard:
     def __init__(self, events: list[tuple]) -> None:
@@ -102,6 +112,58 @@ class FakeLocator:
     def press(self, key: str, *, timeout: int | None = None) -> None:
         self.events.append(("press", key, timeout))
 
+    def evaluate(self, script: str) -> dict:
+        self.events.append(("evaluate", script))
+        return {
+            "tag": "select",
+            "role": "",
+            "name": "Country",
+            "text": "United States Canada",
+            "attributes": {"id": "country"},
+            "state": {"visible": True, "disabled": False},
+            "value": "us",
+            "bounds": {"x": 1, "y": 2, "width": 100, "height": 20},
+            "selectedIndex": 0,
+            "selectedValues": ["us"],
+            "options": [
+                {
+                    "index": 0,
+                    "value": "us",
+                    "label": "United States",
+                    "text": "United States",
+                    "selected": True,
+                    "disabled": False,
+                },
+                {
+                    "index": 1,
+                    "value": "ca",
+                    "label": "Canada",
+                    "text": "Canada",
+                    "selected": False,
+                    "disabled": False,
+                },
+            ],
+            "outerHTML": '<select id="country"></select>',
+        }
+
+    def select_option(
+        self,
+        value: str | list[str] | None = None,
+        *,
+        index: int | list[int] | None = None,
+        label: str | list[str] | None = None,
+        timeout: int,
+    ) -> list[str]:
+        self.events.append(("select_option", value, index, label, timeout))
+        if value is not None:
+            return [value] if isinstance(value, str) else value
+        if label is not None:
+            return [label] if isinstance(label, str) else label
+        if index is not None:
+            indexes = [index] if isinstance(index, int) else index
+            return [str(item) for item in indexes]
+        return []
+
 
 class FakeSerializer:
     def __init__(self, locator: FakeLocator) -> None:
@@ -109,6 +171,17 @@ class FakeSerializer:
 
     def resolve_locator(self, page: FakePage, ref: str) -> FakeLocator:
         return self.locator
+
+    def get_reference(self, ref: str):
+        class Element:
+            frame_index = 0
+            frame_url = "https://example.test"
+            frame_name = ""
+
+        class Reference:
+            element = Element()
+
+        return Reference()
 
 
 def test_agent_fill_uses_rotunda_insert_text_path() -> None:
@@ -145,12 +218,59 @@ def test_agent_type_uses_rotunda_insert_text_path() -> None:
     ]
 
 
+def test_agent_info_includes_select_options() -> None:
+    events: list[tuple] = []
+    daemon = AgentDaemon({"id": "prof_1"})
+    daemon.pages["page_1"] = FakePage(events)
+    daemon.page_serializers["page_1"] = FakeSerializer(FakeLocator(events))
+    daemon._page_payload = lambda page_id, page: {"id": page_id, "url": "https://example.test"}
+
+    result = daemon.element_info("page_1", "select_ref")
+
+    assert result["info"]["options"][1]["value"] == "ca"
+    assert "value='ca'" in result["text"]
+    assert "selectedValues: [\"us\"]" in result["text"]
+
+
+def test_agent_select_can_match_by_value_label_or_index() -> None:
+    events: list[tuple] = []
+    daemon = AgentDaemon({"id": "prof_1"})
+    daemon.pages["page_1"] = FakePage(events)
+    daemon.page_serializers["page_1"] = FakeSerializer(FakeLocator(events))
+    daemon.describe_page = lambda page_id: {"page": {"id": page_id}}
+
+    by_value = daemon.select_options("page_1", "select_ref", ["ca"])
+    by_label = daemon.select_options("page_1", "select_ref", ["Canada"], by="label")
+    by_index = daemon.select_options("page_1", "select_ref", ["1"], by="index")
+
+    assert by_value["selected"] == ["ca"]
+    assert by_label["selected"] == ["Canada"]
+    assert by_index["selected"] == ["1"]
+    assert events == [
+        ("select_option", "ca", None, None, 15_000),
+        ("select_option", None, None, "Canada", 15_000),
+        ("select_option", None, 1, None, 15_000),
+    ]
+
+
 def test_agent_help_exposes_describe_not_list() -> None:
     result = CliRunner().invoke(cli, ["agent", "--help"])
 
     assert result.exit_code == 0
     assert "describe" in result.output
     assert "fill" in result.output
+    assert "info" in result.output
+    assert "select" in result.output
     assert "type" in result.output
     assert " list " not in result.output
     assert " enter " not in result.output
+
+
+def test_agent_action_help_explains_positional_arguments() -> None:
+    for command in ("click", "info", "fill", "select", "type"):
+        result = CliRunner().invoke(cli, ["agent", command, "--help"])
+
+        assert result.exit_code == 0
+        assert "Arguments:" in result.output
+        assert "REF" in result.output
+        assert "PAGE" in result.output
