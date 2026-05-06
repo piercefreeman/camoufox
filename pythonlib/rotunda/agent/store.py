@@ -151,6 +151,14 @@ class AgentStore:
             if resource.id == ref and (kind is None or resource.kind == kind):
                 return resource
 
+        label_matches = [
+            resource
+            for resource in resources
+            if resource.label == ref and (kind is None or resource.kind == kind)
+        ]
+        if label_matches:
+            return max(label_matches, key=lambda resource: resource.idx)
+
         expected = f" {kind}" if kind else ""
         raise KeyError(f"Unknown{expected} reference: {ref}")
 

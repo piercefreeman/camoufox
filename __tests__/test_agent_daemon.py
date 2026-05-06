@@ -36,6 +36,19 @@ def test_agent_profile_defaults_to_headed(tmp_path, monkeypatch) -> None:
     assert profile["humanize"] is True
 
 
+def test_agent_store_resolves_profile_by_name(tmp_path, monkeypatch) -> None:
+    isolate_agent_store(tmp_path, monkeypatch)
+    store = AgentStore()
+    old_profile = store.create_profile(name="pierce-dev-click-smoke")
+    store.register(kind="profile", id=old_profile["id"], label=old_profile["name"])
+    new_profile = store.create_profile(name="pierce-dev-click-smoke")
+    new_resource = store.register(kind="profile", id=new_profile["id"], label=new_profile["name"])
+
+    resolved = store.resolve("pierce-dev-click-smoke", kind="profile")
+
+    assert resolved.id == new_resource.id
+
+
 def test_agent_store_can_refresh_page_element_resources(tmp_path, monkeypatch) -> None:
     isolate_agent_store(tmp_path, monkeypatch)
     store = AgentStore()
@@ -184,7 +197,21 @@ class FakeSerializer:
         return Reference()
 
 
-def test_agent_fill_uses_rotunda_insert_text_path() -> None:
+def test_agent_click_uses_playwright_click_path_for_juggler_humanization() -> None:
+    events: list[tuple] = []
+    daemon = AgentDaemon({"id": "prof_1"})
+    daemon.pages["page_1"] = FakePage(events)
+    daemon.page_serializers["page_1"] = FakeSerializer(FakeLocator(events))
+    daemon.describe_page = lambda page_id: {"page": {"id": page_id}}
+
+    daemon.click("page_1", "button_ref")
+
+    assert events == [
+        ("click", 15_000),
+    ]
+
+
+def test_agent_fill_uses_playwright_click_and_rotunda_insert_text_path() -> None:
     events: list[tuple] = []
     daemon = AgentDaemon({"id": "prof_1"})
     daemon.pages["page_1"] = FakePage(events)
@@ -202,7 +229,7 @@ def test_agent_fill_uses_rotunda_insert_text_path() -> None:
     ]
 
 
-def test_agent_type_uses_rotunda_insert_text_path() -> None:
+def test_agent_type_uses_playwright_click_and_rotunda_insert_text_path() -> None:
     events: list[tuple] = []
     daemon = AgentDaemon({"id": "prof_1"})
     daemon.pages["page_1"] = FakePage(events)
