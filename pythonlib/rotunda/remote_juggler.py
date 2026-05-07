@@ -71,11 +71,12 @@ def _read_stdout_line(
 ) -> str:
     if process.stdout is None:
         raise RuntimeError("Remote Juggler bridge did not expose stdout.")
+    stdout = process.stdout
 
     lines: queue.Queue[str] = queue.Queue(maxsize=1)
 
     def read_line() -> None:
-        lines.put(process.stdout.readline())
+        lines.put(stdout.readline())
 
     thread = threading.Thread(target=read_line, daemon=True)
     thread.start()
