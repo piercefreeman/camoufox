@@ -35,6 +35,18 @@ def _resolve_output_dir(output_dir: Path | None, final: bool) -> Path:
     return output_dir
 
 
+def _manifest_artifact_path(path: str, output_dir: Path) -> str:
+    """Return artifact paths relative to the manifest directory when possible."""
+    artifact_path = Path(path)
+    try:
+        return str(artifact_path.relative_to(output_dir))
+    except ValueError:
+        try:
+            return str(artifact_path.resolve().relative_to(output_dir.resolve()))
+        except ValueError:
+            return str(artifact_path)
+
+
 @click.command(
     "export-runtime",
     context_settings=CONTEXT_SETTINGS,
@@ -89,7 +101,7 @@ def export_runtime_command(
         "artifacts": [
             {
                 "kind": output["kind"],
-                "path": output["path"],
+                "path": _manifest_artifact_path(output["path"], output_dir),
                 "tensorCount": output["tensorCount"],
             }
             for output in outputs

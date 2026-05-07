@@ -140,7 +140,7 @@ def test_export_runtime_command_final_writes_browser_bundle(
     assert manifest["artifacts"] == [
         {
             "kind": "mouse_click_gru",
-            "path": str(output_path),
+            "path": output_path.name,
             "tensorCount": len(model.state_dict()),
         }
     ]
