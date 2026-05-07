@@ -91,10 +91,22 @@ async function main() {
   const artifactsDir = await fs.mkdtemp(path.join(os.tmpdir(), 'rotunda-remote-juggler-'));
   let transport;
   let server;
+  let browser;
+  let closingBrowser = false;
+
+  const closeBrowser = async () => {
+    if (closingBrowser)
+      return;
+    closingBrowser = true;
+    if (browser?.isConnected()) {
+      await browser.session.send('Browser.close').catch(() => {});
+    }
+    await closeTransport(transport);
+  };
 
   const cleanup = async () => {
     await server?.close().catch(() => {});
-    await closeTransport(transport);
+    await closeBrowser();
     await removeFolders([artifactsDir]).catch(() => {});
   };
 
@@ -112,8 +124,8 @@ async function main() {
   const browserProcess = {
     onclose: undefined,
     process: undefined,
-    close: () => closeTransport(transport),
-    kill: () => closeTransport(transport),
+    close: closeBrowser,
+    kill: closeBrowser,
   };
   const browserOptions = {
     name: 'firefox',
@@ -132,7 +144,7 @@ async function main() {
       firefoxUserPrefs: options.firefoxUserPrefs || {},
     },
   };
-  const browser = await FFBrowser.connect(playwright, transport, browserOptions);
+  browser = await FFBrowser.connect(playwright, transport, browserOptions);
 
   const wsPath = options.wsPath
     ? (options.wsPath.startsWith('/') ? options.wsPath : `/${options.wsPath}`)

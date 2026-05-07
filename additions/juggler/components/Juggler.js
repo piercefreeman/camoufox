@@ -20,11 +20,82 @@ const Ci = Components.interfaces;
 const lazy = {};
 
 ChromeUtils.defineESModuleGetters(lazy, {
+  executeSoon: "chrome://remote/content/shared/Sync.sys.mjs",
   HttpServer: "chrome://remote/content/server/httpd.sys.mjs",
-  WebSocketHandshake: "chrome://remote/content/server/WebSocketHandshake.sys.mjs",
+});
+
+ChromeUtils.defineLazyGetter(lazy, "threadManager", () => {
+  return Cc["@mozilla.org/thread-manager;1"].getService();
 });
 
 const DEFAULT_HOST = "localhost";
+const WEBSOCKET_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
+
+function writeString(output, data) {
+  return new Promise((resolve, reject) => {
+    const wait = () => {
+      if (data.length === 0) {
+        resolve();
+        return;
+      }
+
+      output.asyncWait(
+        () => {
+          try {
+            const written = output.write(data, data.length);
+            data = data.slice(written);
+            wait();
+          } catch (ex) {
+            reject(ex);
+          }
+        },
+        0,
+        0,
+        lazy.threadManager.currentThread
+      );
+    };
+    wait();
+  });
+}
+
+async function writeHttpResponse(output, headers, body = "") {
+  const response = `${headers.join("\r\n")}\r\n\r\n${body}`;
+  await writeString(output, response);
+}
+
+function computeWebSocketAcceptKey(key) {
+  const hash = Cc["@mozilla.org/security/hash;1"].createInstance(Ci.nsICryptoHash);
+  hash.init(Ci.nsICryptoHash.SHA1);
+  const bytes = Array.from(`${key}${WEBSOCKET_GUID}`, ch => ch.charCodeAt(0));
+  hash.update(bytes, bytes.length);
+  return hash.finish(true);
+}
+
+async function createWebSocket(transport, input, output) {
+  const transportProvider = {
+    setListener(upgradeListener) {
+      lazy.executeSoon(() => {
+        upgradeListener.onTransportAvailable(transport, input, output);
+      });
+    },
+  };
+
+  return new Promise((resolve, reject) => {
+    const socket = WebSocket.createServerWebSocket(
+      null,
+      [],
+      transportProvider,
+      ""
+    );
+    socket.addEventListener("close", () => {
+      input.close();
+      output.close();
+    });
+
+    socket.onopen = () => resolve(socket);
+    socket.onerror = err => reject(err);
+  });
+}
 
 // Register JSWindowActors that will be instantiated for each frame.
 ActorManagerParent.addJSWindowActors({
@@ -57,6 +128,7 @@ let browserStartupFinishedPromise = new Promise(x => browserStartupFinishedCallb
 export class Juggler {
   constructor() {
     this._pipeRequested = false;
+    this._requestedPort = null;
     this._port = null;
     this._server = null;
     this._wsPath = null;
@@ -81,7 +153,7 @@ export class Juggler {
     this._pipeRequested = cmdLine.handleFlag("juggler-pipe", false) || this._pipeRequested;
     const port = this._handleJugglerPortFlag(cmdLine);
     if (port !== null)
-      this._port = port;
+      this._requestedPort = port;
   }
 
   _handleJugglerPortFlag(cmdLine) {
@@ -105,13 +177,13 @@ export class Juggler {
       case "command-line-startup":
         Services.obs.removeObserver(this, topic);
         const cmdLine = subject;
-        const jugglerPipeFlag = cmdLine.handleFlag('juggler-pipe', false) || this._pipeRequested;
+        this._pipeRequested = cmdLine.handleFlag('juggler-pipe', false) || this._pipeRequested;
         const port = this._handleJugglerPortFlag(cmdLine);
         if (port !== null)
-          this._port = port;
-        if (!jugglerPipeFlag && this._port === null)
+          this._requestedPort = port;
+        if (!this._pipeRequested && this._requestedPort === null)
           return;
-        if (jugglerPipeFlag && this._port !== null)
+        if (this._pipeRequested && this._requestedPort !== null)
           throw new Error("Use only one of --juggler-pipe or --juggler-port");
 
         this._silent = cmdLine.findFlag('silent', false) >= 0;
@@ -147,10 +219,10 @@ export class Juggler {
         }
 
         loadStyleSheet();
-        if (jugglerPipeFlag)
+        if (this._pipeRequested)
           this._startPipe(targetRegistry);
         else
-          await this._startPort(targetRegistry, this._port);
+          await this._startPort(targetRegistry, this._requestedPort);
         break;
     }
   }
@@ -246,6 +318,69 @@ export class Juggler {
     };
   }
 
+  _isAllowedWebSocketHost(hostHeader) {
+    return [
+      `${DEFAULT_HOST}:${this._port}`,
+      `127.0.0.1:${this._port}`,
+      `[::1]:${this._port}`,
+    ].includes(hostHeader);
+  }
+
+  _validateWebSocketRequest(request, headers) {
+    if (request.method !== "GET")
+      throw new Error("The handshake request must use GET method");
+
+    const host = headers.get("host");
+    if (!this._isAllowedWebSocketHost(host))
+      throw new Error(`The handshake request has incorrect Host header ${host}`);
+
+    const upgrade = headers.get("upgrade");
+    if (!upgrade || upgrade.toLowerCase() !== "websocket")
+      throw new Error(`The handshake request has incorrect Upgrade header: ${upgrade}`);
+
+    const connection = headers.get("connection");
+    if (!connection || !connection.split(",").map(t => t.trim().toLowerCase()).includes("upgrade"))
+      throw new Error("The handshake request has incorrect Connection header");
+
+    const version = headers.get("sec-websocket-version");
+    if (!version || version !== "13")
+      throw new Error("The handshake request must have Sec-WebSocket-Version: 13");
+
+    const key = headers.get("sec-websocket-key");
+    if (!key)
+      throw new Error("The handshake request must have a Sec-WebSocket-Key header");
+
+    return key;
+  }
+
+  async _upgradeWebSocket(request, response) {
+    const headers = new Map();
+    for (const [key, values] of Object.entries(request._headers._headers))
+      headers.set(key.toLowerCase(), values.join("\n"));
+
+    let acceptKey;
+    try {
+      acceptKey = computeWebSocketAcceptKey(this._validateWebSocketRequest(request, headers));
+    } catch (e) {
+      response.setStatusLine(request.httpVersion, 400, "Bad Request");
+      response.setHeader("Content-Type", "text/plain; charset=utf-8", false);
+      response.write(e.message);
+      throw e;
+    }
+
+    response._powerSeized = true;
+    const { transport, input, output } = response._connection;
+    await writeHttpResponse(output, [
+      "HTTP/1.1 101 Switching Protocols",
+      "Server: httpd.js",
+      "Upgrade: websocket",
+      "Connection: Upgrade",
+      `Sec-WebSocket-Accept: ${acceptKey}`,
+    ]);
+
+    return createWebSocket(transport, input, output);
+  }
+
   async _acceptWebSocket(request, response, targetRegistry) {
     if (this._activeSocketConnection) {
       response.setStatusLine(request.httpVersion, 409, "Conflict");
@@ -254,7 +389,7 @@ export class Juggler {
       return;
     }
 
-    const webSocket = await lazy.WebSocketHandshake.upgrade(request, response);
+    const webSocket = await this._upgradeWebSocket(request, response);
     let closed = false;
     let browserHandler;
     const httpdConnection = response._connection;
