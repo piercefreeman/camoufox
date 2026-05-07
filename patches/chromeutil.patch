@@ -7,7 +7,7 @@ index 52f0af76ec..2a7a9ae4fc 100644
  
  #include "ChromeUtils.h"
 +#include "MaskConfig.hpp"
-+#include "MouseTrajectories.hpp"
++#include "MouseRuntime.hpp"
  
  #include "JSOracleParent.h"
  #include "ThirdPartyUtil.h"
@@ -102,13 +102,19 @@ index 52f0af76ec..2a7a9ae4fc 100644
 +/* static */
 +void ChromeUtils::RotundaGetMouseTrajectory(GlobalObject& aGlobal, long aFromX,
 +                                          long aFromY, long aToX, long aToY,
-+                                          nsTArray<int32_t>& aPoints) {
-+  HumanizeMouseTrajectory trajectory(std::make_pair(aFromX, aFromY),
-+                                     std::make_pair(aToX, aToY));
-+  std::vector<int> flattenedPoints = trajectory.getPoints();
++                                          bool aClickAtEnd,
++                                          nsTArray<double>& aPlan) {
++  auto plan = rotundacfg::MouseRuntimeModel::GenerateFromConfig(
++      aFromX, aFromY, aToX, aToY, aClickAtEnd);
 +
-+  aPoints.Clear();
-+  aPoints.AppendElements(flattenedPoints.data(), flattenedPoints.size());
++  aPlan.Clear();
++  aPlan.SetCapacity(plan.size() * 4);
++  for (const auto& row : plan) {
++    aPlan.AppendElement(row.x);
++    aPlan.AppendElement(row.y);
++    aPlan.AppendElement(row.dtMs);
++    aPlan.AppendElement(static_cast<double>(row.action));
++  }
 +}
 +
  /* static */
@@ -149,7 +155,8 @@ index 138b9c3f80..c7c7ce74bf 100644
 +
 +  static void RotundaGetMouseTrajectory(GlobalObject& aGlobal, long aFromX,
 +                                     long aFromY, long aToX, long aToY,
-+                                     nsTArray<int32_t>& aPoints);
++                                     bool aClickAtEnd,
++                                     nsTArray<double>& aPlan);
 +
    static bool ShouldResistFingerprinting(
        GlobalObject& aGlobal, JSRFPTarget aTarget,
@@ -204,7 +211,7 @@ index 6a99703db1..82415eba19 100644
 +  /**
 +   * Calculate a human-like mouse trajectory between two points.
 +   */
-+  sequence<long> rotundaGetMouseTrajectory(long fromX, long fromY, long toX, long toY);
++  sequence<double> rotundaGetMouseTrajectory(long fromX, long fromY, long toX, long toY, optional boolean clickAtEnd = false);
 +
    /**
     * Get a list of all possible Utility process Actor Names ; mostly useful to

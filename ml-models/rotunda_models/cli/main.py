@@ -9,6 +9,7 @@ from ..train import train_experiment
 from .clicks import add_click_parsers
 from .inspect import add_inspect_parser
 from .keyboard import add_keyboard_parsers
+from .runtime import add_runtime_parser
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -20,6 +21,7 @@ def build_parser() -> argparse.ArgumentParser:
     add_inspect_parser(subparsers)
     add_click_parsers(subparsers)
     add_keyboard_parsers(subparsers)
+    add_runtime_parser(subparsers)
     return parser
 
 

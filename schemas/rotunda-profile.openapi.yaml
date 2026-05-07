@@ -320,6 +320,20 @@ components:
         minTime:
           type: number
           minimum: 0
+        mouseModelPath:
+          type: string
+        keyboardModelPath:
+          type: string
+        mouseMaxSteps:
+          type: integer
+          minimum: 1
+        mouseClickThreshold:
+          type: number
+          minimum: 0
+          maximum: 1
+        mouseMinDtMs:
+          type: number
+          minimum: 0
 
     AudioContextProfile:
       type: object
