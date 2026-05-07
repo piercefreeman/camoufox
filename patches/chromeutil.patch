@@ -36,7 +36,7 @@ index 52f0af76ec..2a7a9ae4fc 100644
  double ChromeUtils::DateNow(GlobalObject&) { return JS_Now() / 1000.0; }
  
  /* static */
-@@ -2141,6 +2161,77 @@ void ChromeUtils::GetAllPossibleUtilityActorNames(GlobalObject& aGlobal,
+@@ -2141,6 +2161,83 @@ void ChromeUtils::GetAllPossibleUtilityActorNames(GlobalObject& aGlobal,
    }
  }
  
@@ -135,7 +135,7 @@ index 138b9c3f80..c7c7ce74bf 100644
    static double DateNow(GlobalObject&);
  
    static void EnsureJSOracleStarted(GlobalObject&);
-@@ -314,6 +318,24 @@ class ChromeUtils {
+@@ -314,6 +318,25 @@ class ChromeUtils {
    static void GetAllPossibleUtilityActorNames(GlobalObject& aGlobal,
                                                nsTArray<nsCString>& aNames);
  

@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import json
 import shutil
-import time
+from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -16,6 +16,7 @@ from . import train as training
 from .cli.common import CONTEXT_SETTINGS, PATH_TYPE
 from .settings import TrainingExperimentSettings
 from .utils import log_labeled
+from .wandb import import_wandb, parse_wandb_tags
 
 DEFAULT_SPACES: dict[str, dict[str, Any]] = {
     "clicks": {
@@ -46,6 +47,7 @@ DEFAULT_SPACES: dict[str, dict[str, Any]] = {
         "stop_action_weight": {"type": "uniform", "min": 4.0, "max": 18.0},
         "gap_ms": {"values": [500, 750, 1000, 1500]},
         "keyboard_max_snapshot_edit_actions": {"values": [8, 12, 16, 24]},
+        "keyboard_max_condition_length": {"values": [512, 768, 1024, 1536]},
         "char_embed_size": {"values": [16, 32, 48]},
         "action_embed_size": {"values": [16, 32, 48]},
     },
@@ -165,9 +167,11 @@ def make_training_args(
     params: dict[str, Any],
     run_output_dir: Path,
     group: str,
+    base_settings: TrainingExperimentSettings | None = None,
 ) -> Any:
     task_name = "clicks" if task == "clicks" else "keyboard"
-    args = TrainingExperimentSettings(task=task_name).to_namespace(task_name)
+    settings = base_settings or TrainingExperimentSettings(task=task_name)
+    args = settings.to_namespace(task_name)
     args.inputs = inputs
     args.output_dir = run_output_dir
     args.epochs = sweep_args.epochs
@@ -203,13 +207,14 @@ def run_training_trial(
     training_inputs: list[str],
     sweep_dir: Path,
     group: str,
+    base_settings: TrainingExperimentSettings | None = None,
 ) -> None:
-    wandb = training.import_wandb()
+    wandb = import_wandb()
     run = wandb.init(
         project=sweep_args.wandb_project,
         entity=sweep_args.wandb_entity,
         group=sweep_args.wandb_group or group,
-        tags=training.parse_wandb_tags(sweep_args.wandb_tags) or None,
+        tags=parse_wandb_tags(sweep_args.wandb_tags) or None,
         mode=sweep_args.wandb_mode,
         config={
             "task": task,
@@ -229,6 +234,7 @@ def run_training_trial(
             params=params,
             run_output_dir=run_output_dir,
             group=group,
+            base_settings=base_settings,
         )
         log(f"[sweep] task={task} wandb_run={run.name} params={json.dumps(params, sort_keys=True)}")
         if task == "clicks":
@@ -241,16 +247,18 @@ def run_training_trial(
 
 def run_sweep(args: Any) -> int:
     """Create W&B sweep configs and optionally launch local sweep agents."""
+    base_settings = TrainingExperimentSettings.from_yaml(args.config) if args.config is not None else None
     spaces = load_space(args.space)
     selected_tasks = ["clicks", "keyboard"] if args.task == "all" else [args.task]
-    stamp = time.strftime("%Y%m%d-%H%M%S")
+    stamp = datetime.now().strftime("%Y%m%d-%H%M%S-%f")
     sweep_dir = args.output_dir / f"wandb-sweep-{stamp}"
     sweep_dir.mkdir(parents=True, exist_ok=True)
-    training_inputs = args.inputs
+    raw_inputs = args.inputs or (list(base_settings.data.inputs) if base_settings is not None else ["recordings"])
+    training_inputs = raw_inputs
     if args.snapshot_inputs and not args.dry_run:
         # Sweeps should train against immutable inputs so long-running agents do
         # not observe different corpora if recordings continue to be added.
-        training_inputs = snapshot_inputs(args.inputs, sweep_dir)
+        training_inputs = snapshot_inputs(raw_inputs, sweep_dir)
     log(f"[sweep] local_dir={sweep_dir}")
 
     configs: dict[str, dict[str, Any]] = {}
@@ -276,7 +284,8 @@ def run_sweep(args: Any) -> int:
             "tasks": selected_tasks,
             "trials_per_task": args.trials,
             "epochs": args.epochs,
-            "inputs": args.inputs,
+            "config": str(args.config) if args.config is not None else None,
+            "inputs": raw_inputs,
             "training_inputs": training_inputs,
             "snapshot_inputs": args.snapshot_inputs and not args.dry_run,
             "wandb_project": args.wandb_project,
@@ -288,7 +297,7 @@ def run_sweep(args: Any) -> int:
         print(json.dumps(configs, indent=2, sort_keys=True))
         return 0
 
-    wandb = training.import_wandb()
+    wandb = import_wandb()
     for task in selected_tasks:
         group = sweep_name(args.sweep_name, task, stamp, multiple_tasks=len(selected_tasks) > 1)
         sweep_id = wandb.sweep(configs[task], project=args.wandb_project, entity=args.wandb_entity)
@@ -310,6 +319,7 @@ def run_sweep(args: Any) -> int:
                 training_inputs=training_inputs,
                 sweep_dir=sweep_dir,
                 group=group,
+                base_settings=base_settings,
             )
 
         wandb.agent(
@@ -325,6 +335,7 @@ def run_sweep(args: Any) -> int:
 
 @click.command(context_settings=CONTEXT_SETTINGS, help=__doc__)
 @click.argument("inputs", nargs=-1)
+@click.option("--config", type=PATH_TYPE, default=None, help="Base training YAML to inherit filters and defaults from.")
 @click.option("--task", type=click.Choice(["all", "clicks", "keyboard"]), default="all", show_default=True)
 @click.option("--trials", type=int, default=8, show_default=True, help="W&B agent runs per selected task.")
 @click.option("--epochs", type=int, default=20, show_default=True)
@@ -350,7 +361,9 @@ def run_sweep(args: Any) -> int:
 @click.option("--dry-run", is_flag=True, default=False, help="Write/print sweep configs without contacting W&B.")
 def sweep_command(**kwargs: Any) -> None:
     """Create W&B sweep configs and optionally launch local sweep agents."""
-    kwargs["inputs"] = list(kwargs["inputs"]) or ["recordings"]
+    kwargs["inputs"] = list(kwargs["inputs"])
+    if not kwargs["inputs"] and kwargs["config"] is None:
+        kwargs["inputs"] = ["recordings"]
     code = run_sweep(SimpleNamespace(**kwargs))
     if code:
         raise click.exceptions.Exit(code)

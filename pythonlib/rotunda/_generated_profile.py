@@ -161,6 +161,13 @@ class HumanizeProfile(BaseModel):
     enabled: bool | None = None
     max_time: float | None = Field(None, alias='maxTime', ge=0.0)
     min_time: float | None = Field(None, alias='minTime', ge=0.0)
+    mouse_model_path: str | None = Field(None, alias='mouseModelPath')
+    keyboard_model_path: str | None = Field(None, alias='keyboardModelPath')
+    mouse_max_steps: int | None = Field(None, alias='mouseMaxSteps', ge=1)
+    mouse_click_threshold: float | None = Field(
+        None, alias='mouseClickThreshold', ge=0.0, le=1.0
+    )
+    mouse_min_dt_ms: float | None = Field(None, alias='mouseMinDtMs', ge=0.0)
 
 
 class AudioContextProfile(BaseModel):
