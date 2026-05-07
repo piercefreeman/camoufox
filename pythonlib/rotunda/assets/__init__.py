@@ -4,6 +4,7 @@ from pathlib import Path
 
 _ASSET_DIR = Path(__file__).resolve().parent
 _ASSET_PATHS = {
+    "connectRemoteJuggler.js": _ASSET_DIR / "connectRemoteJuggler.js",
     "launchServer.js": _ASSET_DIR / "launchServer.js",
     "repos.yml": _ASSET_DIR / "repos.yml",
     "territoryInfo.xml": _ASSET_DIR / "territoryInfo.xml",
