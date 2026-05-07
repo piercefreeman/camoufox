@@ -29,6 +29,8 @@ ChromeUtils.defineLazyGetter(lazy, "threadManager", () => {
 });
 
 const DEFAULT_HOST = "localhost";
+// RFC 6455 WebSocket handshake GUID used when deriving Sec-WebSocket-Accept
+// from the client-provided Sec-WebSocket-Key.
 const WEBSOCKET_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
 
 function writeString(output, data) {
