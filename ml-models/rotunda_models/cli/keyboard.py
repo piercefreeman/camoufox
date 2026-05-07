@@ -3,10 +3,50 @@
 from __future__ import annotations
 
 import argparse
+import json
 from pathlib import Path
 
+import torch
+
 from ..constants import DEFAULT_KEYBOARD_TYPO_MODE_WEIGHTS
-from ..generation import generate_keyboard
+from ..generation import decode_keyboard_rows, load_checkpoint
+from ..models.keyboard import KeyboardActionGRU
+
+
+def generate_keyboard(args: argparse.Namespace) -> None:
+    """Print generated keyboard rows as JSON for CLI callers."""
+    device = torch.device(args.device if args.device else "cpu")
+    checkpoint = load_checkpoint(args.checkpoint, device)
+    if checkpoint.get("kind") != "keyboard_action_gru":
+        raise SystemExit(f"Expected keyboard_action_gru checkpoint, got {checkpoint.get('kind')!r}")
+    model = KeyboardActionGRU(**checkpoint["model_config"]).to(device)
+    model.load_state_dict(checkpoint["model_state"])
+    model.eval()
+
+    rows = decode_keyboard_rows(
+        checkpoint=checkpoint,
+        model=model,
+        initial_string=args.initial_string,
+        final_string=args.final_string,
+        device=device,
+        max_steps=args.max_steps,
+        decode_mode=args.decode_mode,
+        sample=args.sample,
+        temperature=args.temperature,
+        structured_extra_steps=args.keyboard_structured_extra_steps,
+        canonical_bias=args.keyboard_canonical_bias,
+        typo_rate=args.keyboard_typo_rate,
+        max_typos=args.keyboard_max_typos,
+        typo_seed=args.keyboard_typo_seed,
+        typo_mode_weights=args.keyboard_typo_mode_weights,
+        max_typo_chars=args.keyboard_max_typo_chars,
+        max_backtrack_chars=args.keyboard_max_backtrack_chars,
+        typo_min_dt_ms=args.keyboard_typo_min_dt_ms,
+    )
+    for row in rows:
+        row["offsetMs"] = round(float(row["offsetMs"]), 3)
+        row["dtMs"] = round(float(row["dtMs"]), 3)
+    print(json.dumps(rows, indent=2))
 
 
 def add_keyboard_parsers(subparsers: argparse._SubParsersAction) -> None:
