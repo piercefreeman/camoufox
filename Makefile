@@ -20,7 +20,7 @@ pacman := python python-pip p7zip msitools wget aria2 sqlite
 .PHONY: help fetch setup setup-minimal clean set-target distclean build package \
         revert edits run bootstrap mozbootstrap dir \
         package-linux package-macos package-windows vcredist_arch patch unpatch \
-        workspace check-arg edit-cfg ff-dbg lint lint-pythonlib lint-ml tests update-ubo-assets generate-assets-car \
+        workspace check-arg edit-cfg ff-dbg lint lint-validate lint-pythonlib lint-pythonlib-validate lint-ml lint-ml-validate tests update-ubo-assets generate-assets-car \
         generate-openapi generate-openapi-python generate-openapi-cpp generate-ml-data-models \
         validate-fingerprint-example verify-patches
 
@@ -57,7 +57,8 @@ help:
 	@echo "  package-macos   - Package Rotunda for macOS"
 	@echo "  package-windows - Package Rotunda for Windows"
 	@echo "  run             - Run Rotunda"
-	@echo "  lint            - Run Python static analysis"
+	@echo "  lint            - Run Python lint fixes and static analysis"
+	@echo "  lint-validate   - Run Python static analysis without modifying files"
 	@echo "  edit-cfg        - Edit rotunda.cfg"
 	@echo "  ff-dbg          - Setup vanilla Firefox with minimal patches"
 	@echo "  patch           - Apply a patch"
@@ -229,12 +230,21 @@ workspace:
 
 lint: lint-pythonlib lint-ml
 
+lint-validate: lint-pythonlib-validate lint-ml-validate
+
 lint-pythonlib:
+	$(DEV_UV) ruff check --fix --config pythonlib/pyproject.toml pythonlib/rotunda
+	$(DEV_UV) ty check pythonlib/rotunda
+
+lint-pythonlib-validate:
 	$(DEV_UV) ruff check --config pythonlib/pyproject.toml pythonlib/rotunda
 	$(DEV_UV) ty check pythonlib/rotunda
 
 lint-ml:
-	$(DEV_UV) ruff check --config ml-models/pyproject.toml ml-models/rotunda_models ml-models/tests
+	$(DEV_UV) ruff check --fix --config ml-models/pyproject.toml ml-models/rotunda_models __tests__/ml_models
+
+lint-ml-validate:
+	$(DEV_UV) ruff check --config ml-models/pyproject.toml ml-models/rotunda_models __tests__/ml_models
 
 tests:
 	ROTUNDA_EXECUTABLE_PATH=$(CURDIR)/$(cf_source_dir)/obj-x86_64-pc-linux-gnu/dist/bin/rotunda-bin \
@@ -242,6 +252,7 @@ tests:
 			--integration \
 			-vv \
 			$(if $(filter true,$(headful)),, --headless) \
+			__tests__/ml_models/ \
 			__tests__/build-tester/ \
 			__tests__/playwright/async/ \
 			__tests__/service-tester/

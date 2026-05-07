@@ -76,8 +76,8 @@ jobs:
       - name: Sync Python dev environment
         run: uv sync --group dev --locked
 
-      - name: Run Ruff
-        run: uv run --group dev ruff check --config pythonlib/pyproject.toml pythonlib/rotunda
+      - name: Run lint validation
+        run: make lint-validate
 
   fingerprint-example:
     runs-on: ubuntu-24.04

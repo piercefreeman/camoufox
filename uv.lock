@@ -2666,6 +2666,7 @@ dependencies = [
     { name = "pytest" },
     { name = "pytest-asyncio" },
     { name = "rotunda" },
+    { name = "rotunda-models" },
 ]
 
 [package.dev-dependencies]
@@ -2687,6 +2688,7 @@ requires-dist = [
     { name = "pytest", specifier = ">=8.4.1" },
     { name = "pytest-asyncio", specifier = "==0.21.2" },
     { name = "rotunda", editable = "pythonlib" },
+    { name = "rotunda-models", editable = "ml-models" },
 ]
 
 [package.metadata.requires-dev]

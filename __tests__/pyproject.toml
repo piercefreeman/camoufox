@@ -5,6 +5,7 @@ description = "Rotunda repository test suite."
 requires-python = ">=3.10"
 dependencies = [
     "rotunda",
+    "rotunda-models",
     "pytest>=8.4.1",
     "pytest-asyncio==0.21.2",
 ]
@@ -28,6 +29,7 @@ package = false
 
 [tool.uv.sources]
 rotunda = { workspace = true }
+rotunda-models = { workspace = true }
 
 [tool.pytest.ini_options]
 markers = [
