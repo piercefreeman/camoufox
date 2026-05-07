@@ -24,6 +24,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    """Parse CLI arguments and dispatch to the selected command handler."""
     parser = build_parser()
     args = parser.parse_args(argv)
     args.func(args)

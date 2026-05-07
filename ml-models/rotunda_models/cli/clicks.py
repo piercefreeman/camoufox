@@ -19,6 +19,9 @@ def generate_click(args: argparse.Namespace) -> None:
     checkpoint = load_checkpoint(args.checkpoint, device)
     if checkpoint.get("kind") != "mouse_click_gru":
         raise SystemExit(f"Expected mouse_click_gru checkpoint, got {checkpoint.get('kind')!r}")
+
+    # The CLI owns checkpoint hydration; generation.py receives a ready model
+    # and generated episode condition so it stays usable as library code.
     model = MouseTrajectoryGRU(**checkpoint["model_config"]).to(device)
     model.load_state_dict(checkpoint["model_state"])
     model.eval()
@@ -53,6 +56,7 @@ def generate_click(args: argparse.Namespace) -> None:
 
 
 def add_click_parsers(subparsers: argparse._SubParsersAction) -> None:
+    """Register mouse click generation commands on the shared CLI parser."""
     click_generate = subparsers.add_parser("generate-click", help="Generate mouse positions/actions from a click checkpoint.")
     click_generate.add_argument("--checkpoint", type=Path, required=True)
     click_generate.add_argument("--current-x", type=float, required=True)

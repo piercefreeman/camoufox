@@ -40,13 +40,8 @@ clicks:
 
 keyboard:
   gap_ms: 1000
-  synthetic_per_sequence: 4
-  geometry_tolerance: 0.05
-  include_repeats: false
-  keyboard_text_source: auto
   keyboard_accessibility_id: auto
   keyboard_max_snapshot_edit_actions: 12
-  keyboard_sequence_mode: auto
   keyboard_min_final_length: 1
   keyboard_min_duration_ms: 0.0
   char_embed_size: 32

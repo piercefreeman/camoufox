@@ -8,17 +8,6 @@ from .constants import CHAR_EOS, KEY_BACKSPACE, KEY_STOP
 from .types import KeyboardEpisode, KeyStep
 
 
-def apply_key_actions(actions: Iterable[str]) -> str:
-    chars: list[str] = []
-    for action in actions:
-        if action == KEY_BACKSPACE:
-            if chars:
-                chars.pop()
-        else:
-            chars.append(action)
-    return "".join(chars)
-
-
 def apply_keyboard_steps(initial_string: str, steps: Iterable[KeyStep]) -> str:
     chars = list(initial_string)
     for step in steps:
@@ -39,16 +28,21 @@ def common_prefix_length(left: str, right: str) -> int:
 
 
 def terminal_edit_actions(previous: str, current: str) -> list[str]:
+    """Return the shortest terminal edit path from previous text to current text."""
     prefix_len = common_prefix_length(previous, current)
     return [KEY_BACKSPACE] * (len(previous) - prefix_len) + list(current[prefix_len:])
 
 
 def keyboard_episode_transforms_to_final(episode: KeyboardEpisode) -> bool:
+    """Validate that an episode's steps actually produce its final string."""
     return apply_keyboard_steps(episode.initial_string, episode.steps) == episode.final_string
 
 
 def canonical_keyboard_steps(episode: KeyboardEpisode) -> tuple[KeyStep, ...]:
+    """Collapse an episode into the timed actions that survive in the final text."""
     if episode.initial_string:
+        # Focused-text episodes can start from non-empty text. Convert them to
+        # the shortest terminal edit path while preserving the observed duration.
         actions = terminal_edit_actions(episode.initial_string, episode.final_string)
         if not actions:
             return ()
@@ -59,6 +53,8 @@ def canonical_keyboard_steps(episode: KeyboardEpisode) -> tuple[KeyStep, ...]:
     offset = 0.0
     surviving: list[tuple[str, float]] = []
     for step in episode.steps:
+        # For raw key streams, keep only characters that survive later
+        # backspaces so constrained training learns the target-producing path.
         offset += step.dt_ms
         if step.action == KEY_BACKSPACE:
             if surviving:
@@ -83,6 +79,7 @@ def canonical_keyboard_steps(episode: KeyboardEpisode) -> tuple[KeyStep, ...]:
 
 
 def apply_keyboard_action(text: list[str], action: str) -> None:
+    """Mutate text by applying one generated keyboard action."""
     if action == KEY_BACKSPACE:
         if text:
             text.pop()
@@ -91,6 +88,7 @@ def apply_keyboard_action(text: list[str], action: str) -> None:
 
 
 def keyboard_next_char(final_string: str, text: list[str]) -> str:
+    """Return the next target character if text is still on the target prefix."""
     current = "".join(text)
     if final_string.startswith(current) and len(current) < len(final_string):
         return final_string[len(current)]
@@ -98,6 +96,7 @@ def keyboard_next_char(final_string: str, text: list[str]) -> str:
 
 
 def constrained_keyboard_action(final_string: str, text: list[str]) -> str:
+    """Return the shortest valid next action that can still reach final_string."""
     current = "".join(text)
     if current == final_string:
         return KEY_STOP
@@ -107,5 +106,6 @@ def constrained_keyboard_action(final_string: str, text: list[str]) -> str:
 
 
 def minimum_terminal_edit_steps(final_string: str, text: list[str]) -> int:
+    """Count the minimum actions needed to transform current text to target text."""
     current = "".join(text)
     return len(terminal_edit_actions(current, final_string))

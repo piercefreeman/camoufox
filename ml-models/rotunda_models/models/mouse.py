@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+from typing import TypedDict
 
 import torch
 from torch import nn
@@ -13,6 +14,48 @@ from ..constants import MOUSE_ACTIONS
 from ..types import MouseEpisode
 from ..utils import dt_to_log, goal_relative_position
 from .common import masked_smooth_l1
+
+
+class MouseSample(TypedDict):
+    """Unbatched tensors emitted by MouseTrajectoryDataset.
+
+    Shapes:
+    - `condition`: `[7]` normalized start/destination/delta/distance values.
+    - `dt`: `[steps]` log1p millisecond delays.
+    - `pos`: `[steps, 2]` goal-relative movement deltas.
+    - `state`: `[steps, 2]` previous goal-relative absolute positions.
+    - `actions`: `[steps]` mouse action class ids.
+    """
+
+    condition: torch.Tensor
+    dt: torch.Tensor
+    pos: torch.Tensor
+    state: torch.Tensor
+    actions: torch.Tensor
+
+
+class MouseBatch(TypedDict):
+    """Padded mouse tensors consumed by MouseTrajectoryGRU and mouse_loss."""
+
+    condition: torch.Tensor
+    dt: torch.Tensor
+    pos: torch.Tensor
+    actions: torch.Tensor
+    mask: torch.Tensor
+    previous: torch.Tensor
+
+
+class MouseLossMetrics(TypedDict):
+    """Scalar mouse loss components logged per batch."""
+
+    loss: float
+    dt_loss: float
+    weighted_dt_loss: float
+    pos_loss: float
+    weighted_pos_loss: float
+    action_loss: float
+    duration_loss: float
+    weighted_duration_loss: float
 
 
 class MouseTrajectoryDataset(Dataset):
@@ -34,7 +77,8 @@ class MouseTrajectoryDataset(Dataset):
     def __len__(self) -> int:
         return len(self.episodes)
 
-    def __getitem__(self, index: int) -> dict:
+    def __getitem__(self, index: int) -> MouseSample:
+        """Encode one click episode into condition and decoder target tensors."""
         episode = self.episodes[index]
         scale = self.coordinate_scale
         dx = episode.dst_x - episode.start_x
@@ -75,7 +119,8 @@ class MouseTrajectoryDataset(Dataset):
         return {"condition": condition, "dt": dt, "pos": pos, "state": state, "actions": actions}
 
 
-def collate_mouse(batch: list[dict]) -> dict:
+def collate_mouse(batch: list[MouseSample]) -> MouseBatch:
+    """Pad mouse trajectory samples and build autoregressive decoder inputs."""
     batch_size = len(batch)
     max_len = max(item["dt"].shape[0] for item in batch)
     num_prev_actions = len(MOUSE_ACTIONS) + 1
@@ -89,6 +134,8 @@ def collate_mouse(batch: list[dict]) -> dict:
     previous = torch.zeros(batch_size, max_len, 3 + num_prev_actions, dtype=torch.float32)
 
     for row, item in enumerate(batch):
+        # Copy variable-length targets into padded tensors and mark the valid
+        # positions that should contribute to losses.
         length = item["dt"].shape[0]
         dt[row, :length] = item["dt"]
         pos[row, :length] = item["pos"]
@@ -96,6 +143,8 @@ def collate_mouse(batch: list[dict]) -> dict:
         mask[row, :length] = True
 
         for step in range(length):
+            # Decoder inputs describe the previous timestep. Step zero gets an
+            # explicit BOS action instead of a previous model target.
             previous[row, step, 1:3] = item["state"][step]
             if step == 0:
                 previous[row, step, 3 + bos_index] = 1.0
@@ -150,13 +199,25 @@ class MouseTrajectoryGRU(nn.Module):
 
 
 def mouse_loss(
-    batch: dict,
+    batch: MouseBatch,
     model: MouseTrajectoryGRU,
     dt_weight: float = 1.0,
     pos_weight: float = 1.0,
     click_action_weight: float = 8.0,
     duration_weight: float = 0.0,
-) -> tuple[torch.Tensor, dict[str, float]]:
+) -> tuple[torch.Tensor, MouseLossMetrics]:
+    """Compute the weighted mouse trajectory objective and scalar metrics.
+
+    The optimized objective is:
+
+    `L = w_dt * SmoothL1(dt_hat, dt) + w_pos * SmoothL1(delta_pos_hat, delta_pos)
+       + CE(action_logits, action)
+       + w_duration * SmoothL1(log1p(total_dt_hat), log1p(total_dt))`
+
+    Padding is masked out of timing and position terms. Click classes are
+    upweighted in cross entropy because move rows dominate each trajectory but
+    the terminal click action is the behavior that makes the rollout complete.
+    """
     dt_pred, pos_pred, action_logits = model(batch["condition"], batch["previous"])
     mask = batch["mask"]
 

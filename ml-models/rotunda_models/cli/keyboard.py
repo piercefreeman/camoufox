@@ -19,6 +19,9 @@ def generate_keyboard(args: argparse.Namespace) -> None:
     checkpoint = load_checkpoint(args.checkpoint, device)
     if checkpoint.get("kind") != "keyboard_action_gru":
         raise SystemExit(f"Expected keyboard_action_gru checkpoint, got {checkpoint.get('kind')!r}")
+
+    # Keep CLI concerns here: load the checkpoint/model, pass decoded settings to
+    # generation.py, then format the resulting rows for stdout.
     model = KeyboardActionGRU(**checkpoint["model_config"]).to(device)
     model.load_state_dict(checkpoint["model_state"])
     model.eval()
@@ -50,6 +53,7 @@ def generate_keyboard(args: argparse.Namespace) -> None:
 
 
 def add_keyboard_parsers(subparsers: argparse._SubParsersAction) -> None:
+    """Register keyboard generation commands on the shared CLI parser."""
     keyboard_generate = subparsers.add_parser("generate-keyboard", help="Generate key actions from a keyboard checkpoint.")
     keyboard_generate.add_argument("--checkpoint", type=Path, required=True)
     keyboard_generate.add_argument("--final-string", required=True)

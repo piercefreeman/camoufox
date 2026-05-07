@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+from typing import Literal, TypedDict
 
 import torch
 from torch import nn
@@ -18,6 +19,50 @@ from ..keyboard_logic import (
 from ..types import KeyboardEpisode
 from ..utils import dt_to_log
 from .common import masked_smooth_l1
+
+KeyboardSequenceMode = Literal["constrained", "raw"]
+
+
+class KeyboardSample(TypedDict):
+    """Unbatched tensors emitted by KeyboardTrajectoryDataset.
+
+    Shapes:
+    - `final_ids`: `[condition_len]` token ids for initial text, separator,
+      target text, and EOS.
+    - `dt`: `[steps]` log1p millisecond delays, including the terminal stop row.
+    - `actions`: `[steps]` action token ids, including `KEY_STOP`.
+    - `next_char_ids`: `[steps]` target-character token ids visible to the decoder.
+    """
+
+    final_ids: torch.Tensor
+    dt: torch.Tensor
+    actions: torch.Tensor
+    next_char_ids: torch.Tensor
+
+
+class KeyboardBatch(TypedDict):
+    """Padded keyboard tensors consumed by KeyboardActionGRU and keyboard_loss."""
+
+    final_ids: torch.Tensor
+    final_lengths: torch.Tensor
+    dt: torch.Tensor
+    actions: torch.Tensor
+    previous_actions: torch.Tensor
+    previous_dt: torch.Tensor
+    next_char_ids: torch.Tensor
+    mask: torch.Tensor
+
+
+class KeyboardLossMetrics(TypedDict):
+    """Scalar keyboard loss components logged per batch."""
+
+    loss: float
+    dt_loss: float
+    weighted_dt_loss: float
+    action_loss: float
+    weighted_action_loss: float
+    duration_loss: float
+    weighted_duration_loss: float
 
 
 class KeyboardTrajectoryDataset(Dataset):
@@ -37,7 +82,7 @@ class KeyboardTrajectoryDataset(Dataset):
         episodes: list[KeyboardEpisode],
         char_to_id: dict[str, int],
         action_to_id: dict[str, int],
-        sequence_mode: str = "constrained",
+        sequence_mode: KeyboardSequenceMode = "constrained",
     ):
         self.episodes = episodes
         self.char_to_id = char_to_id
@@ -47,26 +92,32 @@ class KeyboardTrajectoryDataset(Dataset):
     def __len__(self) -> int:
         return len(self.episodes)
 
-    def __getitem__(self, index: int) -> dict:
+    def __getitem__(self, index: int) -> KeyboardSample:
+        """Encode one keyboard episode into condition and decoder target tensors."""
         episode = self.episodes[index]
         condition_tokens = [*episode.initial_string, CHAR_SEP, *episode.final_string, CHAR_EOS]
         final_ids = [self.char_to_id.get(char, self.char_to_id[CHAR_UNK]) for char in condition_tokens]
+
         if self.sequence_mode == "constrained":
             steps = canonical_keyboard_steps(episode)
         elif self.sequence_mode == "raw":
             steps = episode.steps
         else:
             raise ValueError(f"Unknown keyboard sequence mode: {self.sequence_mode!r}")
+
         action_tokens = [step.action for step in steps] + [KEY_STOP]
         actions = [self.action_to_id[action] for action in action_tokens]
         dt = [dt_to_log(step.dt_ms) for step in steps] + [0.0]
         next_char_ids: list[int] = []
         current_text: list[str] = list(episode.initial_string)
+
         for action in action_tokens:
             next_char = keyboard_next_char(episode.final_string, current_text)
             next_char_ids.append(self.char_to_id.get(next_char, self.char_to_id[CHAR_UNK]))
+
             if action == KEY_STOP:
                 continue
+
             apply_keyboard_action(current_text, action)
 
         return {
@@ -77,7 +128,8 @@ class KeyboardTrajectoryDataset(Dataset):
         }
 
 
-def collate_keyboard(batch: list[dict], action_vocab_size: int) -> dict:
+def collate_keyboard(batch: list[KeyboardSample], action_vocab_size: int) -> KeyboardBatch:
+    """Pad keyboard samples and assemble previous-action decoder inputs."""
     batch_size = len(batch)
     max_final = max(item["final_ids"].shape[0] for item in batch)
     max_steps = max(item["dt"].shape[0] for item in batch)
@@ -93,6 +145,8 @@ def collate_keyboard(batch: list[dict], action_vocab_size: int) -> dict:
     mask = torch.zeros(batch_size, max_steps, dtype=torch.bool)
 
     for row, item in enumerate(batch):
+        # Conditions and decoder targets have independent lengths, so pad each
+        # side separately and retain masks for the loss functions.
         final_len = item["final_ids"].shape[0]
         step_len = item["dt"].shape[0]
         final_ids[row, :final_len] = item["final_ids"]
@@ -101,7 +155,10 @@ def collate_keyboard(batch: list[dict], action_vocab_size: int) -> dict:
         actions[row, :step_len] = item["actions"]
         next_char_ids[row, :step_len] = item["next_char_ids"]
         mask[row, :step_len] = True
+
         for step in range(1, step_len):
+            # Step zero uses the BOS action index initialized above; later
+            # steps condition on the previous true action and delay.
             previous_actions[row, step] = item["actions"][step - 1]
             previous_dt[row, step] = item["dt"][step - 1]
 
@@ -188,14 +245,25 @@ class KeyboardActionGRU(nn.Module):
 
 
 def keyboard_loss(
-    batch: dict,
+    batch: KeyboardBatch,
     model: KeyboardActionGRU,
     dt_weight: float = 1.0,
     action_weight: float = 1.0,
     duration_weight: float = 0.0,
     backspace_action_weight: float = 4.0,
     stop_action_weight: float = 8.0,
-) -> tuple[torch.Tensor, dict[str, float]]:
+) -> tuple[torch.Tensor, KeyboardLossMetrics]:
+    """Compute the weighted keyboard action objective and scalar metrics.
+
+    The optimized objective is:
+
+    `L = w_dt * SmoothL1(dt_hat, dt) + w_action * CE(action_logits, action)
+       + w_duration * SmoothL1(log1p(sum(exp(dt_hat)-1)), log1p(sum(exp(dt)-1)))`
+
+    Padding is masked out of all sequence terms. Backspace and stop receive
+    larger cross-entropy weights because they are sparse but determine whether
+    generated edits can terminate cleanly or repair mistakes.
+    """
     dt_pred, action_logits = model(
         batch["final_ids"],
         batch["final_lengths"],
@@ -211,6 +279,7 @@ def keyboard_loss(
     # Backspace and stop are rare but behaviorally important, so expose their
     # weights as training knobs instead of hiding them in the dataset.
     action_weights = torch.ones(action_logits.shape[-1], device=action_logits.device)
+
     if action_logits.shape[-1] >= 2:
         action_weights[-2] = backspace_action_weight
         action_weights[-1] = stop_action_weight
@@ -220,7 +289,9 @@ def keyboard_loss(
         ignore_index=-100,
         weight=action_weights,
     )
+
     duration_loss = dt_pred.sum() * 0.0
+
     if duration_weight > 0:
         # Match full edit duration in addition to per-key delays; this helps
         # avoid plausible-looking sequences that are globally too fast or slow.
@@ -229,7 +300,9 @@ def keyboard_loss(
         pred_duration = (pred_dt_ms * mask.float()).sum(dim=1)
         target_duration = (target_dt_ms * mask.float()).sum(dim=1)
         duration_loss = F.smooth_l1_loss(torch.log1p(pred_duration), torch.log1p(target_duration))
+
     total = (dt_weight * dt_loss) + (action_weight * action_loss) + (duration_weight * duration_loss)
+
     return total, {
         "loss": float(total.detach().cpu()),
         "dt_loss": float(dt_loss.detach().cpu()),

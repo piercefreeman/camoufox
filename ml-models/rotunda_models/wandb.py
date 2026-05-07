@@ -13,6 +13,7 @@ from .utils import jsonable
 
 
 def parse_wandb_tags(value: str | list[str] | tuple[str, ...] | None) -> list[str]:
+    """Normalize comma-separated or repeated W&B tag values."""
     if value is None:
         return []
     if isinstance(value, str):
@@ -25,6 +26,7 @@ def parse_wandb_tags(value: str | list[str] | tuple[str, ...] | None) -> list[st
 
 
 def wandb_requested(args: argparse.Namespace) -> bool:
+    """Return whether namespace settings request W&B integration."""
     if getattr(args, "wandb_mode", None) == "disabled":
         return False
     return bool(
@@ -39,6 +41,7 @@ def wandb_requested(args: argparse.Namespace) -> bool:
 
 
 def import_wandb():
+    """Import wandb or fail with a CLI-friendly installation message."""
     try:
         import wandb  # type: ignore
     except ImportError as exc:
@@ -56,10 +59,13 @@ def start_wandb_run(
     config: dict,
     metadata: dict[str, Any],
 ) -> WandbState | None:
+    """Start or reuse a W&B run for one training task."""
     if not wandb_requested(args):
         return None
 
     wandb = import_wandb()
+    # Store run metadata in config so sweeps and ad hoc runs expose the same
+    # training inputs, task identity, and extracted-corpus counts.
     run_config = {
         **config,
         "task": task,
@@ -68,6 +74,7 @@ def start_wandb_run(
     }
     active_run = getattr(wandb, "run", None)
     if active_run is None:
+        # Normal CLI training owns its run and is responsible for finishing it.
         run = wandb.init(
             project=getattr(args, "wandb_project", None),
             entity=getattr(args, "wandb_entity", None),
@@ -79,6 +86,8 @@ def start_wandb_run(
         )
         owns_run = True
     else:
+        # Sweep agents usually create the run before calling into training; in
+        # that case just enrich the active config.
         run = active_run
         run.config.update(run_config, allow_val_change=True)
         owns_run = False
@@ -96,6 +105,7 @@ def start_wandb_run(
 
 
 def finish_wandb_run(state: WandbState | None) -> None:
+    """Finish a W&B run only when this process created it."""
     if state is not None and state.owns_run:
         state.run.finish()
 
@@ -110,8 +120,11 @@ def wandb_log_epoch(
     best_epoch: int,
     lr: float | None,
 ) -> None:
+    """Log one epoch of train/validation metrics to W&B."""
     if state is None:
         return
+    # Flatten metrics into stable namespaces so W&B plots line up across click
+    # and keyboard experiments.
     payload: dict[str, Any] = {"epoch": epoch, "score/loss": score}
     payload.update({f"train/{key}": value for key, value in train_metrics.items()})
     payload.update({f"val/{key}": value for key, value in val_metrics.items()})
@@ -124,10 +137,13 @@ def wandb_log_epoch(
 
 
 def wandb_log_artifacts(state: WandbState | None, task: str, run_dir: Path) -> None:
+    """Upload checkpoints and metrics from a training run directory to W&B."""
     if state is None:
         return
     artifact_name = re.sub(r"[^A-Za-z0-9_.-]+", "-", f"{task}-{run_dir.name}-checkpoints")
     artifact = state.module.Artifact(artifact_name, type="model")
+    # Upload only files that were actually produced; short failed runs may not
+    # have all checkpoint variants.
     for filename in ("model-best.pt", "model.pt", "metrics.jsonl"):
         path = run_dir / filename
         if path.exists():

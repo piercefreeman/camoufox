@@ -18,6 +18,7 @@ console = Console(highlight=False, soft_wrap=True)
 
 
 def log_labeled(label: str, message: str, style: str = "cyan") -> None:
+    """Print a consistently labeled status line for training commands."""
     text = Text()
     text.append(f"[{label}] ", style=style)
     text.append(str(message))
@@ -25,14 +26,17 @@ def log_labeled(label: str, message: str, style: str = "cyan") -> None:
 
 
 def log_stage(message: str) -> None:
+    """Print a high-visibility pipeline stage message."""
     log_labeled("stage", message, "bold cyan")
 
 
 def log_info(message: str) -> None:
+    """Print a low-emphasis informational message."""
     log_labeled("info", message, "dim")
 
 
 def log_epoch(epoch: int, train_loss: float, val_loss: float | None = None) -> None:
+    """Print the primary train/validation loss line for an epoch."""
     message = f"train_loss={train_loss:.4f}"
     if val_loss is not None:
         message += f" val_loss={val_loss:.4f}"
@@ -40,9 +44,12 @@ def log_epoch(epoch: int, train_loss: float, val_loss: float | None = None) -> N
 
 
 def discover_recording_paths(inputs: list[str]) -> list[Path]:
+    """Expand input files/directories into sorted recorder JSONL paths."""
     roots = [Path(item) for item in inputs] if inputs else [Path("recordings")]
     paths: list[Path] = []
     for root in roots:
+        # Accept exact files for targeted debugging and recurse directories for
+        # normal corpus-style training runs.
         if root.is_file() and root.suffix.lower() in {".ndjson", ".jsonl"}:
             paths.append(root)
         elif root.is_dir():
@@ -52,6 +59,7 @@ def discover_recording_paths(inputs: list[str]) -> list[Path]:
 
 
 def iter_events(paths: Iterable[Path]):
+    """Yield parsed recorder events with source path and line number context."""
     for path in paths:
         with path.open("r", encoding="utf-8") as handle:
             for line_no, line in enumerate(handle, 1):
@@ -65,25 +73,31 @@ def iter_events(paths: Iterable[Path]):
 
 
 def as_float(value, default: float | None = None) -> float | None:
+    """Coerce optional recorder values to float with a caller-provided default."""
     if value is None:
         return default
     return float(value)
 
 
 def as_int(value, default: int | None = None) -> int | None:
+    """Coerce optional recorder values to int with a caller-provided default."""
     if value is None:
         return default
     return int(value)
 
 
 def write_jsonl(path: Path, record: dict) -> None:
+    """Append one JSON object to a JSONL file, creating parents as needed."""
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("a", encoding="utf-8") as handle:
         handle.write(json.dumps(record, sort_keys=True) + "\n")
 
 
 def jsonable(value):
+    """Convert dataclasses, Pydantic models, paths, and containers to JSON data."""
     if isinstance(value, BaseModel):
+        # Normalize structured config/state objects before recursively walking
+        # lists and dictionaries used in checkpoints or metrics.
         return jsonable(value.model_dump())
     if is_dataclass(value):
         return jsonable(asdict(value))
@@ -101,6 +115,7 @@ def jsonable(value):
 
 
 def namespace_config(args: argparse.Namespace) -> dict:
+    """Serialize an argparse namespace while excluding the CLI callback."""
     return {
         key: jsonable(value)
         for key, value in vars(args).items()
@@ -109,6 +124,7 @@ def namespace_config(args: argparse.Namespace) -> dict:
 
 
 def make_run_dir(base: Path, prefix: str) -> Path:
+    """Create a timestamped training run directory under base."""
     stamp = time.strftime("%Y%m%d-%H%M%S")
     run_dir = base / f"{prefix}-{stamp}"
     run_dir.mkdir(parents=True, exist_ok=False)
@@ -116,10 +132,12 @@ def make_run_dir(base: Path, prefix: str) -> Path:
 
 
 def mean(values: list[float]) -> float:
+    """Return the arithmetic mean or NaN for an empty collection."""
     return sum(values) / len(values) if values else float("nan")
 
 
 def median(values: list[float]) -> float:
+    """Return the median or NaN for an empty collection."""
     if not values:
         return float("nan")
     ordered = sorted(values)
@@ -130,10 +148,12 @@ def median(values: list[float]) -> float:
 
 
 def dt_to_log(dt_ms: float) -> float:
+    """Encode a millisecond delay as non-negative log1p time."""
     return math.log1p(max(0.0, float(dt_ms)))
 
 
 def log_to_dt(value: float) -> float:
+    """Decode log1p time back to milliseconds with a practical upper clamp."""
     return math.expm1(max(0.0, min(float(value), math.log1p(5000.0))))
 
 
@@ -145,8 +165,11 @@ def goal_relative_position(
     x: float,
     y: float,
 ) -> tuple[float, float]:
+    """Project a screen position into destination-relative along/perp space."""
     dx = dst_x - start_x
     dy = dst_y - start_y
+    # Build an orthonormal frame whose x-axis points from the episode start to
+    # the destination; positions are then scale-normalized by path distance.
     distance = max(1.0, math.hypot(dx, dy))
     ux = dx / distance
     uy = dy / distance
@@ -167,8 +190,11 @@ def screen_position_from_goal_relative(
     along: float,
     perp: float,
 ) -> tuple[float, float]:
+    """Convert destination-relative along/perp coordinates back to screen space."""
     dx = dst_x - start_x
     dy = dst_y - start_y
+    # Use the same local frame as goal_relative_position so generation can move
+    # in learned relative deltas and render absolute pointer coordinates.
     distance = max(1.0, math.hypot(dx, dy))
     ux = dx / distance
     uy = dy / distance

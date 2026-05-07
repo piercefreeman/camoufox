@@ -3,39 +3,74 @@
 from __future__ import annotations
 
 import math
-import random
 from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
 
-from .constants import BACKSPACE_POS, KEY_BACKSPACE, KEY_LAYOUT, MOUSE_ACTIONS
-from .keyboard_logic import apply_key_actions, terminal_edit_actions
+from pydantic import ValidationError
+
+from ._generated_data_capture import (
+    CaptureEvent,
+    FocusedElementEvent,
+    KeyboardEvent,
+    MouseButtonOrNone,
+    MouseClickEvent,
+    MouseMoveEvent,
+    SessionStartedEvent,
+    SessionStoppedEvent,
+)
+from ._generated_data_capture import (
+    FocusedElement as CapturedFocusedElement,
+)
+from .constants import MOUSE_ACTIONS
+from .keyboard_logic import terminal_edit_actions
 from .types import (
     FocusedTextSnapshot,
     KeyboardEpisode,
-    KeyDef,
     KeyStep,
     MouseEpisode,
     MouseStep,
     ScreenSizeFilter,
 )
-from .utils import as_float, as_int, iter_events
+from .utils import iter_events
 
 ScreenSize = tuple[int, int]
+CapturedEvent = (
+    SessionStartedEvent
+    | SessionStoppedEvent
+    | MouseMoveEvent
+    | MouseClickEvent
+    | KeyboardEvent
+    | FocusedElementEvent
+)
 
 
-def event_screen_size(event: dict[str, Any]) -> ScreenSize | None:
-    width = as_int(event.get("screenWidth"))
-    height = as_int(event.get("screenHeight"))
-    if width is None or height is None:
+def parse_capture_event(path: Path, line_no: int, raw_event: dict[str, Any]) -> CapturedEvent:
+    """Validate one raw NDJSON event against the generated capture contract."""
+    try:
+        return CaptureEvent.model_validate(raw_event).root
+    except ValidationError as exc:
+        raise ValueError(f"{path}:{line_no}: invalid capture event: {exc}") from exc
+
+
+def iter_capture_events(paths: Iterable[Path]):
+    """Yield generated capture event models with source path and line number."""
+    for path, line_no, raw_event in iter_events(paths):
+        yield path, line_no, parse_capture_event(path, line_no, raw_event)
+
+
+def event_screen_size(event: CapturedEvent) -> ScreenSize | None:
+    """Read an optional screen size tuple from a recorder event."""
+    if event.screen_width is None or event.screen_height is None:
         return None
-    return width, height
+    return event.screen_width, event.screen_height
 
 
 def screen_filter_allows(
     screen_filter: ScreenSizeFilter | None,
     screen_size: ScreenSize | None,
 ) -> bool:
+    """Return whether a screen filter permits the current event context."""
     return True if screen_filter is None else screen_filter.allows(screen_size)
 
 
@@ -46,20 +81,22 @@ def extract_mouse_episodes(
     min_distance: float,
     screen_filter: ScreenSizeFilter | None = None,
 ) -> list[MouseEpisode]:
+    """Extract rest-to-click mouse episodes from recorder event streams."""
     episodes: list[MouseEpisode] = []
 
     for path in paths:
-        pending_moves: list[dict] = []
+        # Track one candidate movement chain at a time. A chain starts after a
+        # rest gap and is committed only if a qualifying click terminates it.
+        pending_moves: list[MouseMoveEvent] = []
         pending_start: tuple[float, float] | None = None
         last_mouse_offset: int | None = None
         last_known_pos: tuple[float, float] | None = None
         current_screen_size: ScreenSize | None = None
 
-        for _, _, event in iter_events([path]):
-            event_type = event.get("type")
-            offset = as_int(event.get("offsetMs"))
-
-            if event_type in {"session_started", "session_stopped"}:
+        for _, _, event in iter_capture_events([path]):
+            if isinstance(event, SessionStartedEvent | SessionStoppedEvent):
+                # Session boundaries invalidate motion context, including the
+                # last seen screen size used by laptop-only filtering.
                 pending_moves = []
                 pending_start = None
                 last_mouse_offset = None
@@ -71,17 +108,19 @@ def extract_mouse_episodes(
             if explicit_screen_size is not None:
                 current_screen_size = explicit_screen_size
             if not screen_filter_allows(screen_filter, current_screen_size):
+                # Once the stream leaves the accepted screen profile, drop the
+                # partial chain so a later click cannot straddle filter states.
                 pending_moves = []
                 pending_start = None
                 continue
 
-            if event_type == "mouse_move":
-                x = as_float(event.get("x"))
-                y = as_float(event.get("y"))
-                if offset is None or x is None or y is None:
-                    continue
-
-                if event.get("dragButton", "none") != "none":
+            if isinstance(event, MouseMoveEvent):
+                x = event.x
+                y = event.y
+                offset = event.offset_ms
+                if event.drag_button not in {None, MouseButtonOrNone.none}:
+                    # Drag gestures are not motivated click movements; keep the
+                    # cursor position but reset the pending click path.
                     pending_moves = []
                     pending_start = None
                     last_mouse_offset = offset
@@ -92,8 +131,10 @@ def extract_mouse_episodes(
                     last_mouse_offset is None or offset - last_mouse_offset >= rest_ms
                 )
                 if starts_from_rest:
-                    delta_x = as_float(event.get("deltaX"), 0.0) or 0.0
-                    delta_y = as_float(event.get("deltaY"), 0.0) or 0.0
+                    # The recorder reports move deltas, so reconstruct the
+                    # resting start point when no previous absolute position is known.
+                    delta_x = event.delta_x or 0.0
+                    delta_y = event.delta_y or 0.0
                     pending_start = last_known_pos or (x - delta_x, y - delta_y)
                     pending_moves = [event]
                 elif pending_moves:
@@ -103,37 +144,33 @@ def extract_mouse_episodes(
                 last_known_pos = (x, y)
                 continue
 
-            if event_type == "mouse_click":
-                x = as_float(event.get("x"))
-                y = as_float(event.get("y"))
-                click_count = as_int(event.get("clickCount"))
-                button = str(event.get("button", "other"))
+            if isinstance(event, MouseClickEvent):
+                x = event.x
+                y = event.y
+                offset = event.offset_ms
+                click_count = event.click_count
+                button = event.button.value if event.button is not None else "other"
                 if (
-                    offset is not None
-                    and x is not None
-                    and y is not None
-                    and click_count == 1
+                    click_count == 1
                     and pending_moves
                     and pending_start is not None
                 ):
-                    first_offset = as_int(pending_moves[0].get("offsetMs"))
-                    duration = offset - first_offset if first_offset is not None else max_duration_ms + 1
+                    first_offset = pending_moves[0].offset_ms
+                    duration = offset - first_offset
                     distance = math.hypot(x - pending_start[0], y - pending_start[1])
                     if 0 <= duration <= max_duration_ms and distance >= min_distance:
+                        # Convert absolute move/click events into timed model
+                        # steps that preserve the observed action labels.
                         steps: list[MouseStep] = []
                         previous_offset = first_offset
                         for move in pending_moves:
-                            move_offset = as_int(move.get("offsetMs"))
-                            move_x = as_float(move.get("x"))
-                            move_y = as_float(move.get("y"))
-                            if move_offset is None or move_x is None or move_y is None:
-                                continue
-                            dt_ms = 0.0 if previous_offset is None else move_offset - previous_offset
-                            steps.append(MouseStep(dt_ms=dt_ms, x=move_x, y=move_y, action="move"))
+                            move_offset = move.offset_ms
+                            dt_ms = move_offset - previous_offset
+                            steps.append(MouseStep(dt_ms=dt_ms, x=move.x, y=move.y, action="move"))
                             previous_offset = move_offset
 
                         action = f"{button}_click" if f"{button}_click" in MOUSE_ACTIONS else "other_click"
-                        dt_ms = 0.0 if previous_offset is None else offset - previous_offset
+                        dt_ms = offset - previous_offset
                         steps.append(MouseStep(dt_ms=dt_ms, x=x, y=y, action=action))
                         episodes.append(
                             MouseEpisode(
@@ -149,97 +186,33 @@ def extract_mouse_episodes(
                 pending_moves = []
                 pending_start = None
                 last_mouse_offset = offset
-                if x is not None and y is not None:
-                    last_known_pos = (x, y)
+                last_known_pos = (x, y)
                 continue
 
-            if event_type == "keyboard" and pending_moves:
+            if isinstance(event, KeyboardEvent) and pending_moves:
+                # Keyboard activity means the pointer chain no longer cleanly
+                # represents a single motivated mouse click.
                 pending_moves = []
                 pending_start = None
 
     return episodes
 
 
-def split_keyboard_sequences(
-    paths: list[Path],
-    gap_ms: int,
-    include_repeats: bool,
-    screen_filter: ScreenSizeFilter | None = None,
-) -> list[tuple[str, list[dict]]]:
-    sequences: list[tuple[str, list[dict]]] = []
-    for path in paths:
-        source = str(path)
-        current: list[dict] = []
-        last_offset: int | None = None
-        current_identity: str | None = None
-        current_screen_size: ScreenSize | None = None
-
-        def flush(source: str = source) -> None:
-            nonlocal current, last_offset, current_identity
-            if current:
-                sequences.append((source, current))
-            current = []
-            last_offset = None
-            current_identity = None
-
-        for _, _, event in iter_events([path]):
-            if event.get("type") in {"session_started", "session_stopped"}:
-                flush()
-                current_screen_size = None
-                continue
-
-            explicit_screen_size = event_screen_size(event)
-            if explicit_screen_size is not None:
-                current_screen_size = explicit_screen_size
-            if not screen_filter_allows(screen_filter, current_screen_size):
-                flush()
-                continue
-
-            if event.get("type") != "keyboard":
-                continue
-            if event.get("isRepeat") and not include_repeats:
-                continue
-
-            event_identity: str | None = None
-            focused_element = event.get("focusedElement")
-            if isinstance(focused_element, dict):
-                identity_result = focused_element_identity(focused_element, require_value=False)
-                if identity_result is None:
-                    flush()
-                    continue
-                event_identity = identity_result[0]
-                if current and current_identity is not None and event_identity != current_identity:
-                    flush()
-                current_identity = event_identity
-
-            offset = as_int(event.get("offsetMs"))
-            if offset is None:
-                continue
-            if last_offset is not None and offset - last_offset >= gap_ms and current:
-                flush()
-                current_identity = event_identity
-            current.append(event)
-            last_offset = offset
-
-        flush()
-    return sequences
-
-
 def focused_element_identity(
-    focused_element: dict[str, Any],
+    focused_element: CapturedFocusedElement,
     require_value: bool = True,
 ) -> tuple[str, str | None] | None:
-    if focused_element.get("isPassword") or focused_element.get("valueRedacted"):
+    if focused_element.is_password or focused_element.value_redacted:
         return None
-    if require_value and focused_element.get("value") is None:
+    if require_value and focused_element.value is None:
         return None
 
-    bundle_id = str(focused_element.get("bundleID") or "")
-    accessibility_id = focused_element.get("accessibilityID")
-    dom_id = focused_element.get("domID")
-    role = focused_element.get("role")
-    subrole = focused_element.get("subrole")
-    process_id = focused_element.get("processID")
+    bundle_id = str(focused_element.bundle_id or "")
+    accessibility_id = focused_element.accessibility_id
+    dom_id = focused_element.dom_id
+    role = focused_element.role
+    subrole = focused_element.subrole
+    process_id = focused_element.process_id
 
     raw_id = None
     if accessibility_id:
@@ -259,40 +232,28 @@ def focused_element_identity(
     return f"{bundle_key}|{process_key}|{element_key}", raw_id
 
 
-def focused_text_snapshot_from_event(source: str, event: dict[str, Any]) -> FocusedTextSnapshot | None:
-    event_type = event.get("type")
-    if event_type not in {"keyboard", "focused_element"}:
+def focused_text_snapshot_from_event(source: str, event: CapturedEvent) -> FocusedTextSnapshot | None:
+    if not isinstance(event, KeyboardEvent | FocusedElementEvent):
         return None
-    focused_element = event.get("focusedElement")
-    if not isinstance(focused_element, dict):
+    focused_element = event.focused_element
+    if focused_element is None:
         return None
     identity_result = focused_element_identity(focused_element)
     if identity_result is None:
         return None
-    offset = as_int(event.get("offsetMs"))
-    if offset is None:
-        return None
-    value = focused_element.get("value")
+    offset = event.offset_ms
+    value = focused_element.value
     if not isinstance(value, str):
         return None
     identity, raw_accessibility_id = identity_result
     return FocusedTextSnapshot(
         source=source,
         offset_ms=offset,
-        trigger_offset_ms=as_int(event.get("triggerOffsetMs")),
+        trigger_offset_ms=event.trigger_offset_ms,
         identity=identity,
         raw_accessibility_id=raw_accessibility_id,
         value=value,
     )
-
-
-def collect_focused_text_snapshots(paths: list[Path]) -> list[FocusedTextSnapshot]:
-    snapshots: list[FocusedTextSnapshot] = []
-    for path, _, event in iter_events(paths):
-        snapshot = focused_text_snapshot_from_event(str(path), event)
-        if snapshot is not None:
-            snapshots.append(snapshot)
-    return snapshots
 
 
 def collect_focused_text_snapshot_segments(
@@ -312,9 +273,8 @@ def collect_focused_text_snapshot_segments(
             current = []
             current_identity = None
 
-        for _, _, event in iter_events([path]):
-            event_type = event.get("type")
-            if event_type in {"session_started", "session_stopped"}:
+        for _, _, event in iter_capture_events([path]):
+            if isinstance(event, SessionStartedEvent | SessionStoppedEvent):
                 flush()
                 current_screen_size = None
                 continue
@@ -334,8 +294,8 @@ def collect_focused_text_snapshot_segments(
                 current.append(snapshot)
                 continue
 
-            focused_element = event.get("focusedElement")
-            if event_type in {"focused_element", "keyboard"} and isinstance(focused_element, dict):
+            if isinstance(event, KeyboardEvent | FocusedElementEvent) and event.focused_element is not None:
+                focused_element = event.focused_element
                 identity_result = focused_element_identity(focused_element, require_value=False)
                 if identity_result is None or (
                     current and current_identity is not None and identity_result[0] != current_identity
@@ -344,59 +304,6 @@ def collect_focused_text_snapshot_segments(
 
         flush()
     return segments
-
-
-def focused_text_snapshot_groups(snapshots: Iterable[FocusedTextSnapshot]) -> dict[str, list[FocusedTextSnapshot]]:
-    groups: dict[str, list[FocusedTextSnapshot]] = {}
-    for snapshot in snapshots:
-        groups.setdefault(snapshot.identity, []).append(snapshot)
-    return groups
-
-
-def select_focused_text_identity(
-    groups: dict[str, list[FocusedTextSnapshot]],
-    requested_accessibility_id: str | None,
-) -> tuple[str | None, dict[str, Any]]:
-    if not groups:
-        return None, {"focused_text_snapshot_count": 0, "focused_text_identity_count": 0}
-
-    candidates = list(groups.items())
-    if requested_accessibility_id and requested_accessibility_id != "auto":
-        requested = requested_accessibility_id.strip()
-        candidates = [
-            (identity, snapshots)
-            for identity, snapshots in candidates
-            if identity == requested
-            or any(snapshot.raw_accessibility_id == requested for snapshot in snapshots)
-        ]
-        if not candidates:
-            return None, {
-                "focused_text_snapshot_count": sum(len(items) for items in groups.values()),
-                "focused_text_identity_count": len(groups),
-                "requested_accessibility_id": requested,
-                "selected_accessibility_id_found": False,
-            }
-
-    def score(item: tuple[str, list[FocusedTextSnapshot]]) -> tuple[int, int]:
-        _, snapshots = item
-        changed_values = 0
-        previous_value: str | None = None
-        for snapshot in sorted(snapshots, key=lambda item: (item.effective_offset_ms, item.offset_ms)):
-            if previous_value is not None and snapshot.value != previous_value:
-                changed_values += 1
-            previous_value = snapshot.value
-        return changed_values, len(snapshots)
-
-    selected_identity, selected_snapshots = max(candidates, key=score)
-    raw_ids = sorted({snapshot.raw_accessibility_id for snapshot in selected_snapshots if snapshot.raw_accessibility_id})
-    return selected_identity, {
-        "focused_text_snapshot_count": sum(len(items) for items in groups.values()),
-        "focused_text_identity_count": len(groups),
-        "selected_focused_text_identity": selected_identity,
-        "selected_accessibility_ids": raw_ids,
-        "selected_focused_text_snapshots": len(selected_snapshots),
-        "selected_accessibility_id_found": True,
-    }
 
 
 def build_focused_text_episodes(
@@ -473,20 +380,25 @@ def extract_focused_text_keyboard_episodes(
     max_snapshot_edit_actions: int,
     screen_filter: ScreenSizeFilter | None = None,
 ) -> tuple[list[KeyboardEpisode], dict[str, Any]]:
+    """Build keyboard episodes from contiguous focused accessibility text."""
+    # Segment snapshots by source, screen eligibility, and focused field so a
+    # revisit to the same field becomes a separate learnable edit episode.
     segments = collect_focused_text_snapshot_segments(paths, screen_filter=screen_filter)
     snapshots = [snapshot for segment in segments for snapshot in segment]
-    groups = focused_text_snapshot_groups(snapshots)
+    identities = {snapshot.identity for snapshot in snapshots}
 
     requested = (accessibility_id or "auto").strip()
     metadata: dict[str, Any] = {
         "focused_text_snapshot_count": len(snapshots),
-        "focused_text_identity_count": len(groups),
+        "focused_text_identity_count": len(identities),
         "focused_text_segment_count": len(segments),
         "requested_accessibility_id": requested,
     }
-    if not groups:
+    if not snapshots:
         return [], metadata
 
+    # The default now trains over all contiguous focused-text fields. A concrete
+    # accessibility id still narrows the corpus for targeted experiments.
     if requested and requested not in {"auto", "all"}:
         selected_segments = [
             segment
@@ -507,6 +419,8 @@ def extract_focused_text_keyboard_episodes(
     episodes: list[KeyboardEpisode] = []
     episode_identities: set[str] = set()
     for segment in selected_segments:
+        # Each segment is already contiguous in a single field, so value changes
+        # inside it can be converted into terminal edit actions directly.
         segment_episodes = build_focused_text_episodes(
             segment,
             gap_ms=gap_ms,
@@ -525,117 +439,3 @@ def extract_focused_text_keyboard_episodes(
     metadata["focused_text_episode_identity_count"] = len(episode_identities)
     metadata["focused_text_episode_count"] = len(episodes)
     return episodes, metadata
-
-
-def snap_regular_key(x: float, y: float, tolerance: float) -> str | None:
-    best_token: str | None = None
-    best_distance = float("inf")
-    for key_def in KEY_LAYOUT:
-        distance = math.hypot(x - key_def.x, y - key_def.y)
-        if distance < best_distance:
-            best_distance = distance
-            best_token = key_def.token
-    return best_token if best_distance <= tolerance else None
-
-
-def snap_backspace(x: float, y: float, tolerance: float) -> str | None:
-    return KEY_BACKSPACE if math.hypot(x - BACKSPACE_POS[0], y - BACKSPACE_POS[1]) <= tolerance else None
-
-
-def reconstruct_keyboard_episode(
-    source: str,
-    sequence: list[dict],
-    start: KeyDef | str,
-    tolerance: float,
-) -> KeyboardEpisode | None:
-    if not sequence:
-        return None
-
-    first = sequence[0]
-    first_offset = as_int(first.get("offsetMs"))
-    if first_offset is None:
-        return None
-
-    if start == KEY_BACKSPACE:
-        prev_x, prev_y = BACKSPACE_POS
-        actions = [KEY_BACKSPACE]
-    else:
-        prev_x, prev_y = start.x, start.y
-        actions = [start.token]
-
-    steps = [KeyStep(dt_ms=0.0, action=actions[0])]
-    previous_offset = first_offset
-
-    for event in sequence[1:]:
-        offset = as_int(event.get("offsetMs"))
-        dx = as_float(event.get("keyDeltaX"))
-        dy = as_float(event.get("keyDeltaY"))
-        if offset is None or dx is None or dy is None:
-            return None
-
-        x = prev_x + dx
-        y = prev_y + dy
-        if event.get("keyClass") == "backspace":
-            action = snap_backspace(x, y, tolerance)
-        else:
-            action = snap_regular_key(x, y, tolerance)
-        if action is None:
-            return None
-
-        steps.append(KeyStep(dt_ms=offset - previous_offset, action=action))
-        actions.append(action)
-        previous_offset = offset
-        if action == KEY_BACKSPACE:
-            prev_x, prev_y = BACKSPACE_POS
-        else:
-            key_def = next(item for item in KEY_LAYOUT if item.token == action)
-            prev_x, prev_y = key_def.x, key_def.y
-
-    return KeyboardEpisode(
-        source=source,
-        final_string=apply_key_actions(actions),
-        steps=tuple(steps),
-    )
-
-
-def extract_keyboard_episodes(
-    paths: list[Path],
-    gap_ms: int,
-    synthetic_per_sequence: int,
-    include_repeats: bool,
-    tolerance: float,
-    seed: int,
-    screen_filter: ScreenSizeFilter | None = None,
-) -> list[KeyboardEpisode]:
-    rng = random.Random(seed)
-    episodes: list[KeyboardEpisode] = []
-    sequences = split_keyboard_sequences(
-        paths,
-        gap_ms=gap_ms,
-        include_repeats=include_repeats,
-        screen_filter=screen_filter,
-    )
-
-    for source, sequence in sequences:
-        if sequence[0].get("keyClass") == "backspace":
-            starts: list[KeyDef | str] = [KEY_BACKSPACE]
-        else:
-            starts = list(KEY_LAYOUT)
-            rng.shuffle(starts)
-
-        accepted = 0
-        seen_final: set[tuple[str, tuple[str, ...]]] = set()
-        for start in starts:
-            episode = reconstruct_keyboard_episode(source, sequence, start, tolerance=tolerance)
-            if episode is None:
-                continue
-            key = (episode.final_string, tuple(step.action for step in episode.steps))
-            if key in seen_final:
-                continue
-            seen_final.add(key)
-            episodes.append(episode)
-            accepted += 1
-            if accepted >= synthetic_per_sequence:
-                break
-
-    return episodes

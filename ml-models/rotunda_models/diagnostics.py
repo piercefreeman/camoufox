@@ -100,12 +100,15 @@ def log_click_rollout_diagnostics(
     click_threshold: float,
     min_dt_ms: float,
 ) -> None:
+    """Roll out click examples, write diagnostics, and optionally log W&B plots."""
     if max_examples <= 0 or not episodes:
         return
 
     examples = episodes[:max_examples]
     was_training = model.training
     model.eval()
+    # Generate one model rollout per held-out example, then restore the caller's
+    # training/eval mode so diagnostics do not affect the training loop.
     records = [
         click_rollout_record(
             model=model,
@@ -129,6 +132,8 @@ def log_click_rollout_diagnostics(
         write_jsonl(diagnostics_path, record)
     log_info(f"click_rollout_diagnostics={diagnostics_path} examples={len(records)}")
 
+    # Summaries use only finite numeric values so skipped or undefined ratios do
+    # not poison aggregate metrics.
     numeric_keys = [
         "distance_px",
         "real_duration_ms",
@@ -162,6 +167,8 @@ def log_click_rollout_diagnostics(
     if wandb_state is None:
         return
 
+    # W&B receives both a table for inspection and plots for the common rollout
+    # questions: timing, duration ratio, and endpoint quality.
     columns = [
         "index",
         "source",
@@ -266,6 +273,7 @@ def log_keyboard_rollout_diagnostics(
     max_examples: int,
     max_steps: int,
 ) -> None:
+    """Roll out keyboard examples, write diagnostics, and optionally log W&B plots."""
     if max_examples <= 0 or not episodes:
         return
 
@@ -275,6 +283,8 @@ def log_keyboard_rollout_diagnostics(
     records: list[dict[str, Any]] = []
     skipped = 0
     for index, episode in enumerate(examples):
+        # Some targets may be unsupported by the checkpoint vocabulary; log the
+        # skip reason instead of failing the whole training run.
         try:
             records.append(
                 keyboard_rollout_record(
@@ -309,6 +319,8 @@ def log_keyboard_rollout_diagnostics(
         write_jsonl(diagnostics_path, record)
     log_info(f"keyboard_rollout_diagnostics={diagnostics_path} examples={len(records)} skipped={skipped}")
 
+    # Exact-match rate is the headline keyboard diagnostic, while timing
+    # summaries make it easier to spot fast/slow rollouts.
     numeric_keys = [
         "target_length",
         "real_duration_ms",
@@ -346,6 +358,8 @@ def log_keyboard_rollout_diagnostics(
     if wandb_state is None:
         return
 
+    # Keep raw examples available in W&B so odd generated sequences can be
+    # inspected alongside the aggregate charts.
     columns = [
         "index",
         "source",

@@ -1,0 +1,202 @@
+openapi: 3.1.0
+info:
+  title: Rotunda ML Data Capture
+  version: 1.0.0
+  description: Recorder NDJSON event contract consumed by the Rotunda ML data pipeline.
+paths: {}
+components:
+  schemas:
+    CaptureEvent:
+      description: One line from a recorder NDJSON data capture file.
+      oneOf:
+        - $ref: "#/components/schemas/SessionStartedEvent"
+        - $ref: "#/components/schemas/SessionStoppedEvent"
+        - $ref: "#/components/schemas/MouseMoveEvent"
+        - $ref: "#/components/schemas/MouseClickEvent"
+        - $ref: "#/components/schemas/KeyboardEvent"
+        - $ref: "#/components/schemas/FocusedElementEvent"
+      discriminator:
+        propertyName: type
+        mapping:
+          session_started: "#/components/schemas/SessionStartedEvent"
+          session_stopped: "#/components/schemas/SessionStoppedEvent"
+          mouse_move: "#/components/schemas/MouseMoveEvent"
+          mouse_click: "#/components/schemas/MouseClickEvent"
+          keyboard: "#/components/schemas/KeyboardEvent"
+          focused_element: "#/components/schemas/FocusedElementEvent"
+
+    SessionStartedEvent:
+      type: object
+      additionalProperties: false
+      properties:
+        type:
+          type: string
+          enum: [session_started]
+        offsetMs:
+          type: integer
+          minimum: 0
+        screenWidth:
+          type: integer
+          minimum: 0
+        screenHeight:
+          type: integer
+          minimum: 0
+      required: [type]
+
+    SessionStoppedEvent:
+      type: object
+      additionalProperties: false
+      properties:
+        type:
+          type: string
+          enum: [session_stopped]
+        offsetMs:
+          type: integer
+          minimum: 0
+        screenWidth:
+          type: integer
+          minimum: 0
+        screenHeight:
+          type: integer
+          minimum: 0
+      required: [type]
+
+    MouseMoveEvent:
+      type: object
+      additionalProperties: false
+      properties:
+        type:
+          type: string
+          enum: [mouse_move]
+        offsetMs:
+          type: integer
+          minimum: 0
+        screenWidth:
+          type: integer
+          minimum: 0
+        screenHeight:
+          type: integer
+          minimum: 0
+        x:
+          type: number
+          description: Absolute pointer x coordinate in screen pixels.
+        y:
+          type: number
+          description: Absolute pointer y coordinate in screen pixels.
+        deltaX:
+          type: number
+          description: Pointer x delta from the previous mouse event.
+        deltaY:
+          type: number
+          description: Pointer y delta from the previous mouse event.
+        dragButton:
+          $ref: "#/components/schemas/MouseButtonOrNone"
+      required: [type, offsetMs, x, y]
+
+    MouseClickEvent:
+      type: object
+      additionalProperties: false
+      properties:
+        type:
+          type: string
+          enum: [mouse_click]
+        offsetMs:
+          type: integer
+          minimum: 0
+        screenWidth:
+          type: integer
+          minimum: 0
+        screenHeight:
+          type: integer
+          minimum: 0
+        x:
+          type: number
+          description: Absolute click x coordinate in screen pixels.
+        y:
+          type: number
+          description: Absolute click y coordinate in screen pixels.
+        button:
+          $ref: "#/components/schemas/MouseButton"
+        clickCount:
+          type: integer
+          minimum: 1
+      required: [type, offsetMs, x, y]
+
+    KeyboardEvent:
+      type: object
+      additionalProperties: false
+      description: Keyboard-triggered accessibility text snapshot in the current recorder format.
+      properties:
+        type:
+          type: string
+          enum: [keyboard]
+        offsetMs:
+          type: integer
+          minimum: 0
+        triggerOffsetMs:
+          type: [integer, "null"]
+          minimum: 0
+        screenWidth:
+          type: integer
+          minimum: 0
+        screenHeight:
+          type: integer
+          minimum: 0
+        focusedElement:
+          $ref: "#/components/schemas/FocusedElement"
+      required: [type, offsetMs, focusedElement]
+
+    FocusedElementEvent:
+      type: object
+      additionalProperties: false
+      properties:
+        type:
+          type: string
+          enum: [focused_element]
+        offsetMs:
+          type: integer
+          minimum: 0
+        triggerOffsetMs:
+          type: [integer, "null"]
+          minimum: 0
+        screenWidth:
+          type: integer
+          minimum: 0
+        screenHeight:
+          type: integer
+          minimum: 0
+        focusedElement:
+          $ref: "#/components/schemas/FocusedElement"
+      required: [type, offsetMs, focusedElement]
+
+    FocusedElement:
+      type: object
+      additionalProperties: false
+      description: Accessibility snapshot for the active editable element.
+      properties:
+        bundleID:
+          type: [string, "null"]
+        processID:
+          type: [integer, "null"]
+        accessibilityID:
+          type: [string, "null"]
+        domID:
+          type: [string, "null"]
+        role:
+          type: [string, "null"]
+        subrole:
+          type: [string, "null"]
+        isPassword:
+          type: boolean
+        valueRedacted:
+          type: boolean
+        value:
+          type: [string, "null"]
+
+    MouseButton:
+      type: string
+      enum: [left, middle, center, right, other]
+
+    MouseButtonOrNone:
+      type: string
+      enum: [none, left, middle, center, right, other]

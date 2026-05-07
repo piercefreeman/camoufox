@@ -21,7 +21,7 @@ pacman := python python-pip p7zip msitools wget aria2 sqlite
         revert edits run bootstrap mozbootstrap dir \
         package-linux package-macos package-windows vcredist_arch patch unpatch \
         workspace check-arg edit-cfg ff-dbg lint lint-pythonlib lint-ml tests update-ubo-assets generate-assets-car \
-        generate-openapi generate-openapi-python generate-openapi-cpp \
+        generate-openapi generate-openapi-python generate-openapi-cpp generate-ml-data-models \
         validate-fingerprint-example verify-patches
 
 DEV_UV := uv run --project . --group dev --locked
@@ -31,6 +31,8 @@ ROTUNDA_UV := uv run --project . --package rotunda --locked
 
 OPENAPI_SCHEMA := schemas/rotunda-profile.openapi.yaml
 PY_OPENAPI_MODELS := pythonlib/rotunda/_generated_profile.py
+ML_DATA_OPENAPI_SCHEMA := schemas/rotunda-ml-data-capture.openapi.yaml
+PY_ML_DATA_MODELS := ml-models/rotunda_models/_generated_data_capture.py
 CPP_OPENAPI_OUT := additions/rotundacfg/generated/profile
 CPP_OPENAPI_TEMPLATES := schemas/openapi-templates/cpp-nlohmann
 OPENAPI_GENERATOR_IMAGE ?= openapitools/openapi-generator-cli:v7.22.0
@@ -64,6 +66,7 @@ help:
 	@echo "  tests           - Runs the Python integration test suites"
 	@echo "  update-ubo-assets - Update the uBOAssets.json file"
 	@echo "  generate-openapi - Generate Python and C++ profile models from OpenAPI schema"
+	@echo "  generate-ml-data-models - Generate ML data capture Pydantic models from OpenAPI schema"
 	@echo "  validate-fingerprint-example - Validate example/fingerprint.json against the OpenAPI schema"
 	@echo "  verify-patches  - Fast Firefox patch verification against the matching source tarball"
 
@@ -271,6 +274,11 @@ generate-openapi-python:
 		--snake-case-field \
 		--extra-fields forbid \
 		--disable-timestamp
+
+generate-ml-data-models:
+	ML_DATA_OPENAPI_SCHEMA=$(ML_DATA_OPENAPI_SCHEMA) \
+	PY_ML_DATA_MODELS=$(PY_ML_DATA_MODELS) \
+	bash ./scripts/generate-ml-data-models.sh
 
 generate-openapi-cpp:
 	rm -rf $(CPP_OPENAPI_OUT)

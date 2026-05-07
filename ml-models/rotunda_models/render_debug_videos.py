@@ -377,24 +377,13 @@ def simulate_keyboard_rows(
 def load_keyboard_val(checkpoint: dict) -> list[train.KeyboardEpisode]:
     config = checkpoint["training_config"]
     paths = train.discover_recording_paths(config["inputs"])
-    if config.get("keyboard_source") == "focused_text":
-        episodes, _ = train.extract_focused_text_keyboard_episodes(
-            paths,
-            gap_ms=int(config.get("gap_ms", 1000)),
-            accessibility_id=str(config.get("keyboard_accessibility_id", "auto")),
-            max_snapshot_edit_actions=int(config.get("keyboard_max_snapshot_edit_actions", 12)),
-            screen_filter=screen_filter_from_config(config),
-        )
-    else:
-        episodes = train.extract_keyboard_episodes(
-            paths,
-            gap_ms=int(config.get("gap_ms", 1000)),
-            synthetic_per_sequence=int(config.get("synthetic_per_sequence", 4)),
-            include_repeats=bool(config.get("include_repeats", False)),
-            tolerance=float(config.get("geometry_tolerance", 0.05)),
-            seed=int(config.get("seed", 13)),
-            screen_filter=screen_filter_from_config(config),
-        )
+    episodes, _ = train.extract_focused_text_keyboard_episodes(
+        paths,
+        gap_ms=int(config.get("gap_ms", 1000)),
+        accessibility_id=str(config.get("keyboard_accessibility_id", "auto")),
+        max_snapshot_edit_actions=int(config.get("keyboard_max_snapshot_edit_actions", 12)),
+        screen_filter=screen_filter_from_config(config),
+    )
     _, val = train.split_items(episodes, float(config.get("val_fraction", 0.15)), int(config.get("seed", 13)))
     return val
 
@@ -590,6 +579,7 @@ def render_keyboard_video(args: argparse.Namespace) -> Path:
 
 
 def build_parser() -> argparse.ArgumentParser:
+    """Build the debug-video console-script parser."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--click-checkpoint", type=Path, default=Path("Training/runs/clicks-20260504-123229/model-best.pt"))
     parser.add_argument("--keyboard-checkpoint", type=Path, default=Path("Training/runs/keyboard-20260504-123059/model-best.pt"))
@@ -622,8 +612,11 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    """Render requested validation debug videos and print their output paths."""
     args = build_parser().parse_args(argv)
     outputs = []
+    # Render mouse and keyboard videos independently so callers can request just
+    # one artifact while sharing the same viewport/video settings.
     if args.only in {"all", "mouse"}:
         outputs.append(render_mouse_video(args))
     if args.only in {"all", "keyboard"}:

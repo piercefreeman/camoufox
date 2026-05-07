@@ -14,12 +14,15 @@ from .types import ScreenSizeFilter
 
 
 class DataSettings(BaseModel):
+    """Recording inputs and event-level corpus filters for an experiment."""
+
     inputs: list[str] = Field(default_factory=lambda: ["recordings"])
     screen_filter: ScreenSizeFilter = Field(default_factory=ScreenSizeFilter)
 
     @field_validator("inputs", mode="before")
     @classmethod
     def normalize_inputs(cls, value):
+        """Accept one input path or a list of input paths from YAML/env."""
         if value is None:
             return ["recordings"]
         if isinstance(value, str):
@@ -28,6 +31,8 @@ class DataSettings(BaseModel):
 
 
 class TrainingSettings(BaseModel):
+    """Model-agnostic optimization and run-output settings."""
+
     output_dir: Path = Path("Training/runs")
     epochs: int = 25
     batch_size: int = 32
@@ -44,6 +49,8 @@ class TrainingSettings(BaseModel):
 
 
 class WandbSettings(BaseModel):
+    """Optional W&B tracking settings mirrored onto the training namespace."""
+
     enabled: bool = False
     project: str | None = None
     entity: str | None = None
@@ -55,6 +62,7 @@ class WandbSettings(BaseModel):
     log_artifacts: bool = True
 
     def to_namespace_fields(self) -> dict[str, object]:
+        """Return flat namespace keys expected by the training/wandb helpers."""
         return {
             "wandb": self.enabled,
             "wandb_project": self.project,
@@ -69,6 +77,8 @@ class WandbSettings(BaseModel):
 
 
 class ClickSettings(BaseModel):
+    """Mouse click extraction, loss weighting, and rollout settings."""
+
     rest_ms: int = 150
     max_duration_ms: int = 2000
     min_distance: float = 8.0
@@ -83,14 +93,11 @@ class ClickSettings(BaseModel):
 
 
 class KeyboardSettings(BaseModel):
+    """Keyboard extraction, decoding, architecture, and loss settings."""
+
     gap_ms: int = 1000
-    synthetic_per_sequence: int = 4
-    geometry_tolerance: float = 0.05
-    include_repeats: bool = False
-    keyboard_text_source: Literal["auto", "focused", "synthetic"] = "auto"
     keyboard_accessibility_id: str | None = "auto"
     keyboard_max_snapshot_edit_actions: int = 12
-    keyboard_sequence_mode: Literal["auto", "constrained", "raw"] = "auto"
     keyboard_min_final_length: int = 1
     keyboard_min_duration_ms: float = 0.0
     char_embed_size: int = 32
@@ -105,6 +112,8 @@ class KeyboardSettings(BaseModel):
 
 
 class TrainingExperimentSettings(BaseSettings):
+    """Top-level YAML/env settings object for a training experiment."""
+
     model_config = SettingsConfigDict(
         env_prefix="ROTUNDA_MODELS_",
         env_nested_delimiter="__",
@@ -121,11 +130,14 @@ class TrainingExperimentSettings(BaseSettings):
 
     @classmethod
     def from_yaml(cls, path: Path) -> TrainingExperimentSettings:
+        """Load an experiment YAML file and resolve relative input paths."""
         with path.open("r", encoding="utf-8") as handle:
             raw = yaml.safe_load(handle) or {}
         if not isinstance(raw, dict):
             raise ValueError(f"{path} must contain a YAML object.")
         settings = cls(**raw)
+        # Treat recording inputs as relative to the YAML file so config/*.yml can
+        # be moved or run from different current working directories.
         config_dir = path.resolve().parent
         settings.data.inputs = [
             str((config_dir / item).resolve()) if not Path(item).is_absolute() else item
@@ -135,9 +147,12 @@ class TrainingExperimentSettings(BaseSettings):
         return settings
 
     def to_namespace(self, task: Literal["clicks", "keyboard"]) -> argparse.Namespace:
+        """Flatten settings into the namespace shape consumed by train_clicks/keyboard."""
         if self.task != "all" and self.task != task:
             raise ValueError(f"Experiment task is {self.task!r}, not {task!r}.")
 
+        # Keep the training functions stable during the CLI-to-settings migration
+        # by projecting nested settings onto their historical flat keys.
         values: dict[str, object] = {
             "task": task,
             "experiment_name": self.name,
@@ -155,4 +170,5 @@ class TrainingExperimentSettings(BaseSettings):
 
 
 def load_experiment_settings(path: Path) -> TrainingExperimentSettings:
+    """Load a YAML-backed training experiment settings object."""
     return TrainingExperimentSettings.from_yaml(path)

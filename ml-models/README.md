@@ -44,15 +44,27 @@ Keyboard actions:
 
 - Input: optional initial string plus final string.
 - Output: a variable-length sequence of `offsetMs`, `dtMs`, and key actions.
-- Training data: focused accessibility text snapshots when available. Training
-  derives edit actions from every valid contiguous accessibility-field run, and
-  treats leaving and later returning to the same field as a separate sequence.
-  If a recording has no focused text values, the trainer falls back to
-  synthetic final strings sampled from recorded physical-key deltas.
+- Training data: focused accessibility text snapshots. Training derives edit
+  actions from every valid contiguous accessibility-field run, and treats
+  leaving and later returning to the same field as a separate sequence.
 
 The default data filter keeps events whose display size looks like a laptop
 screen. Current configs use `1100-1920` by `700-1300` logical pixels and reject
 events without a known screen size.
+
+## Data Capture Contract
+
+Recorder NDJSON rows are defined in `schemas/rotunda-ml-data-capture.openapi.yaml`.
+The ML package consumes generated Pydantic models from
+`rotunda_models/_generated_data_capture.py` rather than open-ended event dicts.
+
+Regenerate the local models from the repository root after changing the schema:
+
+```bash
+bash scripts/generate-ml-data-models.sh
+# or
+make generate-ml-data-models
+```
 
 ## Commands
 

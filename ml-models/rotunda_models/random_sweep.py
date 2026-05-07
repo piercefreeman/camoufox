@@ -42,8 +42,7 @@ DEFAULT_SPACES: dict[str, dict[str, Any]] = {
         "backspace_action_weight": {"type": "uniform", "min": 2.0, "max": 10.0},
         "stop_action_weight": {"type": "uniform", "min": 4.0, "max": 18.0},
         "gap_ms": {"values": [500, 750, 1000, 1500]},
-        "synthetic_per_sequence": {"values": [4, 8, 12, 16, 24]},
-        "geometry_tolerance": {"values": [0.05, 0.08, 0.1]},
+        "keyboard_max_snapshot_edit_actions": {"values": [8, 12, 16, 24]},
         "char_embed_size": {"values": [16, 32, 48]},
         "action_embed_size": {"values": [16, 32, 48]},
     },
@@ -238,6 +237,7 @@ def run_training_trial(
 
 
 def build_parser() -> argparse.ArgumentParser:
+    """Build the W&B sweep console-script parser."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("inputs", nargs="*", default=["recordings"], help="Recording files or directories.")
     parser.add_argument("--task", choices=["all", "clicks", "keyboard"], default="all")
@@ -267,6 +267,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    """Create W&B sweep configs and optionally launch local sweep agents."""
     args = build_parser().parse_args(argv)
     spaces = load_space(args.space)
     selected_tasks = ["clicks", "keyboard"] if args.task == "all" else [args.task]
@@ -275,11 +276,15 @@ def main(argv: list[str] | None = None) -> int:
     sweep_dir.mkdir(parents=True, exist_ok=True)
     training_inputs = args.inputs
     if args.snapshot_inputs and not args.dry_run:
+        # Sweeps should train against immutable inputs so long-running agents do
+        # not observe different corpora if recordings continue to be added.
         training_inputs = snapshot_inputs(args.inputs, sweep_dir)
     log(f"[sweep] local_dir={sweep_dir}")
 
     configs: dict[str, dict[str, Any]] = {}
     for task in selected_tasks:
+        # Persist one sweep config per task so dry runs and created W&B sweeps
+        # are reproducible from local artifacts.
         name = sweep_name(args.sweep_name, task, stamp, multiple_tasks=len(selected_tasks) > 1)
         config = sweep_config_for(
             task=task,
@@ -324,6 +329,8 @@ def main(argv: list[str] | None = None) -> int:
             space: dict[str, Any] = spaces[task],
             group: str = group,
         ) -> None:
+            # W&B agents call a zero-argument function, so bind task-specific
+            # values here before handing control to wandb.agent.
             run_training_trial(
                 task=task,
                 space=space,

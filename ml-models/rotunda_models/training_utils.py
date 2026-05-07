@@ -20,10 +20,12 @@ from .types import KeyboardEpisode, MouseEpisode
 
 
 def move_batch_to_device(batch: dict, device: torch.device) -> dict:
+    """Move tensor values in a dataloader batch onto the training device."""
     return {key: value.to(device) if torch.is_tensor(value) else value for key, value in batch.items()}
 
 
 def aggregate_metrics(records: list[dict[str, float]]) -> dict[str, float]:
+    """Average a list of per-batch metric dictionaries by key."""
     if not records:
         return {}
     keys = records[0].keys()
@@ -31,6 +33,7 @@ def aggregate_metrics(records: list[dict[str, float]]) -> dict[str, float]:
 
 
 def split_items(items: list, val_fraction: float, seed: int) -> tuple[list, list]:
+    """Return deterministic train/validation splits while keeping one train item."""
     shuffled = list(items)
     random.Random(seed).shuffle(shuffled)
     if len(shuffled) < 2:
@@ -41,8 +44,11 @@ def split_items(items: list, val_fraction: float, seed: int) -> tuple[list, list
 
 
 def coordinate_scale_for(episodes: list[MouseEpisode]) -> float:
+    """Find a stable coordinate normalization scale for mouse episodes."""
     max_coord = 1.0
     for episode in episodes:
+        # Include starts, destinations, and all observed positions so both the
+        # model condition and decoder targets share the same normalization.
         max_coord = max(max_coord, abs(episode.start_x), abs(episode.start_y), abs(episode.dst_x), abs(episode.dst_y))
         for step in episode.steps:
             max_coord = max(max_coord, abs(step.x), abs(step.y))
@@ -50,9 +56,12 @@ def coordinate_scale_for(episodes: list[MouseEpisode]) -> float:
 
 
 def build_keyboard_vocabs(episodes: list[KeyboardEpisode]) -> tuple[dict[str, int], dict[str, int]]:
+    """Build character and action vocabularies from keyboard training episodes."""
     chars = set()
     action_chars = {item.token for item in KEY_LAYOUT}
     for episode in episodes:
+        # Text conditions need initial/final characters, while action targets
+        # need physical edits plus the explicit terminal tokens.
         chars.update(episode.initial_string)
         chars.update(episode.final_string)
         for step in episode.steps:
@@ -68,6 +77,7 @@ def build_keyboard_vocabs(episodes: list[KeyboardEpisode]) -> tuple[dict[str, in
 
 
 def keyboard_episode_duration_ms(episode: KeyboardEpisode, sequence_mode: str) -> float:
+    """Return the duration used for keyboard filtering and diagnostics."""
     steps = canonical_keyboard_steps(episode) if sequence_mode == "constrained" else episode.steps
     return sum(step.dt_ms for step in steps)
 
@@ -78,6 +88,7 @@ def filter_keyboard_training_episodes(
     min_final_length: int,
     min_duration_ms: float,
 ) -> list[KeyboardEpisode]:
+    """Drop keyboard episodes that are too short or too quick to train on."""
     filtered = []
     for episode in episodes:
         if len(episode.final_string) < min_final_length:
