@@ -1,0 +1,99 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "rotunda"
+version = "0.1.0"
+description = "A browser built for agents."
+readme = "README.md"
+requires-python = ">=3.10"
+license = "MIT"
+authors = [
+    { name = "Pierce Freeman", email = "pierce@freeman.vc" },
+]
+keywords = [
+    "agents",
+    "fingerprint",
+    "browser",
+    "firefox",
+    "playwright",
+]
+classifiers = [
+    "Topic :: Internet :: WWW/HTTP",
+    "Topic :: Internet :: WWW/HTTP :: Browsers",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+dependencies = [
+    "browserforge>=1.2.4,<2",
+    "inquirer",
+    "language-tags",
+    "lxml",
+    "numpy",
+    "orjson",
+    "platformdirs",
+    "playwright",
+    "pydantic>=2,<3",
+    "pysocks",
+    "pyyaml",
+    "requests",
+    "rich",
+    "rich-click",
+    "screeninfo",
+    "typing_extensions",
+    "ua_parser",
+]
+
+[project.urls]
+Homepage = "https://rotunda.sh"
+Repository = "https://github.com/MonkeySee-AI/rotunda"
+
+[project.optional-dependencies]
+geoip = ["geoip2"]
+gui = ["PySide6"]
+
+[project.scripts]
+rotunda = "rotunda.__main__:cli"
+
+[tool.setuptools]
+include-package-data = true
+
+[tool.setuptools.packages.find]
+include = ["rotunda*"]
+
+[tool.setuptools.package-data]
+rotunda = [
+    "*.cfg",
+    "py.typed",
+]
+"rotunda.assets" = [
+    "*.js",
+    "*.xml",
+    "*.yml",
+]
+"rotunda.gui" = [
+    "assets/*",
+    "qml/*",
+]
+
+[tool.ruff]
+target-version = "py310"
+
+[tool.ruff.lint]
+select = [
+    "E4",
+    "E7",
+    "E9",
+    "F",
+    "I",
+    "B",
+    "UP",
+    "SIM",
+    "RUF",
+    "PIE",
+    "RET",
+]
+ignore = [
+    "B008",
+    "E501",
+]

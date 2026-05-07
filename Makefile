@@ -20,12 +20,19 @@ pacman := python python-pip p7zip msitools wget aria2 sqlite
 .PHONY: help fetch setup setup-minimal clean set-target distclean build package \
         revert edits run bootstrap mozbootstrap dir \
         package-linux package-macos package-windows vcredist_arch patch unpatch \
-        workspace check-arg edit-cfg ff-dbg lint tests update-ubo-assets generate-assets-car \
-        generate-openapi generate-openapi-python generate-openapi-cpp \
+        workspace check-arg edit-cfg ff-dbg lint lint-validate lint-pythonlib lint-pythonlib-validate lint-ml lint-ml-validate tests update-ubo-assets generate-assets-car \
+        generate-openapi generate-openapi-python generate-openapi-cpp generate-ml-data-models \
         validate-fingerprint-example verify-patches
+
+DEV_UV := uv run --project . --group dev --locked
+TESTS_UV := uv run --project . --package rotunda-tests --locked
+PLAYWRIGHT_UV := uv run --project . --package rotunda-tests --group playwright-tests --locked
+ROTUNDA_UV := uv run --project . --package rotunda --locked
 
 OPENAPI_SCHEMA := schemas/rotunda-profile.openapi.yaml
 PY_OPENAPI_MODELS := pythonlib/rotunda/_generated_profile.py
+ML_DATA_OPENAPI_SCHEMA := schemas/rotunda-ml-data-capture.openapi.yaml
+PY_ML_DATA_MODELS := ml-models/rotunda_models/_generated_data_capture.py
 CPP_OPENAPI_OUT := additions/rotundacfg/generated/profile
 CPP_OPENAPI_TEMPLATES := schemas/openapi-templates/cpp-nlohmann
 OPENAPI_GENERATOR_IMAGE ?= openapitools/openapi-generator-cli:v7.22.0
@@ -50,7 +57,8 @@ help:
 	@echo "  package-macos   - Package Rotunda for macOS"
 	@echo "  package-windows - Package Rotunda for Windows"
 	@echo "  run             - Run Rotunda"
-	@echo "  lint            - Run Python static analysis"
+	@echo "  lint            - Run Python lint fixes and static analysis"
+	@echo "  lint-validate   - Run Python static analysis without modifying files"
 	@echo "  edit-cfg        - Edit rotunda.cfg"
 	@echo "  ff-dbg          - Setup vanilla Firefox with minimal patches"
 	@echo "  patch           - Apply a patch"
@@ -59,6 +67,7 @@ help:
 	@echo "  tests           - Runs the Python integration test suites"
 	@echo "  update-ubo-assets - Update the uBOAssets.json file"
 	@echo "  generate-openapi - Generate Python and C++ profile models from OpenAPI schema"
+	@echo "  generate-ml-data-models - Generate ML data capture Pydantic models from OpenAPI schema"
 	@echo "  validate-fingerprint-example - Validate example/fingerprint.json against the OpenAPI schema"
 	@echo "  verify-patches  - Fast Firefox patch verification against the matching source tarball"
 
@@ -219,16 +228,31 @@ workspace:
 	make first-checkpoint || true
 	make patch $(_ARGS)
 
-lint:
-	uv run --group dev --locked ruff check pythonlib/rotunda
-	uv run --group dev --locked ty check pythonlib/rotunda
+lint: lint-pythonlib lint-ml
+
+lint-validate: lint-pythonlib-validate lint-ml-validate
+
+lint-pythonlib:
+	$(DEV_UV) ruff check --fix --config pythonlib/pyproject.toml pythonlib/rotunda
+	$(DEV_UV) ty check pythonlib/rotunda
+
+lint-pythonlib-validate:
+	$(DEV_UV) ruff check --config pythonlib/pyproject.toml pythonlib/rotunda
+	$(DEV_UV) ty check pythonlib/rotunda
+
+lint-ml:
+	$(DEV_UV) ruff check --fix --config ml-models/pyproject.toml ml-models/rotunda_models __tests__/ml_models
+
+lint-ml-validate:
+	$(DEV_UV) ruff check --config ml-models/pyproject.toml ml-models/rotunda_models __tests__/ml_models
 
 tests:
 	ROTUNDA_EXECUTABLE_PATH=$(CURDIR)/$(cf_source_dir)/obj-x86_64-pc-linux-gnu/dist/bin/rotunda-bin \
-		uv run --group dev --group playwright-tests --locked pytest \
+		$(PLAYWRIGHT_UV) pytest \
 			--integration \
 			-vv \
 			$(if $(filter true,$(headful)),, --headless) \
+			__tests__/ml_models/ \
 			__tests__/build-tester/ \
 			__tests__/playwright/async/ \
 			__tests__/service-tester/
@@ -262,6 +286,11 @@ generate-openapi-python:
 		--extra-fields forbid \
 		--disable-timestamp
 
+generate-ml-data-models:
+	ML_DATA_OPENAPI_SCHEMA=$(ML_DATA_OPENAPI_SCHEMA) \
+	PY_ML_DATA_MODELS=$(PY_ML_DATA_MODELS) \
+	bash ./scripts/generate-ml-data-models.sh
+
 generate-openapi-cpp:
 	rm -rf $(CPP_OPENAPI_OUT)
 	$(OPENAPI_GENERATOR) generate \
@@ -274,7 +303,7 @@ generate-openapi-cpp:
 		--additional-properties hideGenerationTimestamp=true,modelPackage=rotundacfg
 
 validate-fingerprint-example:
-	uv run python scripts/validate_fingerprint_example.py
+	$(ROTUNDA_UV) python scripts/validate_fingerprint_example.py
 
 verify-patches:
 	uv run scripts/verify_firefox_patches.py

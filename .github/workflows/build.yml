@@ -377,6 +377,9 @@ jobs:
           enable-cache: true
           cache-dependency-glob: |
             pyproject.toml
+            pythonlib/pyproject.toml
+            ml-models/pyproject.toml
+            __tests__/pyproject.toml
             uv.lock
 
       - name: Download build artifact
@@ -401,14 +404,14 @@ jobs:
           shasum -a 256 dist-artifact/*.zip
 
       - name: Sync integration test environment
-        run: uv sync --group dev --group playwright-tests --locked
+        run: uv sync --package rotunda-tests --group playwright-tests --locked
 
       - name: Install Playwright ffmpeg
-        run: uv run --group dev --group playwright-tests --locked python -m playwright install --force ffmpeg
+        run: uv run --package rotunda-tests --group playwright-tests --locked python -m playwright install --force ffmpeg
 
       - name: Verify Playwright ffmpeg
         run: |
-          uv run --group dev --group playwright-tests --locked python - <<'PY'
+          uv run --package rotunda-tests --group playwright-tests --locked python - <<'PY'
           import re
           import subprocess
           import sys
@@ -442,7 +445,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y unzip
-          uv run --group dev --group playwright-tests --locked playwright install-deps firefox
+          uv run --package rotunda-tests --group playwright-tests --locked playwright install-deps firefox
 
       - name: Resolve Rotunda executable
         id: artifact
@@ -456,7 +459,7 @@ jobs:
         env:
           ROTUNDA_EXECUTABLE_PATH: ${{ steps.artifact.outputs.executable_path }}
         run: |
-          uv run --group dev --group playwright-tests --locked pytest \
+          uv run --package rotunda-tests --group playwright-tests --locked pytest \
             --integration \
             --headless \
             __tests__/build-tester/ \
@@ -498,6 +501,9 @@ jobs:
           enable-cache: true
           cache-dependency-glob: |
             pyproject.toml
+            pythonlib/pyproject.toml
+            ml-models/pyproject.toml
+            __tests__/pyproject.toml
             uv.lock
 
       - name: Update Python package version
@@ -505,7 +511,7 @@ jobs:
         run: uv run .github/scripts/update-python-version.py "${{ github.ref_name }}"
 
       - name: Build Python package
-        run: uv build
+        run: uv build --package rotunda
 
       - name: Upload Python package artifact
         uses: actions/upload-artifact@v4
