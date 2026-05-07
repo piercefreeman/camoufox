@@ -1,3 +1,5 @@
+# Copyright (c) 2026 Pierce Freeman.
+
 import asyncio
 import base64
 import json

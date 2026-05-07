@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Pierce Freeman.
+
 const fs = require('fs/promises');
 const http = require('http');
 const https = require('https');

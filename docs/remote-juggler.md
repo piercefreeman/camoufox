@@ -1,3 +1,5 @@
+# Copyright (c) 2026 Pierce Freeman.
+
 # Remote Juggler
 
 Rotunda can expose Playwright's Firefox Juggler protocol on a local HTTP/WebSocket port. This is useful when one process is responsible for starting the browser and another process connects later to control it.
