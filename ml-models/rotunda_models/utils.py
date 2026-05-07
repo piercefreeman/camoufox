@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-import argparse
 import json
 import math
 import time
 from collections.abc import Iterable
 from dataclasses import asdict, is_dataclass
 from pathlib import Path
+from typing import Any
 
 from pydantic import BaseModel
 from rich.console import Console
@@ -114,8 +114,8 @@ def jsonable(value):
     return str(value)
 
 
-def namespace_config(args: argparse.Namespace) -> dict:
-    """Serialize an argparse namespace while excluding the CLI callback."""
+def namespace_config(args: Any) -> dict:
+    """Serialize a namespace-like settings object while excluding CLI callbacks."""
     return {
         key: jsonable(value)
         for key, value in vars(args).items()

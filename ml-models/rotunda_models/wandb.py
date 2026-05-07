@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import argparse
 import math
 import re
 from pathlib import Path
@@ -25,7 +24,7 @@ def parse_wandb_tags(value: str | list[str] | tuple[str, ...] | None) -> list[st
     return [tag.strip() for tag in raw_tags if tag.strip()]
 
 
-def wandb_requested(args: argparse.Namespace) -> bool:
+def wandb_requested(args: Any) -> bool:
     """Return whether namespace settings request W&B integration."""
     if getattr(args, "wandb_mode", None) == "disabled":
         return False
@@ -53,7 +52,7 @@ def import_wandb():
 
 
 def start_wandb_run(
-    args: argparse.Namespace,
+    args: Any,
     task: str,
     run_dir: Path,
     config: dict,

@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-import argparse
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Literal
 
 import yaml
@@ -146,7 +146,7 @@ class TrainingExperimentSettings(BaseSettings):
         settings.training.output_dir = Path(settings.training.output_dir)
         return settings
 
-    def to_namespace(self, task: Literal["clicks", "keyboard"]) -> argparse.Namespace:
+    def to_namespace(self, task: Literal["clicks", "keyboard"]) -> SimpleNamespace:
         """Flatten settings into the namespace shape consumed by train_clicks/keyboard."""
         if self.task != "all" and self.task != task:
             raise ValueError(f"Experiment task is {self.task!r}, not {task!r}.")
@@ -166,7 +166,7 @@ class TrainingExperimentSettings(BaseSettings):
         else:
             values.update(self.keyboard.model_dump())
         values["output_dir"] = Path(values["output_dir"])
-        return argparse.Namespace(**values)
+        return SimpleNamespace(**values)
 
 
 def load_experiment_settings(path: Path) -> TrainingExperimentSettings:

@@ -3,15 +3,18 @@
 
 from __future__ import annotations
 
-import argparse
 import math
 import subprocess
 from pathlib import Path
+from types import SimpleNamespace
+from typing import Any
 
+import click
 import torch
 from PIL import Image, ImageDraw, ImageFont
 
 from . import train
+from .cli.common import CONTEXT_SETTINGS, PATH_TYPE
 from .constants import (
     BACKSPACE_POS,
     DEFAULT_KEYBOARD_TYPO_MODE_WEIGHTS,
@@ -263,7 +266,7 @@ def render_mouse_frame(
     return image
 
 
-def render_mouse_video(args: argparse.Namespace) -> Path:
+def render_mouse_video(args: Any) -> Path:
     device = torch.device(args.device)
     checkpoint = load_checkpoint(args.click_checkpoint, device)
     model = train.MouseTrajectoryGRU(**checkpoint["model_config"]).to(device)
@@ -528,7 +531,7 @@ def render_keyboard_frame(
     return image
 
 
-def render_keyboard_video(args: argparse.Namespace) -> Path:
+def render_keyboard_video(args: Any) -> Path:
     device = torch.device(args.device)
     checkpoint = load_checkpoint(args.keyboard_checkpoint, device)
     model = train.KeyboardActionGRU(**checkpoint["model_config"]).to(device)
@@ -578,42 +581,8 @@ def render_keyboard_video(args: argparse.Namespace) -> Path:
     return output
 
 
-def build_parser() -> argparse.ArgumentParser:
-    """Build the debug-video console-script parser."""
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--click-checkpoint", type=Path, default=Path("Training/runs/clicks-20260504-123229/model-best.pt"))
-    parser.add_argument("--keyboard-checkpoint", type=Path, default=Path("Training/runs/keyboard-20260504-123059/model-best.pt"))
-    parser.add_argument("--output-dir", type=Path, default=Path("Training/debug_media"))
-    parser.add_argument("--examples", type=int, default=4)
-    parser.add_argument("--fps", type=int, default=30)
-    parser.add_argument("--width", type=int, default=1280)
-    parser.add_argument("--height", type=int, default=720)
-    parser.add_argument("--device", default="cpu")
-    parser.add_argument("--end-hold-ms", type=float, default=500.0)
-    parser.add_argument("--click-max-steps", type=int, default=80)
-    parser.add_argument("--click-threshold", type=float, default=0.98)
-    parser.add_argument("--min-dt-ms", type=float, default=4.0)
-    parser.add_argument("--keyboard-max-steps", type=int, default=80)
-    parser.add_argument("--keyboard-decode-mode", choices=["constrained", "canonical", "unconstrained"], default="constrained")
-    parser.add_argument("--keyboard-sample", action="store_true")
-    parser.add_argument("--keyboard-temperature", type=float, default=1.0)
-    parser.add_argument("--keyboard-structured-extra-steps", type=int, default=6)
-    parser.add_argument("--keyboard-canonical-bias", type=float, default=1.5)
-    parser.add_argument("--keyboard-typo-rate", type=float, default=0.0)
-    parser.add_argument("--keyboard-max-typos", type=int, default=2)
-    parser.add_argument("--keyboard-typo-seed", type=int, default=13)
-    parser.add_argument("--keyboard-typo-mode-weights", default=DEFAULT_KEYBOARD_TYPO_MODE_WEIGHTS)
-    parser.add_argument("--keyboard-max-typo-chars", type=int, default=3)
-    parser.add_argument("--keyboard-max-backtrack-chars", type=int, default=2)
-    parser.add_argument("--keyboard-typo-min-dt-ms", type=float, default=20.0)
-    parser.add_argument("--max-keyboard-example-ms", type=float, default=3500.0)
-    parser.add_argument("--only", choices=["all", "mouse", "keyboard"], default="all")
-    return parser
-
-
-def main(argv: list[str] | None = None) -> int:
+def render_debug_videos(args: Any) -> int:
     """Render requested validation debug videos and print their output paths."""
-    args = build_parser().parse_args(argv)
     outputs = []
     # Render mouse and keyboard videos independently so callers can request just
     # one artifact while sharing the same viewport/video settings.
@@ -623,6 +592,51 @@ def main(argv: list[str] | None = None) -> int:
         outputs.append(render_keyboard_video(args))
     for output in outputs:
         print(output)
+    return 0
+
+
+@click.command(context_settings=CONTEXT_SETTINGS, help=__doc__)
+@click.option("--click-checkpoint", type=PATH_TYPE, default=Path("Training/runs/clicks-20260504-123229/model-best.pt"), show_default=True)
+@click.option("--keyboard-checkpoint", type=PATH_TYPE, default=Path("Training/runs/keyboard-20260504-123059/model-best.pt"), show_default=True)
+@click.option("--output-dir", type=PATH_TYPE, default=Path("Training/debug_media"), show_default=True)
+@click.option("--examples", type=int, default=4, show_default=True)
+@click.option("--fps", type=int, default=30, show_default=True)
+@click.option("--width", type=int, default=1280, show_default=True)
+@click.option("--height", type=int, default=720, show_default=True)
+@click.option("--device", default="cpu", show_default=True)
+@click.option("--end-hold-ms", type=float, default=500.0, show_default=True)
+@click.option("--click-max-steps", type=int, default=80, show_default=True)
+@click.option("--click-threshold", type=float, default=0.98, show_default=True)
+@click.option("--min-dt-ms", type=float, default=4.0, show_default=True)
+@click.option("--keyboard-max-steps", type=int, default=80, show_default=True)
+@click.option("--keyboard-decode-mode", type=click.Choice(["constrained", "canonical", "unconstrained"]), default="constrained", show_default=True)
+@click.option("--keyboard-sample", is_flag=True, default=False)
+@click.option("--keyboard-temperature", type=float, default=1.0, show_default=True)
+@click.option("--keyboard-structured-extra-steps", type=int, default=6, show_default=True)
+@click.option("--keyboard-canonical-bias", type=float, default=1.5, show_default=True)
+@click.option("--keyboard-typo-rate", type=float, default=0.0, show_default=True)
+@click.option("--keyboard-max-typos", type=int, default=2, show_default=True)
+@click.option("--keyboard-typo-seed", type=int, default=13, show_default=True)
+@click.option("--keyboard-typo-mode-weights", default=DEFAULT_KEYBOARD_TYPO_MODE_WEIGHTS, show_default=True)
+@click.option("--keyboard-max-typo-chars", type=int, default=3, show_default=True)
+@click.option("--keyboard-max-backtrack-chars", type=int, default=2, show_default=True)
+@click.option("--keyboard-typo-min-dt-ms", type=float, default=20.0, show_default=True)
+@click.option("--max-keyboard-example-ms", type=float, default=3500.0, show_default=True)
+@click.option("--only", type=click.Choice(["all", "mouse", "keyboard"]), default="all", show_default=True)
+def render_debug_videos_command(**kwargs: Any) -> None:
+    """Render requested validation debug videos and print their output paths."""
+    code = render_debug_videos(SimpleNamespace(**kwargs))
+    if code:
+        raise click.exceptions.Exit(code)
+
+
+def main(argv: list[str] | None = None) -> int:
+    """Dispatch the Click debug-video command."""
+    try:
+        render_debug_videos_command.main(args=argv, prog_name="rotunda-models-render-debug-videos", standalone_mode=False)
+    except click.ClickException as exc:
+        exc.show()
+        return exc.exit_code
     return 0
 
 

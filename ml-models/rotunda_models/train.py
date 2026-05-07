@@ -3,10 +3,11 @@
 
 from __future__ import annotations
 
-import argparse
 import json
 import random
 from pathlib import Path
+from types import SimpleNamespace
+from typing import Any
 
 import torch
 from torch import nn
@@ -62,9 +63,9 @@ from .wandb import (
 
 
 def training_namespace(
-    args: argparse.Namespace | TrainingExperimentSettings,
+    args: Any | TrainingExperimentSettings,
     task: str,
-) -> argparse.Namespace:
+) -> Any:
     """Resolve CLI/config settings into the flat namespace used by trainers."""
     if isinstance(args, TrainingExperimentSettings):
         return args.to_namespace(task)  # type: ignore[arg-type]
@@ -78,7 +79,7 @@ def training_namespace(
     return args
 
 
-def train_experiment(args: argparse.Namespace) -> None:
+def train_experiment(args: Any) -> None:
     """Run the task or tasks declared by a YAML experiment config."""
     settings = load_experiment_settings(args.config)
     # A single config can intentionally train both models; task-specific
@@ -205,7 +206,7 @@ def train_loop(
             wandb_log_artifacts(wandb_state, wandb_task or "cadence", run_dir)
 
 
-def train_clicks(args: argparse.Namespace | TrainingExperimentSettings) -> None:
+def train_clicks(args: Any | TrainingExperimentSettings) -> None:
     """Train the mouse click trajectory model from configured recordings."""
     args = training_namespace(args, "clicks")
     random.seed(args.seed)
@@ -342,7 +343,7 @@ def train_clicks(args: argparse.Namespace | TrainingExperimentSettings) -> None:
         finish_wandb_run(wandb_state)
 
 
-def train_keyboard(args: argparse.Namespace | TrainingExperimentSettings) -> None:
+def train_keyboard(args: Any | TrainingExperimentSettings) -> None:
     """Train the keyboard action model from focused accessibility text."""
     args = training_namespace(args, "keyboard")
     random.seed(args.seed)
@@ -539,7 +540,7 @@ def train_keyboard(args: argparse.Namespace | TrainingExperimentSettings) -> Non
         finish_wandb_run(wandb_state)
 
 
-def inspect_recordings(args: argparse.Namespace) -> None:
+def inspect_recordings(args: Any) -> None:
     """Print corpus event counts and extractable episode counts as JSON."""
     if not hasattr(args, "screen_filter"):
         args.screen_filter = ScreenSizeFilter()
@@ -585,7 +586,7 @@ def inspect_recordings(args: argparse.Namespace) -> None:
         "event_counts": counts,
         "screen_filtered_event_counts": filtered_counts,
         "screen_sizes": screen_counts,
-        "screen_filter": namespace_config(argparse.Namespace(screen_filter=args.screen_filter))["screen_filter"],
+        "screen_filter": namespace_config(SimpleNamespace(screen_filter=args.screen_filter))["screen_filter"],
         "motivated_click_episodes": len(mouse_episodes),
         "focused_text_keyboard_episodes": len(keyboard_episodes),
         "focused_text": focused_meta,
