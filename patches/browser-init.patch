@@ -51,7 +51,7 @@ index 1cfa4b8497..bdf8d7202e 100644
      // If we are given a tab to swap in, take care of it before first paint to
      // avoid an about:blank flash.
      let tabToAdopt = this.getTabToAdopt();
-@@ -345,6 +371,31 @@ var gBrowserInit = {
+@@ -345,6 +371,67 @@ var gBrowserInit = {
        }
      }
  
@@ -60,30 +60,66 @@ index 1cfa4b8497..bdf8d7202e 100644
 +      cursorFollower.id = "cursor-highlighter";
 +      cursorFollower.style.cssText = `
 +      position: fixed;
-+      width: 10px;
-+      height: 10px;
-+      background-color: rgba(255,105,105,0.8);
-+      border-radius: 50%;
++      width: 20px;
++      height: 20px;
 +      pointer-events: none;
 +      z-index: 2147483647;
 +      transform: translate(-50%, -50%);
-+      box-shadow: 
-+      0 0 0 5px rgba(255,105,105,0.5),
-+      0 0 0 10px rgba(255,105,105,0.3),
-+      0 0 0 15px rgba(255,105,105,0.1);
++      transition: left 45ms linear, top 45ms linear;
++      will-change: left, top;
 +      `;
++      let cursorGlyph = document.createElement("div");
++      cursorGlyph.style.cssText = `
++      width: 100%;
++      height: 100%;
++      background: url("chrome://juggler/content/cursor-indicator.svg") center / contain no-repeat;
++      opacity: 0.96;
++      transform-origin: 50% 50%;
++      transition: transform 90ms cubic-bezier(.2, .8, .2, 1), opacity 90ms ease;
++      will-change: transform;
++      `;
++      cursorFollower.appendChild(cursorGlyph);
 +      document.documentElement.appendChild(cursorFollower);
 +      
++      let lastX = null;
++      let lastY = null;
++      let lastAngle = 0;
++      let cursorPressed = false;
++      const renderCursorGlyph = () => {
++        const clickScale = cursorPressed ? 0.88 : 1;
++        cursorGlyph.style.transform = `rotate(${lastAngle}deg) scale(${clickScale})`;
++        cursorGlyph.style.opacity = cursorPressed ? "1" : "0.96";
++      };
 +      window.addEventListener('mousemove', e => {
++        if (lastX !== null && lastY !== null) {
++          const dx = e.clientX - lastX;
++          const dy = e.clientY - lastY;
++          if (Math.hypot(dx, dy) > 0.5) {
++            lastAngle = Math.atan2(dy, dx) * 180 / Math.PI + 90;
++            renderCursorGlyph();
++          }
++        } else {
++          renderCursorGlyph();
++        }
++        lastX = e.clientX;
++        lastY = e.clientY;
 +        cursorFollower.style.left = `${e.clientX}px`;
 +        cursorFollower.style.top = `${e.clientY}px`;
 +      });
++      window.addEventListener('mousedown', () => {
++        cursorPressed = true;
++        renderCursorGlyph();
++      }, true);
++      window.addEventListener('mouseup', () => {
++        cursorPressed = false;
++        renderCursorGlyph();
++      }, true);
 +    }
 +
      // Wait until chrome is painted before executing code not critical to making the window visible
      this._boundDelayedStartup = this._delayedStartup.bind(this);
      window.addEventListener("MozAfterPaint", this._boundDelayedStartup);
-@@ -366,9 +417,152 @@ var gBrowserInit = {
+@@ -366,9 +453,152 @@ var gBrowserInit = {
        )?.removeAttribute("key");
      }
  
