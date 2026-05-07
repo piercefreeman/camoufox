@@ -3,11 +3,36 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import click
 
 from ..runtime_export import export_runtime_checkpoint
 from .common import CONTEXT_SETTINGS, PATH_TYPE
+
+FINAL_OUTPUT_DIR = Path("bundle") / "runtime-models"
+MOUSE_OUTPUT = "mouse.safetensors"
+KEYBOARD_OUTPUT = "keyboard.safetensors"
+MANIFEST_OUTPUT = "runtime-models.json"
+
+
+def _find_repo_root() -> Path:
+    """Locate the repository root for release-bundle exports."""
+    candidates = [Path.cwd(), *Path(__file__).resolve().parents]
+    for candidate in candidates:
+        if (candidate / "bundle").is_dir() and (candidate / "ml-models").is_dir():
+            return candidate
+    return Path.cwd()
+
+
+def _resolve_output_dir(output_dir: Path | None, final: bool) -> Path:
+    if final:
+        if output_dir is not None:
+            raise click.ClickException("--final writes to the browser bundle; omit --output-dir.")
+        return _find_repo_root() / FINAL_OUTPUT_DIR
+    if output_dir is None:
+        raise click.ClickException("Specify --output-dir or --final.")
+    return output_dir
 
 
 @click.command(
@@ -17,14 +42,21 @@ from .common import CONTEXT_SETTINGS, PATH_TYPE
 )
 @click.option("--mouse-checkpoint", type=PATH_TYPE, default=None)
 @click.option("--keyboard-checkpoint", type=PATH_TYPE, default=None)
-@click.option("--output-dir", type=PATH_TYPE, required=True)
-@click.option("--mouse-output", default="mouse.safetensors", show_default=True)
-@click.option("--keyboard-output", default="keyboard.safetensors", show_default=True)
+@click.option("--output-dir", type=PATH_TYPE, default=None)
+@click.option(
+    "--final",
+    "final",
+    is_flag=True,
+    help=f"Export to {FINAL_OUTPUT_DIR} for browser release packaging.",
+)
+@click.option("--mouse-output", default=MOUSE_OUTPUT, show_default=True)
+@click.option("--keyboard-output", default=KEYBOARD_OUTPUT, show_default=True)
 @click.option("--device", default=None)
 def export_runtime_command(
     mouse_checkpoint,
     keyboard_checkpoint,
     output_dir,
+    final: bool,
     mouse_output: str,
     keyboard_output: str,
     device: str | None,
@@ -33,6 +65,7 @@ def export_runtime_command(
     outputs = []
     if mouse_checkpoint is None and keyboard_checkpoint is None:
         raise click.ClickException("Specify at least one of --mouse-checkpoint or --keyboard-checkpoint.")
+    output_dir = _resolve_output_dir(output_dir, final)
 
     if mouse_checkpoint is not None:
         outputs.append(
@@ -63,6 +96,6 @@ def export_runtime_command(
         ],
     }
     output_dir.mkdir(parents=True, exist_ok=True)
-    manifest_path = output_dir / "runtime-models.json"
+    manifest_path = output_dir / MANIFEST_OUTPUT
     manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     click.echo(json.dumps({"manifest": str(manifest_path), "artifacts": outputs}, indent=2, sort_keys=True))

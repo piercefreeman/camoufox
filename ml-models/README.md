@@ -226,6 +226,18 @@ uv run --package rotunda-models rotunda-models export-runtime \
   --output-dir Training/runtime
 ```
 
+For release packaging, write the fixed browser-bundle payload names directly:
+
+```bash
+uv run --package rotunda-models rotunda-models export-runtime \
+  --mouse-checkpoint Training/runs/clicks-YYYYMMDD-HHMMSS/model-best.pt \
+  --keyboard-checkpoint Training/runs/keyboard-YYYYMMDD-HHMMSS/model-best.pt \
+  --final
+```
+
+`--final` writes to `bundle/runtime-models/`, which the package targets copy
+into the browser bundle when present.
+
 The command writes compact SafeTensors-compatible binary weight files plus a
 `runtime-models.json` manifest. Point the Rotunda profile at the exported mouse
 model to enable native full-path mouse planning:
