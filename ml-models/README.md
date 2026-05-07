@@ -14,10 +14,10 @@ cd ml-models
 uv run rotunda-models --help
 ```
 
-From the repository root, point `uv` at the subpackage:
+From the repository root, select the workspace package:
 
 ```bash
-uv run --project ml-models rotunda-models --help
+uv run --package rotunda-models rotunda-models --help
 ```
 
 The exposed console scripts are:
@@ -65,18 +65,15 @@ rotunda-models inspect recordings
 Run a YAML-defined experiment from the repository root:
 
 ```bash
-uv run --project ml-models rotunda-models train config/laptop-all.yml
+uv run --package rotunda-models rotunda-models train config/laptop-all.yml
 ```
 
 Run one model family:
 
 ```bash
-uv run --project ml-models rotunda-models train config/laptop-clicks.yml
-uv run --project ml-models rotunda-models train config/laptop-keyboard.yml
+uv run --package rotunda-models rotunda-models train config/laptop-clicks.yml
+uv run --package rotunda-models rotunda-models train config/laptop-keyboard.yml
 ```
-
-The legacy `train-clicks` and `train-keyboard` subcommands remain available for
-quick local overrides, but experiment defaults should live in `config/*.yml`.
 
 Configure validation-based early stopping in YAML:
 
@@ -250,30 +247,4 @@ Preview W&B sweep configs without contacting W&B:
 
 ```bash
 rotunda-models-sweep recordings --task keyboard --trials 3 --dry-run
-```
-
-Each sweep writes:
-
-- `Training/sweeps/wandb-sweep-<timestamp>/meta.json`
-- `Training/sweeps/wandb-sweep-<timestamp>/<task>-sweep.json`
-- `Training/sweeps/wandb-sweep-<timestamp>/input_snapshot/`
-- Per-run local checkpoints under `Training/sweeps/wandb-sweep-<timestamp>/<task>/runs/`
-
-Sweep run metrics, best-run comparisons, and artifacts are tracked in W&B. The
-default sweep objective is `score/loss` with `minimize`.
-
-Inputs are snapshotted by default so every trial sees the same data even if the
-recorder is still appending to `recordings`. Pass `--no-snapshot-inputs` to train
-directly from the provided paths.
-
-To override the default search ranges, pass `--space custom-space.json`. The
-JSON can contain `clicks` and/or `keyboard` objects keyed by CLI parameter name:
-
-```json
-{
-  "keyboard": {
-    "dt_loss_weight": {"type": "loguniform", "min": 4.0, "max": 32.0},
-    "synthetic_per_sequence": {"values": [8, 16, 32]}
-  }
-}
 ```

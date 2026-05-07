@@ -1,0 +1,44 @@
+[project]
+name = "rotunda-tests"
+version = "0.1.0"
+description = "Rotunda repository test suite."
+requires-python = ">=3.10"
+dependencies = [
+    "rotunda",
+    "pytest>=8.4.1",
+    "pytest-asyncio==0.21.2",
+]
+
+[dependency-groups]
+playwright-tests = [
+    "autobahn==23.1.2",
+    "flaky==3.8.1",
+    "Pillow==10.4.0",
+    "pixelmatch==0.3.0",
+    "pyOpenSSL==24.2.1",
+    "pytest-repeat==0.9.3",
+    "pytest-timeout==2.3.1",
+    "pytest-xdist==3.6.1",
+    "service_identity==24.1.0",
+    "twisted==24.7.0",
+]
+
+[tool.uv]
+package = false
+
+[tool.uv.sources]
+rotunda = { workspace = true }
+
+[tool.pytest.ini_options]
+markers = [
+    "integration",
+    "requires_display",
+    "requires_ffmpeg",
+    "skip_browser",
+    "only_browser",
+    "skip_platform",
+    "only_platform",
+]
+junit_family = "xunit2"
+asyncio_mode = "auto"
+testpaths = ["."]

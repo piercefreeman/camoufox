@@ -8,7 +8,7 @@ version = "0.1.0"
 description = "Cadence model training and generation utilities for Rotunda."
 readme = "README.md"
 requires-python = ">=3.10"
-license = { text = "MIT" }
+license = "MIT"
 authors = [
     { name = "Pierce Freeman", email = "pierce@freeman.vc" },
 ]

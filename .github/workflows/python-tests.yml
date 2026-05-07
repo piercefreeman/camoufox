@@ -68,13 +68,16 @@ jobs:
           enable-cache: true
           cache-dependency-glob: |
             pyproject.toml
+            pythonlib/pyproject.toml
+            ml-models/pyproject.toml
+            __tests__/pyproject.toml
             uv.lock
 
       - name: Sync Python dev environment
         run: uv sync --group dev --locked
 
       - name: Run Ruff
-        run: uv run --group dev ruff check pythonlib/rotunda
+        run: uv run --group dev ruff check --config pythonlib/pyproject.toml pythonlib/rotunda
 
   fingerprint-example:
     runs-on: ubuntu-24.04
@@ -95,13 +98,16 @@ jobs:
           enable-cache: true
           cache-dependency-glob: |
             pyproject.toml
+            pythonlib/pyproject.toml
+            ml-models/pyproject.toml
+            __tests__/pyproject.toml
             uv.lock
 
       - name: Sync Python dev environment
         run: uv sync --group dev --locked
 
       - name: Validate fingerprint example
-        run: uv run python scripts/validate_fingerprint_example.py
+        run: uv run --package rotunda --locked python scripts/validate_fingerprint_example.py
 
   ty:
     runs-on: ubuntu-24.04
@@ -122,6 +128,9 @@ jobs:
           enable-cache: true
           cache-dependency-glob: |
             pyproject.toml
+            pythonlib/pyproject.toml
+            ml-models/pyproject.toml
+            __tests__/pyproject.toml
             uv.lock
 
       - name: Sync Python dev environment
@@ -156,10 +165,13 @@ jobs:
           enable-cache: true
           cache-dependency-glob: |
             pyproject.toml
+            pythonlib/pyproject.toml
+            ml-models/pyproject.toml
+            __tests__/pyproject.toml
             uv.lock
 
       - name: Sync Python test environment
-        run: uv sync --group dev --locked
+        run: uv sync --package rotunda-tests --locked
 
       - name: Run Python tests
-        run: uv run --group dev pytest __tests__ --ignore=__tests__/playwright
+        run: uv run --package rotunda-tests --locked pytest __tests__ --ignore=__tests__/playwright

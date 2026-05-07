@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from . import train as training
-from .cli.main import build_parser as build_training_parser
+from .settings import TrainingExperimentSettings
 from .utils import log_labeled
 
 DEFAULT_SPACES: dict[str, dict[str, Any]] = {
@@ -164,8 +164,8 @@ def make_training_args(
     run_output_dir: Path,
     group: str,
 ) -> argparse.Namespace:
-    subcommand = "train-clicks" if task == "clicks" else "train-keyboard"
-    args = build_training_parser().parse_args([subcommand])
+    task_name = "clicks" if task == "clicks" else "keyboard"
+    args = TrainingExperimentSettings(task=task_name).to_namespace(task_name)
     args.inputs = inputs
     args.output_dir = run_output_dir
     args.epochs = sweep_args.epochs

@@ -97,7 +97,7 @@ def main() -> int:
         return 2
 
     python_version = normalize_python_version(sys.argv[1])
-    update_pyproject_version(Path("pyproject.toml"), python_version)
+    update_pyproject_version(Path("pythonlib/pyproject.toml"), python_version)
     write_github_output(python_version)
     print(f"Updated Python package version to {python_version}")
     return 0

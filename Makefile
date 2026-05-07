@@ -20,9 +20,14 @@ pacman := python python-pip p7zip msitools wget aria2 sqlite
 .PHONY: help fetch setup setup-minimal clean set-target distclean build package \
         revert edits run bootstrap mozbootstrap dir \
         package-linux package-macos package-windows vcredist_arch patch unpatch \
-        workspace check-arg edit-cfg ff-dbg lint tests update-ubo-assets generate-assets-car \
+        workspace check-arg edit-cfg ff-dbg lint lint-pythonlib lint-ml tests update-ubo-assets generate-assets-car \
         generate-openapi generate-openapi-python generate-openapi-cpp \
         validate-fingerprint-example verify-patches
+
+DEV_UV := uv run --project . --group dev --locked
+TESTS_UV := uv run --project . --package rotunda-tests --locked
+PLAYWRIGHT_UV := uv run --project . --package rotunda-tests --group playwright-tests --locked
+ROTUNDA_UV := uv run --project . --package rotunda --locked
 
 OPENAPI_SCHEMA := schemas/rotunda-profile.openapi.yaml
 PY_OPENAPI_MODELS := pythonlib/rotunda/_generated_profile.py
@@ -219,13 +224,18 @@ workspace:
 	make first-checkpoint || true
 	make patch $(_ARGS)
 
-lint:
-	uv run --group dev --locked ruff check pythonlib/rotunda
-	uv run --group dev --locked ty check pythonlib/rotunda
+lint: lint-pythonlib lint-ml
+
+lint-pythonlib:
+	$(DEV_UV) ruff check --config pythonlib/pyproject.toml pythonlib/rotunda
+	$(DEV_UV) ty check pythonlib/rotunda
+
+lint-ml:
+	$(DEV_UV) ruff check --config ml-models/pyproject.toml ml-models/rotunda_models ml-models/tests
 
 tests:
 	ROTUNDA_EXECUTABLE_PATH=$(CURDIR)/$(cf_source_dir)/obj-x86_64-pc-linux-gnu/dist/bin/rotunda-bin \
-		uv run --group dev --group playwright-tests --locked pytest \
+		$(PLAYWRIGHT_UV) pytest \
 			--integration \
 			-vv \
 			$(if $(filter true,$(headful)),, --headless) \
@@ -274,7 +284,7 @@ generate-openapi-cpp:
 		--additional-properties hideGenerationTimestamp=true,modelPackage=rotundacfg
 
 validate-fingerprint-example:
-	uv run python scripts/validate_fingerprint_example.py
+	$(ROTUNDA_UV) python scripts/validate_fingerprint_example.py
 
 verify-patches:
 	uv run scripts/verify_firefox_patches.py

@@ -54,7 +54,7 @@ class WandbSettings(BaseModel):
     watch: bool = False
     log_artifacts: bool = True
 
-    def to_legacy_fields(self) -> dict[str, object]:
+    def to_namespace_fields(self) -> dict[str, object]:
         return {
             "wandb": self.enabled,
             "wandb_project": self.project,
@@ -145,7 +145,7 @@ class TrainingExperimentSettings(BaseSettings):
             "screen_filter": self.data.screen_filter,
         }
         values.update(self.training.model_dump())
-        values.update(self.wandb.to_legacy_fields())
+        values.update(self.wandb.to_namespace_fields())
         if task == "clicks":
             values.update(self.clicks.model_dump())
         else:
