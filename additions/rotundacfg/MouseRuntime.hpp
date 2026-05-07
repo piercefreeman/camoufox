@@ -15,6 +15,32 @@ struct MouseTrajectoryPoint {
   int action = 0;
 };
 
+struct MouseRuntimeTraceStep {
+  int step = 0;
+  std::vector<double> previous;
+  std::vector<double> decoderInput;
+  std::vector<double> hidden;
+  std::vector<double> dtHead;
+  std::vector<double> posHead;
+  std::vector<double> actionHead;
+  double stateAlong = 0.0;
+  double statePerp = 0.0;
+  double x = 0.0;
+  double y = 0.0;
+  double dtMs = 0.0;
+  int rawAction = 0;
+  int action = 0;
+  bool terminal = false;
+};
+
+struct MouseRuntimeTrace {
+  bool usedFallback = false;
+  std::vector<double> condition;
+  std::vector<double> embedding;
+  std::vector<MouseRuntimeTraceStep> steps;
+  std::vector<MouseTrajectoryPoint> plan;
+};
+
 class MouseRuntimeModel {
  public:
   static std::optional<MouseRuntimeModel> Load(const std::string& path);
@@ -27,6 +53,11 @@ class MouseRuntimeModel {
                                            int maxSteps = 128,
                                            double clickThreshold = 0.98,
                                            double minDtMs = 4.0) const;
+  MouseRuntimeTrace traceDecode(double fromX, double fromY, double toX,
+                                double toY, bool clickAtEnd,
+                                int maxSteps = 128,
+                                double clickThreshold = 0.98,
+                                double minDtMs = 4.0) const;
 
  private:
   explicit MouseRuntimeModel(RuntimeWeights weights);
@@ -42,6 +73,11 @@ class MouseRuntimeModel {
                                              double toX, double toY,
                                              bool clickAtEnd,
                                              int maxSteps) const;
+  MouseRuntimeTrace decodeInternal(double fromX, double fromY, double toX,
+                                   double toY, bool clickAtEnd,
+                                   int maxSteps, double clickThreshold,
+                                   double minDtMs,
+                                   bool collectTrace) const;
 
   RuntimeWeights m_weights;
   nlohmann::json m_metadata;

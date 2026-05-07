@@ -294,6 +294,24 @@ std::vector<KeyboardRuntimeRow> KeyboardRuntimeModel::decode(
     const std::string& initialString, const std::string& finalString,
     int maxSteps, const std::string& decodeMode, int structuredExtraSteps,
     double canonicalBias) const {
+  return decodeInternal(initialString, finalString, maxSteps, decodeMode,
+                        structuredExtraSteps, canonicalBias, false)
+      .rows;
+}
+
+KeyboardRuntimeTrace KeyboardRuntimeModel::traceDecode(
+    const std::string& initialString, const std::string& finalString,
+    int maxSteps, const std::string& decodeMode, int structuredExtraSteps,
+    double canonicalBias) const {
+  return decodeInternal(initialString, finalString, maxSteps, decodeMode,
+                        structuredExtraSteps, canonicalBias, true);
+}
+
+KeyboardRuntimeTrace KeyboardRuntimeModel::decodeInternal(
+    const std::string& initialString, const std::string& finalString,
+    int maxSteps, const std::string& decodeMode, int structuredExtraSteps,
+    double canonicalBias, bool collectTrace) const {
+  KeyboardRuntimeTrace trace;
   if (!m_loaded || maxSteps <= 0) return {};
   if (decodeMode != "constrained" && decodeMode != "canonical") return {};
   if (!targetSupported(finalString)) return {};
@@ -304,8 +322,12 @@ std::vector<KeyboardRuntimeRow> KeyboardRuntimeModel::decode(
                               ? std::min(maxSteps, minSteps + structuredExtraSteps)
                               : maxSteps;
 
+  if (collectTrace) {
+    trace.conditionIds = encodeCondition(initialString, finalString);
+  }
   std::vector<double> condition = encode(initialString, finalString);
   if (condition.empty()) return {};
+  if (collectTrace) trace.condition = condition;
   std::vector<std::vector<double>> hidden(
       static_cast<size_t>(m_layers), condition);
 
@@ -327,6 +349,17 @@ std::vector<KeyboardRuntimeRow> KeyboardRuntimeModel::decode(
     input.insert(input.end(), actionEmbedding.begin(), actionEmbedding.end());
     input.insert(input.end(), nextCharEmbedding.begin(), nextCharEmbedding.end());
     input.push_back(previousDt);
+    KeyboardRuntimeTraceStep traceStep;
+    if (collectTrace) {
+      traceStep.step = step;
+      traceStep.textBefore = text;
+      traceStep.nextChar = next;
+      traceStep.actionEmbedding = actionEmbedding;
+      traceStep.nextCharEmbedding = nextCharEmbedding;
+      traceStep.decoderInput = input;
+      traceStep.previousActionId = previousActionId;
+      traceStep.previousDt = previousDt;
+    }
 
     for (int layer = 0; layer < m_layers; ++layer) {
       std::vector<double> nextHidden =
@@ -340,19 +373,27 @@ std::vector<KeyboardRuntimeRow> KeyboardRuntimeModel::decode(
     std::vector<double> actionHead =
         linear(input, "action_head.weight", "action_head.bias");
     if (dtHead.empty() || actionHead.empty()) return {};
+    if (collectTrace) {
+      traceStep.hidden = input;
+      traceStep.dtHead = dtHead;
+      traceStep.actionHead = actionHead;
+    }
 
     std::string action;
     int selectedActionId = -1;
+    int preferredId = -1;
     std::string stepKind = "target";
     if (decodeMode == "canonical") {
       action = constrainedAction(finalString, text);
       selectedActionId = actionId(action);
+      preferredId = selectedActionId;
       stepKind = action == kBackspace ? "repair" : "target";
     } else {
       int remaining = std::max(0, effectiveMaxSteps - static_cast<int>(rows.size()) - 1);
       std::vector<int> valid = structuredActionIds(finalString, text, remaining);
       std::string preferred = constrainedAction(finalString, text);
-      int preferredId = actionId(preferred);
+      preferredId = actionId(preferred);
+      if (collectTrace) traceStep.validActionIds = valid;
       double bestLogit = -std::numeric_limits<double>::infinity();
       for (int id : valid) {
         if (id < 0 || static_cast<size_t>(id) >= actionHead.size()) continue;
@@ -379,16 +420,34 @@ std::vector<KeyboardRuntimeRow> KeyboardRuntimeModel::decode(
     if (selectedActionId < 0) return {};
     double dtMs = logToDt(dtHead[0]);
     offset += dtMs;
-    if (action == kStop) break;
+    if (collectTrace) {
+      traceStep.selectedActionId = selectedActionId;
+      traceStep.preferredActionId = preferredId;
+      traceStep.offsetMs = offset;
+      traceStep.dtMs = dtMs;
+      traceStep.action = action;
+      traceStep.stepKind = stepKind;
+      traceStep.textAfter = text;
+      traceStep.terminal = action == kStop;
+    }
+    if (action == kStop) {
+      if (collectTrace) trace.steps.push_back(std::move(traceStep));
+      break;
+    }
 
     text = applyActionCopy(text, action);
     rows.push_back({offset, dtMs, action, text, stepKind});
+    if (collectTrace) {
+      traceStep.textAfter = text;
+      trace.steps.push_back(std::move(traceStep));
+    }
     previousActionId = selectedActionId;
     previousDt = dtHead[0];
   }
 
   if (text != finalString) return {};
-  return rows;
+  trace.rows = std::move(rows);
+  return trace;
 }
 
 }  // namespace rotundacfg

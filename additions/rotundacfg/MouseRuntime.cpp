@@ -187,12 +187,37 @@ std::vector<MouseTrajectoryPoint> MouseRuntimeModel::fallback(
 std::vector<MouseTrajectoryPoint> MouseRuntimeModel::decode(
     double fromX, double fromY, double toX, double toY, bool clickAtEnd,
     int maxSteps, double clickThreshold, double minDtMs) const {
+  return decodeInternal(fromX, fromY, toX, toY, clickAtEnd, maxSteps,
+                        clickThreshold, minDtMs, false)
+      .plan;
+}
+
+MouseRuntimeTrace MouseRuntimeModel::traceDecode(
+    double fromX, double fromY, double toX, double toY, bool clickAtEnd,
+    int maxSteps, double clickThreshold, double minDtMs) const {
+  return decodeInternal(fromX, fromY, toX, toY, clickAtEnd, maxSteps,
+                        clickThreshold, minDtMs, true);
+}
+
+MouseRuntimeTrace MouseRuntimeModel::decodeInternal(
+    double fromX, double fromY, double toX, double toY, bool clickAtEnd,
+    int maxSteps, double clickThreshold, double minDtMs,
+    bool collectTrace) const {
+  MouseRuntimeTrace trace;
+  auto fallbackTrace = [&](std::vector<MouseTrajectoryPoint> plan) {
+    trace.usedFallback = true;
+    trace.plan = std::move(plan);
+    return trace;
+  };
+
   if (fromX == toX && fromY == toY) {
-    return {{toX, toY, 0.0, clickAtEnd ? kLeftClickAction : kMoveAction}};
+    trace.plan = {{toX, toY, 0.0,
+                   clickAtEnd ? kLeftClickAction : kMoveAction}};
+    return trace;
   }
 
   if (m_positionFrame != "goal_relative_delta") {
-    return fallback(fromX, fromY, toX, toY, clickAtEnd, maxSteps);
+    return fallbackTrace(fallback(fromX, fromY, toX, toY, clickAtEnd, maxSteps));
   }
 
   double dx = toX - fromX;
@@ -203,8 +228,12 @@ std::vector<MouseTrajectoryPoint> MouseRuntimeModel::decode(
       fromX / scale, fromY / scale, toX / scale, toY / scale,
       dx / scale,    dy / scale,    distance / scale,
   };
+  if (collectTrace) trace.condition = condition;
   std::vector<double> embedding = conditionEmbedding(condition);
-  if (embedding.empty()) return fallback(fromX, fromY, toX, toY, clickAtEnd, maxSteps);
+  if (embedding.empty()) {
+    return fallbackTrace(fallback(fromX, fromY, toX, toY, clickAtEnd, maxSteps));
+  }
+  if (collectTrace) trace.embedding = embedding;
 
   std::vector<std::vector<double>> hidden(
       static_cast<size_t>(m_layers), embedding);
@@ -219,9 +248,17 @@ std::vector<MouseTrajectoryPoint> MouseRuntimeModel::decode(
   for (int step = 0; step < maxSteps; ++step) {
     std::vector<double> input = embedding;
     input.insert(input.end(), previous.begin(), previous.end());
+    MouseRuntimeTraceStep traceStep;
+    if (collectTrace) {
+      traceStep.step = step;
+      traceStep.previous = previous;
+      traceStep.decoderInput = input;
+    }
     for (int layer = 0; layer < m_layers; ++layer) {
       std::vector<double> next = gruCell(input, hidden[static_cast<size_t>(layer)], layer);
-      if (next.empty()) return fallback(fromX, fromY, toX, toY, clickAtEnd, maxSteps);
+      if (next.empty()) {
+        return fallbackTrace(fallback(fromX, fromY, toX, toY, clickAtEnd, maxSteps));
+      }
       hidden[static_cast<size_t>(layer)] = next;
       input = next;
     }
@@ -231,10 +268,11 @@ std::vector<MouseTrajectoryPoint> MouseRuntimeModel::decode(
     std::vector<double> actionHead =
         linear(input, "action_head.weight", "action_head.bias");
     if (dtHead.empty() || posHead.size() != 2 || actionHead.empty()) {
-      return fallback(fromX, fromY, toX, toY, clickAtEnd, maxSteps);
+      return fallbackTrace(fallback(fromX, fromY, toX, toY, clickAtEnd, maxSteps));
     }
 
-    int actionId = argmax(actionHead);
+    int rawActionId = argmax(actionHead);
+    int actionId = rawActionId;
     double dtMs = logToDt(dtHead[0]);
     if (!rows.empty()) dtMs = std::max(dtMs, minDtMs);
     offset += dtMs;
@@ -260,6 +298,21 @@ std::vector<MouseTrajectoryPoint> MouseRuntimeModel::decode(
       y = toY;
     }
     rows.push_back({x, y, dtMs, actionId});
+    if (collectTrace) {
+      traceStep.hidden = input;
+      traceStep.dtHead = dtHead;
+      traceStep.posHead = posHead;
+      traceStep.actionHead = actionHead;
+      traceStep.stateAlong = stateAlong;
+      traceStep.statePerp = statePerp;
+      traceStep.x = x;
+      traceStep.y = y;
+      traceStep.dtMs = dtMs;
+      traceStep.rawAction = rawActionId;
+      traceStep.action = actionId;
+      traceStep.terminal = terminal;
+      trace.steps.push_back(std::move(traceStep));
+    }
     if (terminal) break;
 
     std::fill(previous.begin(), previous.end(), 0.0);
@@ -272,7 +325,8 @@ std::vector<MouseTrajectoryPoint> MouseRuntimeModel::decode(
   if (rows.empty() || rows.back().x != toX || rows.back().y != toY) {
     rows.push_back({toX, toY, minDtMs, clickAtEnd ? kLeftClickAction : kMoveAction});
   }
-  return rows;
+  trace.plan = std::move(rows);
+  return trace;
 }
 
 std::vector<MouseTrajectoryPoint> MouseRuntimeModel::GenerateFromConfig(

@@ -17,11 +17,45 @@ struct KeyboardRuntimeRow {
   std::string stepKind;
 };
 
+struct KeyboardRuntimeTraceStep {
+  int step = 0;
+  std::string textBefore;
+  std::string nextChar;
+  std::vector<double> actionEmbedding;
+  std::vector<double> nextCharEmbedding;
+  std::vector<double> decoderInput;
+  std::vector<double> hidden;
+  std::vector<double> dtHead;
+  std::vector<double> actionHead;
+  std::vector<int> validActionIds;
+  int previousActionId = 0;
+  int selectedActionId = -1;
+  int preferredActionId = -1;
+  double previousDt = 0.0;
+  double offsetMs = 0.0;
+  double dtMs = 0.0;
+  std::string action;
+  std::string textAfter;
+  std::string stepKind;
+  bool terminal = false;
+};
+
+struct KeyboardRuntimeTrace {
+  std::vector<int> conditionIds;
+  std::vector<double> condition;
+  std::vector<KeyboardRuntimeTraceStep> steps;
+  std::vector<KeyboardRuntimeRow> rows;
+};
+
 class KeyboardRuntimeModel {
  public:
   static std::optional<KeyboardRuntimeModel> Load(const std::string& path);
 
   std::vector<KeyboardRuntimeRow> decode(
+      const std::string& initialString, const std::string& finalString,
+      int maxSteps = 256, const std::string& decodeMode = "constrained",
+      int structuredExtraSteps = 6, double canonicalBias = 1.5) const;
+  KeyboardRuntimeTrace traceDecode(
       const std::string& initialString, const std::string& finalString,
       int maxSteps = 256, const std::string& decodeMode = "constrained",
       int structuredExtraSteps = 6, double canonicalBias = 1.5) const;
@@ -60,6 +94,10 @@ class KeyboardRuntimeModel {
                                const std::string& text) const;
   std::string applyActionCopy(const std::string& text,
                               const std::string& action) const;
+  KeyboardRuntimeTrace decodeInternal(
+      const std::string& initialString, const std::string& finalString,
+      int maxSteps, const std::string& decodeMode, int structuredExtraSteps,
+      double canonicalBias, bool collectTrace) const;
 
   RuntimeWeights m_weights;
   nlohmann::json m_metadata;
