@@ -13,10 +13,14 @@ from playwright.sync_api import (
 
 from rotunda.virtdisplay import VirtualDisplay
 
+from . import remote_juggler as _remote_juggler
 from .debug_dump import attach_debug_metadata, install_sync_context_debug_dump
 from .exceptions import InvalidProxy
 from .fingerprints import _derive_browser_major_version, generate_context_fingerprint
 from .utils import launch_options, sync_attach_vd
+
+ConnectOverRemoteJuggler = _remote_juggler.ConnectOverRemoteJuggler
+connect_over_remote_juggler = _remote_juggler.connect_over_remote_juggler
 
 
 class Rotunda(PlaywrightContextManager):

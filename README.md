@@ -39,6 +39,7 @@ with sync_playwright() as playwright:
 You can also drive Rotunda directly from the command line with `uvx`, without adding it to a project first. The agent commands keep browser profiles, daemon sessions, and short resource indexes under `~/.rotunda`, so later `uvx rotunda ...` calls can attach to the same profile.
 
 For the daemon, resource-index, heartbeat, and singleton process model behind these commands, see [Agent CLI Architecture](docs/agent-cli-architecture.md).
+For manually launching a browser first and connecting to it from another local process, see [Remote Juggler](docs/remote-juggler.md).
 
 First install the active browser build and create a profile:
 
