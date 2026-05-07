@@ -100,6 +100,7 @@ class KeyboardSettings(BaseModel):
     keyboard_max_snapshot_edit_actions: int = 12
     keyboard_min_final_length: int = 1
     keyboard_min_duration_ms: float = 0.0
+    keyboard_max_condition_length: int | None = None
     char_embed_size: int = 32
     action_embed_size: int = 32
     dt_loss_weight: float = 1.0

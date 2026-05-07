@@ -41,6 +41,19 @@ components:
         screenHeight:
           type: integer
           minimum: 0
+        keyboardGeometry:
+          type: string
+        mouseCoordinates:
+          type: string
+        privacyModel:
+          type: string
+        schemaVersion:
+          type: integer
+          minimum: 0
+        sessionID:
+          type: string
+        startedAtUTC:
+          type: string
       required: [type]
 
     SessionStoppedEvent:
@@ -59,6 +72,8 @@ components:
         screenHeight:
           type: integer
           minimum: 0
+        reason:
+          type: string
       required: [type]
 
     MouseMoveEvent:
@@ -142,9 +157,19 @@ components:
         screenHeight:
           type: integer
           minimum: 0
+        keyClass:
+          type: string
+        keyDeltaX:
+          type: number
+        keyDeltaY:
+          type: number
+        keyDistance:
+          type: number
+        isRepeat:
+          type: boolean
         focusedElement:
           $ref: "#/components/schemas/FocusedElement"
-      required: [type, offsetMs, focusedElement]
+      required: [type, offsetMs]
 
     FocusedElementEvent:
       type: object
@@ -192,6 +217,22 @@ components:
           type: boolean
         value:
           type: [string, "null"]
+        frame:
+          $ref: "#/components/schemas/ElementFrame"
+
+    ElementFrame:
+      type: object
+      additionalProperties: false
+      description: Screen-space accessibility frame for the active editable element.
+      properties:
+        x:
+          type: number
+        y:
+          type: number
+        width:
+          type: number
+        height:
+          type: number
 
     MouseButton:
       type: string

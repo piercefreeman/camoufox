@@ -41,6 +41,7 @@ from .training_utils import (
     build_keyboard_vocabs,
     coordinate_scale_for,
     filter_keyboard_training_episodes,
+    keyboard_condition_length,
     move_batch_to_device,
     split_items,
 )
@@ -376,24 +377,33 @@ def train_keyboard(args: Any | TrainingExperimentSettings) -> None:
         f"snapshots={focused_text_meta.get('selected_focused_text_snapshots', 0)}"
     )
     vocab_episodes = episodes
-    if args.keyboard_min_final_length > 1 or args.keyboard_min_duration_ms > 0:
+    if (
+        args.keyboard_min_final_length > 0
+        or args.keyboard_min_duration_ms > 0
+        or args.keyboard_max_condition_length is not None
+    ):
         before_filter = len(episodes)
         episodes = filter_keyboard_training_episodes(
             episodes,
             sequence_mode=keyboard_sequence_mode,
             min_final_length=args.keyboard_min_final_length,
             min_duration_ms=args.keyboard_min_duration_ms,
+            max_condition_length=args.keyboard_max_condition_length,
         )
         log_info(
             f"filtered_keyboard_episodes={len(episodes)} from={before_filter} "
-            f"min_final_length={args.keyboard_min_final_length} min_duration_ms={args.keyboard_min_duration_ms:g}"
+            f"min_final_length={args.keyboard_min_final_length} "
+            f"min_duration_ms={args.keyboard_min_duration_ms:g} "
+            f"max_condition_length={args.keyboard_max_condition_length or 'none'}"
         )
         if not episodes:
             raise SystemExit("No keyboard episodes remain after the current training filters.")
     lengths = [len(episode.steps) for episode in episodes]
+    condition_lengths = [keyboard_condition_length(episode) for episode in episodes]
     log_info(
         f"episodes={len(episodes)} steps_avg={sum(lengths) / len(lengths):.1f} "
-        f"steps_max={max(lengths)} source=focused_text sequence_mode={keyboard_sequence_mode}"
+        f"steps_max={max(lengths)} condition_max={max(condition_lengths)} "
+        f"source=focused_text sequence_mode={keyboard_sequence_mode}"
     )
 
     # Build vocabularies from the unfiltered candidate set so generation can
