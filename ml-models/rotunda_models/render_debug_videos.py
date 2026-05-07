@@ -19,6 +19,8 @@ from .constants import (
     KEY_LAYOUT,
     KEY_STOP,
 )
+from .generation import decode_keyboard_rows, load_checkpoint, simulate_mouse_click_rows
+from .keyboard_logic import terminal_edit_actions
 
 REAL_COLOR = (37, 99, 235)
 SIM_COLOR = (234, 88, 12)
@@ -28,6 +30,13 @@ BG_COLOR = (248, 250, 252)
 GRID_COLOR = (226, 232, 240)
 KEY_BG = (255, 255, 255)
 KEY_BORDER = (148, 163, 184)
+
+
+def screen_filter_from_config(config: dict) -> train.ScreenSizeFilter | None:
+    raw = config.get("screen_filter")
+    if isinstance(raw, dict):
+        return train.ScreenSizeFilter(**raw)
+    return None
 
 
 class VideoWriter:
@@ -138,7 +147,7 @@ def simulate_mouse_rows(
     click_threshold: float,
     min_dt_ms: float,
 ) -> list[dict]:
-    return train.simulate_mouse_click_rows(
+    return simulate_mouse_click_rows(
         model=model,
         episode=episode,
         coordinate_scale=float(checkpoint["coordinate_scale"]),
@@ -159,6 +168,7 @@ def load_mouse_val(checkpoint: dict) -> list[train.MouseEpisode]:
         rest_ms=int(config.get("rest_ms", 150)),
         max_duration_ms=int(config.get("max_duration_ms", 2000)),
         min_distance=float(config.get("min_distance", 8.0)),
+        screen_filter=screen_filter_from_config(config),
     )
     _, val = train.split_items(episodes, float(config.get("val_fraction", 0.15)), int(config.get("seed", 13)))
     return val
@@ -255,7 +265,7 @@ def render_mouse_frame(
 
 def render_mouse_video(args: argparse.Namespace) -> Path:
     device = torch.device(args.device)
-    checkpoint = train.load_checkpoint(args.click_checkpoint, device)
+    checkpoint = load_checkpoint(args.click_checkpoint, device)
     model = train.MouseTrajectoryGRU(**checkpoint["model_config"]).to(device)
     model.load_state_dict(checkpoint["model_state"])
     model.eval()
@@ -297,7 +307,8 @@ def keyboard_rows(episode: train.KeyboardEpisode) -> list[dict]:
     offset = 0.0
     text: list[str] = list(episode.initial_string)
     rows = []
-    for step in episode.steps:
+    action_count = len(episode.steps)
+    for index, step in enumerate(episode.steps, 1):
         offset += step.dt_ms
         apply_key_action(text, step.action)
         rows.append(
@@ -305,9 +316,19 @@ def keyboard_rows(episode: train.KeyboardEpisode) -> list[dict]:
                 "offsetMs": offset,
                 "dtMs": step.dt_ms,
                 "action": step.action,
+                "actionIndex": index,
+                "actionCount": action_count,
                 "textAfter": "".join(text),
             }
         )
+    return rows
+
+
+def annotate_keyboard_row_numbers(rows: list[dict]) -> list[dict]:
+    action_count = len(rows)
+    for index, row in enumerate(rows, 1):
+        row["actionIndex"] = index
+        row["actionCount"] = action_count
     return rows
 
 
@@ -331,7 +352,7 @@ def simulate_keyboard_rows(
     max_backtrack_chars: int,
     typo_min_dt_ms: float,
 ) -> list[dict]:
-    return train.decode_keyboard_rows(
+    return decode_keyboard_rows(
         checkpoint=checkpoint,
         model=model,
         initial_string=initial_string,
@@ -362,6 +383,7 @@ def load_keyboard_val(checkpoint: dict) -> list[train.KeyboardEpisode]:
             gap_ms=int(config.get("gap_ms", 1000)),
             accessibility_id=str(config.get("keyboard_accessibility_id", "auto")),
             max_snapshot_edit_actions=int(config.get("keyboard_max_snapshot_edit_actions", 12)),
+            screen_filter=screen_filter_from_config(config),
         )
     else:
         episodes = train.extract_keyboard_episodes(
@@ -371,6 +393,7 @@ def load_keyboard_val(checkpoint: dict) -> list[train.KeyboardEpisode]:
             include_repeats=bool(config.get("include_repeats", False)),
             tolerance=float(config.get("geometry_tolerance", 0.05)),
             seed=int(config.get("seed", 13)),
+            screen_filter=screen_filter_from_config(config),
         )
     _, val = train.split_items(episodes, float(config.get("val_fraction", 0.15)), int(config.get("seed", 13)))
     return val
@@ -464,6 +487,16 @@ def recent_action(rows: list[dict], t_ms: float, window_ms: float = 140.0) -> st
     return None
 
 
+def action_number_label(row: dict | None) -> str:
+    if row is None:
+        return "action -/-"
+    action_index = row.get("actionIndex")
+    action_count = row.get("actionCount")
+    if action_index is None or action_count is None:
+        return "action -/-"
+    return f"action {action_index}/{action_count}"
+
+
 def render_keyboard_frame(
     episode_index: int,
     total_examples: int,
@@ -498,15 +531,17 @@ def render_keyboard_frame(
     draw.rounded_rectangle((56, height - 154, width - 56, height - 100), radius=8, fill=(255, 255, 255), outline=GRID_COLOR, width=2)
     draw.rounded_rectangle((56, height - 84, width - 56, height - 30), radius=8, fill=(255, 255, 255), outline=GRID_COLOR, width=2)
     draw_text(draw, (76, height - 142), f"real action: {key_label(real_action)}", fill=REAL_COLOR, font=FONT)
+    draw_text(draw, (76, height - 120), action_number_label(real_current), fill=MUTED_COLOR, font=SMALL_FONT)
     draw_text(draw, (330, height - 142), f"text: {real_text[-80:]}", fill=TEXT_COLOR, font=FONT)
     draw_text(draw, (76, height - 72), f"sim action: {sim_label}", fill=SIM_COLOR, font=FONT)
+    draw_text(draw, (76, height - 50), action_number_label(sim_current), fill=MUTED_COLOR, font=SMALL_FONT)
     draw_text(draw, (330, height - 72), f"text: {sim_text[-80:]}", fill=TEXT_COLOR, font=FONT)
     return image
 
 
 def render_keyboard_video(args: argparse.Namespace) -> Path:
     device = torch.device(args.device)
-    checkpoint = train.load_checkpoint(args.keyboard_checkpoint, device)
+    checkpoint = load_checkpoint(args.keyboard_checkpoint, device)
     model = train.KeyboardActionGRU(**checkpoint["model_config"]).to(device)
     model.load_state_dict(checkpoint["model_state"])
     model.eval()
@@ -526,7 +561,7 @@ def render_keyboard_video(args: argparse.Namespace) -> Path:
                 max_steps=max(
                     args.keyboard_max_steps,
                     len(episode.steps) + 4,
-                    len(train.terminal_edit_actions(episode.initial_string, episode.final_string))
+                    len(terminal_edit_actions(episode.initial_string, episode.final_string))
                     + args.keyboard_structured_extra_steps
                     + (2 * args.keyboard_max_typos * max(1, args.keyboard_max_typo_chars, args.keyboard_max_backtrack_chars)),
                 ),
@@ -543,6 +578,7 @@ def render_keyboard_video(args: argparse.Namespace) -> Path:
                 max_backtrack_chars=args.keyboard_max_backtrack_chars,
                 typo_min_dt_ms=args.keyboard_typo_min_dt_ms,
             )
+            annotate_keyboard_row_numbers(sim)
             duration_ms = max(real[-1]["offsetMs"], sim[-1]["offsetMs"] if sim else 0.0, 500.0) + args.end_hold_ms
             frame_count = max(1, math.ceil((duration_ms / 1000.0) * args.fps))
             for frame in range(frame_count):

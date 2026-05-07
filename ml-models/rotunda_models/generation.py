@@ -215,8 +215,12 @@ def structured_keyboard_action_ids(
     for action, action_id in action_to_id.items():
         if action == KEY_STOP:
             continue
+        if action == KEY_BACKSPACE and (not text or final_string.startswith(current)):
+            continue
         candidate = list(text)
         apply_keyboard_action(candidate, action)
+        if candidate == text:
+            continue
         if minimum_terminal_edit_steps(final_string, candidate) <= remaining_steps_after_action:
             valid.append(int(action_id))
 

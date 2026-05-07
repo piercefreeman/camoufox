@@ -15,9 +15,11 @@ from torch.utils.data import DataLoader
 
 from .constants import MOUSE_ACTIONS
 from .data import (
+    event_screen_size,
     extract_focused_text_keyboard_episodes,
     extract_keyboard_episodes,
     extract_mouse_episodes,
+    screen_filter_allows,
 )
 from .diagnostics import log_click_rollout_diagnostics, log_keyboard_rollout_diagnostics
 from .keyboard_logic import keyboard_episode_transforms_to_final
@@ -33,6 +35,7 @@ from .models.mouse import (
     collate_mouse,
     mouse_loss,
 )
+from .settings import TrainingExperimentSettings, load_experiment_settings
 from .training_utils import (
     aggregate_metrics,
     build_keyboard_vocabs,
@@ -41,7 +44,7 @@ from .training_utils import (
     move_batch_to_device,
     split_items,
 )
-from .types import KeyboardEpisode, WandbState
+from .types import KeyboardEpisode, ScreenSizeFilter, WandbState
 from .utils import (
     discover_recording_paths,
     iter_events,
@@ -58,6 +61,30 @@ from .wandb import (
     wandb_log_artifacts,
     wandb_log_epoch,
 )
+
+
+def training_namespace(
+    args: argparse.Namespace | TrainingExperimentSettings,
+    task: str,
+) -> argparse.Namespace:
+    if isinstance(args, TrainingExperimentSettings):
+        return args.to_namespace(task)  # type: ignore[arg-type]
+    config_path = getattr(args, "config", None)
+    if config_path is not None:
+        return load_experiment_settings(Path(config_path)).to_namespace(task)  # type: ignore[arg-type]
+    if not hasattr(args, "screen_filter"):
+        args.screen_filter = ScreenSizeFilter()
+    if not hasattr(args, "experiment_name"):
+        args.experiment_name = None
+    return args
+
+
+def train_experiment(args: argparse.Namespace) -> None:
+    settings = load_experiment_settings(args.config)
+    if settings.task in {"all", "clicks"}:
+        train_clicks(settings)
+    if settings.task in {"all", "keyboard"}:
+        train_keyboard(settings)
 
 
 def train_loop(
@@ -175,7 +202,8 @@ def train_loop(
             wandb_log_artifacts(wandb_state, wandb_task or "cadence", run_dir)
 
 
-def train_clicks(args: argparse.Namespace) -> None:
+def train_clicks(args: argparse.Namespace | TrainingExperimentSettings) -> None:
+    args = training_namespace(args, "clicks")
     random.seed(args.seed)
     torch.manual_seed(args.seed)
 
@@ -195,6 +223,7 @@ def train_clicks(args: argparse.Namespace) -> None:
         rest_ms=args.rest_ms,
         max_duration_ms=args.max_duration_ms,
         min_distance=args.min_distance,
+        screen_filter=args.screen_filter,
     )
     if not episodes:
         raise SystemExit("No motivated click episodes found with the current filters.")
@@ -309,7 +338,8 @@ def train_clicks(args: argparse.Namespace) -> None:
         finish_wandb_run(wandb_state)
 
 
-def train_keyboard(args: argparse.Namespace) -> None:
+def train_keyboard(args: argparse.Namespace | TrainingExperimentSettings) -> None:
+    args = training_namespace(args, "keyboard")
     random.seed(args.seed)
     torch.manual_seed(args.seed)
 
@@ -333,6 +363,7 @@ def train_keyboard(args: argparse.Namespace) -> None:
             gap_ms=args.gap_ms,
             accessibility_id=args.keyboard_accessibility_id,
             max_snapshot_edit_actions=args.keyboard_max_snapshot_edit_actions,
+            screen_filter=args.screen_filter,
         )
         if focused_episodes:
             episodes = focused_episodes
@@ -353,6 +384,7 @@ def train_keyboard(args: argparse.Namespace) -> None:
             include_repeats=args.include_repeats,
             tolerance=args.geometry_tolerance,
             seed=args.seed,
+            screen_filter=args.screen_filter,
         )
         keyboard_source = "synthetic"
     if not episodes:
@@ -535,23 +567,38 @@ def train_keyboard(args: argparse.Namespace) -> None:
 
 
 def inspect_recordings(args: argparse.Namespace) -> None:
+    if not hasattr(args, "screen_filter"):
+        args.screen_filter = ScreenSizeFilter()
     paths = discover_recording_paths(args.inputs)
     if not paths:
         raise SystemExit("No .ndjson or .jsonl recordings found.")
     counts: dict[str, int] = {}
+    filtered_counts: dict[str, int] = {}
     key_counts: dict[str, int] = {}
-    for _, _, event in iter_events(paths):
+    screen_counts: dict[str, int] = {}
+    current_screen_by_path: dict[str, tuple[int, int] | None] = {}
+    for path, _, event in iter_events(paths):
         event_type = str(event.get("type"))
         counts[event_type] = counts.get(event_type, 0) + 1
         if event_type == "keyboard":
             key_class = str(event.get("keyClass"))
             key_counts[key_class] = key_counts.get(key_class, 0) + 1
+        screen_size = event_screen_size(event)
+        path_key = str(path)
+        if event_type in {"session_started", "session_stopped"}:
+            current_screen_by_path[path_key] = None
+        if screen_size is not None:
+            screen_counts[f"{screen_size[0]}x{screen_size[1]}"] = screen_counts.get(f"{screen_size[0]}x{screen_size[1]}", 0) + 1
+            current_screen_by_path[path_key] = screen_size
+        if screen_filter_allows(args.screen_filter, current_screen_by_path.get(path_key)):
+            filtered_counts[event_type] = filtered_counts.get(event_type, 0) + 1
 
     mouse_episodes = extract_mouse_episodes(
         paths,
         rest_ms=args.rest_ms,
         max_duration_ms=args.max_duration_ms,
         min_distance=args.min_distance,
+        screen_filter=args.screen_filter,
     )
     keyboard_episodes = extract_keyboard_episodes(
         paths,
@@ -560,6 +607,7 @@ def inspect_recordings(args: argparse.Namespace) -> None:
         include_repeats=args.include_repeats,
         tolerance=args.geometry_tolerance,
         seed=args.seed,
+        screen_filter=args.screen_filter,
     )
     focused_episodes: list[KeyboardEpisode] = []
     focused_meta: dict[str, Any] = {}
@@ -569,10 +617,14 @@ def inspect_recordings(args: argparse.Namespace) -> None:
             gap_ms=args.gap_ms,
             accessibility_id=args.keyboard_accessibility_id,
             max_snapshot_edit_actions=args.keyboard_max_snapshot_edit_actions,
+            screen_filter=args.screen_filter,
         )
     result = {
         "files": [str(path) for path in paths],
         "event_counts": counts,
+        "screen_filtered_event_counts": filtered_counts,
+        "screen_sizes": screen_counts,
+        "screen_filter": namespace_config(argparse.Namespace(screen_filter=args.screen_filter))["screen_filter"],
         "keyboard_class_counts": key_counts,
         "motivated_click_episodes": len(mouse_episodes),
         "focused_text_keyboard_episodes": len(focused_episodes),

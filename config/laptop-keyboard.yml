@@ -1,0 +1,53 @@
+name: laptop-keyboard
+task: keyboard
+
+data:
+  inputs:
+    - ../../mouser/recordings
+  screen_filter:
+    enabled: true
+    min_width: 1100
+    max_width: 1920
+    min_height: 700
+    max_height: 1300
+    min_aspect_ratio: 1.2
+    max_aspect_ratio: 2.2
+    require_known: true
+
+training:
+  output_dir: Training/runs
+  epochs: 25
+  batch_size: 32
+  hidden_size: 96
+  layers: 1
+  dropout: 0.0
+  lr: 0.001
+  weight_decay: 0.0001
+  val_fraction: 0.15
+  seed: 13
+  device: null
+  early_stopping_patience: 0
+  early_stopping_min_delta: 0.0
+
+keyboard:
+  gap_ms: 1000
+  synthetic_per_sequence: 4
+  geometry_tolerance: 0.05
+  include_repeats: false
+  keyboard_text_source: auto
+  keyboard_accessibility_id: auto
+  keyboard_max_snapshot_edit_actions: 12
+  keyboard_sequence_mode: auto
+  keyboard_min_final_length: 1
+  keyboard_min_duration_ms: 0.0
+  char_embed_size: 32
+  action_embed_size: 32
+  dt_loss_weight: 1.0
+  keyboard_action_loss_weight: 1.0
+  keyboard_duration_loss_weight: 1.0
+  backspace_action_weight: 4.0
+  stop_action_weight: 8.0
+
+wandb:
+  enabled: false
+  log_artifacts: true

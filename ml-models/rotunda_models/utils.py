@@ -7,8 +7,10 @@ import json
 import math
 import time
 from collections.abc import Iterable
+from dataclasses import asdict, is_dataclass
 from pathlib import Path
 
+from pydantic import BaseModel
 from rich.console import Console
 from rich.text import Text
 
@@ -81,6 +83,10 @@ def write_jsonl(path: Path, record: dict) -> None:
 
 
 def jsonable(value):
+    if isinstance(value, BaseModel):
+        return jsonable(value.model_dump())
+    if is_dataclass(value):
+        return jsonable(asdict(value))
     if isinstance(value, Path):
         return str(value)
     if isinstance(value, str | int | float | bool) or value is None:

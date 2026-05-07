@@ -45,10 +45,14 @@ Keyboard actions:
 - Input: optional initial string plus final string.
 - Output: a variable-length sequence of `offsetMs`, `dtMs`, and key actions.
 - Training data: focused accessibility text snapshots when available. Training
-  selects one focused element identity, derives edit actions from that element's
-  value changes, and avoids mixing text from multiple accessibility IDs. If a
-  recording has no focused text values, the trainer falls back to synthetic
-  final strings sampled from recorded physical-key deltas.
+  derives edit actions from every valid contiguous accessibility-field run, and
+  treats leaving and later returning to the same field as a separate sequence.
+  If a recording has no focused text values, the trainer falls back to
+  synthetic final strings sampled from recorded physical-key deltas.
+
+The default data filter keeps events whose display size looks like a laptop
+screen. Current configs use `1100-1920` by `700-1300` logical pixels and reject
+events without a known screen size.
 
 ## Commands
 
@@ -58,27 +62,28 @@ Inspect available training data:
 rotunda-models inspect recordings
 ```
 
-Train the click model:
+Run a YAML-defined experiment from the repository root:
 
 ```bash
-rotunda-models train-clicks recordings --epochs 25
+uv run --project ml-models rotunda-models train config/laptop-all.yml
 ```
 
-Train the keyboard model:
+Run one model family:
 
 ```bash
-rotunda-models train-keyboard recordings --epochs 25
+uv run --project ml-models rotunda-models train config/laptop-clicks.yml
+uv run --project ml-models rotunda-models train config/laptop-keyboard.yml
 ```
 
-Train with validation-based early stopping:
+The legacy `train-clicks` and `train-keyboard` subcommands remain available for
+quick local overrides, but experiment defaults should live in `config/*.yml`.
 
-```bash
-rotunda-models train-clicks recordings \
-  --epochs 150 --early-stopping-patience 12
+Configure validation-based early stopping in YAML:
 
-rotunda-models train-keyboard recordings \
-  --epochs 100 --early-stopping-patience 6 \
-  --synthetic-per-sequence 16 --hidden-size 128
+```yaml
+training:
+  epochs: 150
+  early_stopping_patience: 12
 ```
 
 Each run writes:
@@ -102,12 +107,10 @@ wandb login
 
 Log a single training run to W&B:
 
-```bash
-rotunda-models train-clicks recordings \
-  --epochs 25 --wandb --wandb-project cadence-models
-
-rotunda-models train-keyboard recordings \
-  --epochs 25 --wandb --wandb-project cadence-models
+```yaml
+wandb:
+  enabled: true
+  project: cadence-models
 ```
 
 Runs still write local checkpoints and `metrics.jsonl`. W&B also logs training
@@ -116,33 +119,35 @@ is available.
 
 Keep W&B logs local:
 
-```bash
-rotunda-models train-clicks recordings \
-  --epochs 25 --wandb --wandb-mode offline
+```yaml
+wandb:
+  enabled: true
+  mode: offline
 ```
 
 Skip model artifact uploads:
 
-```bash
-rotunda-models train-keyboard recordings \
-  --epochs 25 --wandb --no-wandb-log-artifacts
+```yaml
+wandb:
+  enabled: true
+  log_artifacts: false
 ```
 
 Disable rollout diagnostics:
 
-```bash
-rotunda-models train-clicks recordings \
-  --epochs 25 --wandb --wandb-click-rollout-examples 0
-
-rotunda-models train-keyboard recordings \
-  --epochs 25 --wandb --wandb-keyboard-rollout-examples 0
+```yaml
+clicks:
+  wandb_click_rollout_examples: 0
+keyboard:
+  wandb_keyboard_rollout_examples: 0
 ```
 
 Filter out very short keyboard examples for timing-focused training:
 
-```bash
-rotunda-models train-keyboard recordings \
-  --epochs 25 --keyboard-min-final-length 2 --keyboard-min-duration-ms 1
+```yaml
+keyboard:
+  keyboard_min_final_length: 2
+  keyboard_min_duration_ms: 1
 ```
 
 ## Generation

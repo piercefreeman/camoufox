@@ -15,6 +15,9 @@ authors = [
 dependencies = [
     "numpy>=1.26",
     "Pillow>=10",
+    "pydantic>=2.13",
+    "pydantic-settings>=2.8",
+    "PyYAML>=6.0",
     "rich>=13",
     "torch>=2.2",
 ]

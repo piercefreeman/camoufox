@@ -272,25 +272,42 @@ def log_keyboard_rollout_diagnostics(
     examples = episodes[:max_examples]
     was_training = model.training
     model.eval()
-    records = [
-        keyboard_rollout_record(
-            checkpoint=checkpoint,
-            model=model,
-            episode=episode,
-            index=index,
-            device=device,
-            sequence_mode=sequence_mode,
-            max_steps=max_steps,
-        )
-        for index, episode in enumerate(examples)
-    ]
+    records: list[dict[str, Any]] = []
+    skipped = 0
+    for index, episode in enumerate(examples):
+        try:
+            records.append(
+                keyboard_rollout_record(
+                    checkpoint=checkpoint,
+                    model=model,
+                    episode=episode,
+                    index=index,
+                    device=device,
+                    sequence_mode=sequence_mode,
+                    max_steps=max_steps,
+                )
+            )
+        except (SystemExit, RuntimeError, ValueError) as exc:
+            skipped += 1
+            write_jsonl(
+                run_dir / "keyboard_rollout_diagnostics_skipped.jsonl",
+                {
+                    "index": index,
+                    "source": episode.source,
+                    "target": episode.final_string,
+                    "error": str(exc),
+                },
+            )
     if was_training:
         model.train()
+    if not records:
+        log_info(f"keyboard_rollout_diagnostics_skipped={skipped} examples=0")
+        return
 
     diagnostics_path = run_dir / "keyboard_rollout_diagnostics.jsonl"
     for record in records:
         write_jsonl(diagnostics_path, record)
-    log_info(f"keyboard_rollout_diagnostics={diagnostics_path} examples={len(records)}")
+    log_info(f"keyboard_rollout_diagnostics={diagnostics_path} examples={len(records)} skipped={skipped}")
 
     numeric_keys = [
         "target_length",

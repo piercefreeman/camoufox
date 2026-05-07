@@ -1,0 +1,43 @@
+name: laptop-clicks
+task: clicks
+
+data:
+  inputs:
+    - ../../mouser/recordings
+  screen_filter:
+    enabled: true
+    min_width: 1100
+    max_width: 1920
+    min_height: 700
+    max_height: 1300
+    min_aspect_ratio: 1.2
+    max_aspect_ratio: 2.2
+    require_known: true
+
+training:
+  output_dir: Training/runs
+  epochs: 25
+  batch_size: 32
+  hidden_size: 96
+  layers: 1
+  dropout: 0.0
+  lr: 0.001
+  weight_decay: 0.0001
+  val_fraction: 0.15
+  seed: 13
+  device: null
+  early_stopping_patience: 0
+  early_stopping_min_delta: 0.0
+
+clicks:
+  rest_ms: 150
+  max_duration_ms: 2000
+  min_distance: 8.0
+  dt_loss_weight: 1.0
+  pos_loss_weight: 1.0
+  click_action_weight: 8.0
+  click_duration_loss_weight: 0.0
+
+wandb:
+  enabled: false
+  log_artifacts: true

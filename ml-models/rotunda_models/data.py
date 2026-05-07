@@ -17,8 +17,26 @@ from .types import (
     KeyStep,
     MouseEpisode,
     MouseStep,
+    ScreenSizeFilter,
 )
 from .utils import as_float, as_int, iter_events
+
+ScreenSize = tuple[int, int]
+
+
+def event_screen_size(event: dict[str, Any]) -> ScreenSize | None:
+    width = as_int(event.get("screenWidth"))
+    height = as_int(event.get("screenHeight"))
+    if width is None or height is None:
+        return None
+    return width, height
+
+
+def screen_filter_allows(
+    screen_filter: ScreenSizeFilter | None,
+    screen_size: ScreenSize | None,
+) -> bool:
+    return True if screen_filter is None else screen_filter.allows(screen_size)
 
 
 def extract_mouse_episodes(
@@ -26,6 +44,7 @@ def extract_mouse_episodes(
     rest_ms: int,
     max_duration_ms: int,
     min_distance: float,
+    screen_filter: ScreenSizeFilter | None = None,
 ) -> list[MouseEpisode]:
     episodes: list[MouseEpisode] = []
 
@@ -34,6 +53,7 @@ def extract_mouse_episodes(
         pending_start: tuple[float, float] | None = None
         last_mouse_offset: int | None = None
         last_known_pos: tuple[float, float] | None = None
+        current_screen_size: ScreenSize | None = None
 
         for _, _, event in iter_events([path]):
             event_type = event.get("type")
@@ -44,6 +64,15 @@ def extract_mouse_episodes(
                 pending_start = None
                 last_mouse_offset = None
                 last_known_pos = None
+                current_screen_size = None
+                continue
+
+            explicit_screen_size = event_screen_size(event)
+            if explicit_screen_size is not None:
+                current_screen_size = explicit_screen_size
+            if not screen_filter_allows(screen_filter, current_screen_size):
+                pending_moves = []
+                pending_start = None
                 continue
 
             if event_type == "mouse_move":
@@ -135,17 +164,35 @@ def split_keyboard_sequences(
     paths: list[Path],
     gap_ms: int,
     include_repeats: bool,
+    screen_filter: ScreenSizeFilter | None = None,
 ) -> list[tuple[str, list[dict]]]:
     sequences: list[tuple[str, list[dict]]] = []
     for path in paths:
+        source = str(path)
         current: list[dict] = []
         last_offset: int | None = None
+        current_identity: str | None = None
+        current_screen_size: ScreenSize | None = None
+
+        def flush(source: str = source) -> None:
+            nonlocal current, last_offset, current_identity
+            if current:
+                sequences.append((source, current))
+            current = []
+            last_offset = None
+            current_identity = None
+
         for _, _, event in iter_events([path]):
             if event.get("type") in {"session_started", "session_stopped"}:
-                if current:
-                    sequences.append((str(path), current))
-                current = []
-                last_offset = None
+                flush()
+                current_screen_size = None
+                continue
+
+            explicit_screen_size = event_screen_size(event)
+            if explicit_screen_size is not None:
+                current_screen_size = explicit_screen_size
+            if not screen_filter_allows(screen_filter, current_screen_size):
+                flush()
                 continue
 
             if event.get("type") != "keyboard":
@@ -153,24 +200,38 @@ def split_keyboard_sequences(
             if event.get("isRepeat") and not include_repeats:
                 continue
 
+            event_identity: str | None = None
+            focused_element = event.get("focusedElement")
+            if isinstance(focused_element, dict):
+                identity_result = focused_element_identity(focused_element, require_value=False)
+                if identity_result is None:
+                    flush()
+                    continue
+                event_identity = identity_result[0]
+                if current and current_identity is not None and event_identity != current_identity:
+                    flush()
+                current_identity = event_identity
+
             offset = as_int(event.get("offsetMs"))
             if offset is None:
                 continue
             if last_offset is not None and offset - last_offset >= gap_ms and current:
-                sequences.append((str(path), current))
-                current = []
+                flush()
+                current_identity = event_identity
             current.append(event)
             last_offset = offset
 
-        if current:
-            sequences.append((str(path), current))
+        flush()
     return sequences
 
 
-def focused_element_identity(focused_element: dict[str, Any]) -> tuple[str, str | None] | None:
+def focused_element_identity(
+    focused_element: dict[str, Any],
+    require_value: bool = True,
+) -> tuple[str, str | None] | None:
     if focused_element.get("isPassword") or focused_element.get("valueRedacted"):
         return None
-    if focused_element.get("value") is None:
+    if require_value and focused_element.get("value") is None:
         return None
 
     bundle_id = str(focused_element.get("bundleID") or "")
@@ -232,6 +293,57 @@ def collect_focused_text_snapshots(paths: list[Path]) -> list[FocusedTextSnapsho
         if snapshot is not None:
             snapshots.append(snapshot)
     return snapshots
+
+
+def collect_focused_text_snapshot_segments(
+    paths: list[Path],
+    screen_filter: ScreenSizeFilter | None = None,
+) -> list[list[FocusedTextSnapshot]]:
+    segments: list[list[FocusedTextSnapshot]] = []
+    for path in paths:
+        current: list[FocusedTextSnapshot] = []
+        current_identity: str | None = None
+        current_screen_size: ScreenSize | None = None
+
+        def flush() -> None:
+            nonlocal current, current_identity
+            if current:
+                segments.append(current)
+            current = []
+            current_identity = None
+
+        for _, _, event in iter_events([path]):
+            event_type = event.get("type")
+            if event_type in {"session_started", "session_stopped"}:
+                flush()
+                current_screen_size = None
+                continue
+
+            explicit_screen_size = event_screen_size(event)
+            if explicit_screen_size is not None:
+                current_screen_size = explicit_screen_size
+            if not screen_filter_allows(screen_filter, current_screen_size):
+                flush()
+                continue
+
+            snapshot = focused_text_snapshot_from_event(str(path), event)
+            if snapshot is not None:
+                if current and current_identity is not None and snapshot.identity != current_identity:
+                    flush()
+                current_identity = snapshot.identity
+                current.append(snapshot)
+                continue
+
+            focused_element = event.get("focusedElement")
+            if event_type in {"focused_element", "keyboard"} and isinstance(focused_element, dict):
+                identity_result = focused_element_identity(focused_element, require_value=False)
+                if identity_result is None or (
+                    current and current_identity is not None and identity_result[0] != current_identity
+                ):
+                    flush()
+
+        flush()
+    return segments
 
 
 def focused_text_snapshot_groups(snapshots: Iterable[FocusedTextSnapshot]) -> dict[str, list[FocusedTextSnapshot]]:
@@ -359,17 +471,58 @@ def extract_focused_text_keyboard_episodes(
     gap_ms: int,
     accessibility_id: str | None,
     max_snapshot_edit_actions: int,
+    screen_filter: ScreenSizeFilter | None = None,
 ) -> tuple[list[KeyboardEpisode], dict[str, Any]]:
-    snapshots = collect_focused_text_snapshots(paths)
+    segments = collect_focused_text_snapshot_segments(paths, screen_filter=screen_filter)
+    snapshots = [snapshot for segment in segments for snapshot in segment]
     groups = focused_text_snapshot_groups(snapshots)
-    selected_identity, metadata = select_focused_text_identity(groups, accessibility_id)
-    if selected_identity is None:
+
+    requested = (accessibility_id or "auto").strip()
+    metadata: dict[str, Any] = {
+        "focused_text_snapshot_count": len(snapshots),
+        "focused_text_identity_count": len(groups),
+        "focused_text_segment_count": len(segments),
+        "requested_accessibility_id": requested,
+    }
+    if not groups:
         return [], metadata
-    episodes = build_focused_text_episodes(
-        groups[selected_identity],
-        gap_ms=gap_ms,
-        max_snapshot_edit_actions=max_snapshot_edit_actions,
-    )
+
+    if requested and requested not in {"auto", "all"}:
+        selected_segments = [
+            segment
+            for segment in segments
+            if segment
+            and (
+                segment[0].identity == requested
+                or any(snapshot.raw_accessibility_id == requested for snapshot in segment)
+            )
+        ]
+        metadata["selected_accessibility_id_found"] = bool(selected_segments)
+        metadata["selected_focused_text_identity"] = requested
+    else:
+        selected_segments = [segment for segment in segments if segment]
+        metadata["selected_accessibility_id_found"] = True
+        metadata["selected_focused_text_identity"] = "all"
+
+    episodes: list[KeyboardEpisode] = []
+    episode_identities: set[str] = set()
+    for segment in selected_segments:
+        segment_episodes = build_focused_text_episodes(
+            segment,
+            gap_ms=gap_ms,
+            max_snapshot_edit_actions=max_snapshot_edit_actions,
+        )
+        episodes.extend(segment_episodes)
+        if segment_episodes:
+            episode_identities.add(segment[0].identity)
+
+    selected_snapshots = [snapshot for segment in selected_segments for snapshot in segment]
+    raw_ids = sorted({snapshot.raw_accessibility_id for snapshot in selected_snapshots if snapshot.raw_accessibility_id})
+    metadata["selected_accessibility_ids"] = raw_ids
+    metadata["focused_text_segment_count"] = len(segments)
+    metadata["selected_focused_text_segment_count"] = len(selected_segments)
+    metadata["selected_focused_text_snapshots"] = len(selected_snapshots)
+    metadata["focused_text_episode_identity_count"] = len(episode_identities)
     metadata["focused_text_episode_count"] = len(episodes)
     return episodes, metadata
 
@@ -452,10 +605,16 @@ def extract_keyboard_episodes(
     include_repeats: bool,
     tolerance: float,
     seed: int,
+    screen_filter: ScreenSizeFilter | None = None,
 ) -> list[KeyboardEpisode]:
     rng = random.Random(seed)
     episodes: list[KeyboardEpisode] = []
-    sequences = split_keyboard_sequences(paths, gap_ms=gap_ms, include_repeats=include_repeats)
+    sequences = split_keyboard_sequences(
+        paths,
+        gap_ms=gap_ms,
+        include_repeats=include_repeats,
+        screen_filter=screen_filter,
+    )
 
     for source, sequence in sequences:
         if sequence[0].get("keyClass") == "backspace":
