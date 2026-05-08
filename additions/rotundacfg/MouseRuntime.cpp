@@ -4,8 +4,11 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <memory>
 #include <mutex>
+#include <optional>
+#include <random>
 #include <utility>
 
 namespace rotundacfg {
@@ -192,22 +195,27 @@ std::vector<MouseTrajectoryPoint> MouseRuntimeModel::fallback(
 
 std::vector<MouseTrajectoryPoint> MouseRuntimeModel::decode(
     double fromX, double fromY, double toX, double toY, bool clickAtEnd,
-    int maxSteps, double clickThreshold, double minDtMs) const {
+    int maxSteps, double clickThreshold, double minDtMs,
+    double pathCurveSigma, std::uint32_t randomSeed) const {
   return decodeInternal(fromX, fromY, toX, toY, clickAtEnd, maxSteps,
-                        clickThreshold, minDtMs, false)
+                        clickThreshold, minDtMs, pathCurveSigma, randomSeed,
+                        false)
       .plan;
 }
 
 MouseRuntimeTrace MouseRuntimeModel::traceDecode(
     double fromX, double fromY, double toX, double toY, bool clickAtEnd,
-    int maxSteps, double clickThreshold, double minDtMs) const {
+    int maxSteps, double clickThreshold, double minDtMs,
+    double pathCurveSigma, std::uint32_t randomSeed) const {
   return decodeInternal(fromX, fromY, toX, toY, clickAtEnd, maxSteps,
-                        clickThreshold, minDtMs, true);
+                        clickThreshold, minDtMs, pathCurveSigma, randomSeed,
+                        true);
 }
 
 MouseRuntimeTrace MouseRuntimeModel::decodeInternal(
     double fromX, double fromY, double toX, double toY, bool clickAtEnd,
     int maxSteps, double clickThreshold, double minDtMs,
+    double pathCurveSigma, std::uint32_t randomSeed,
     bool collectTrace) const {
   MouseRuntimeTrace trace;
   auto fallbackTrace = [&](std::vector<MouseTrajectoryPoint> plan) {
@@ -249,6 +257,12 @@ MouseRuntimeTrace MouseRuntimeModel::decodeInternal(
   double stateAlong = 0.0;
   double statePerp = 0.0;
   int endpointBudget = endpointStepBudget(distance, maxSteps);
+  double curveBias = 0.0;
+  if (pathCurveSigma > 0.0 && distance > 0.0) {
+    std::mt19937 rng(randomSeed == 0 ? std::random_device{}() : randomSeed);
+    std::normal_distribution<double> curve(0.0, std::min(pathCurveSigma, 0.2));
+    curveBias = curve(rng);
+  }
   std::vector<MouseTrajectoryPoint> rows;
 
   for (int step = 0; step < maxSteps; ++step) {
@@ -289,7 +303,10 @@ MouseRuntimeTrace MouseRuntimeModel::decodeInternal(
     stateAlong = std::min(1.0, stateAlong + guidedDelta);
     double guidedPerp = statePerp + posHead[1];
     double envelope = std::max(0.0, 0.35 * std::sin(kPi * std::max(0.0, std::min(1.0, stateAlong))));
-    statePerp = std::max(-envelope, std::min(envelope, guidedPerp * (1.0 - 0.25 * stateAlong)));
+    double curveOffset = curveBias * std::sin(kPi * std::max(0.0, std::min(1.0, stateAlong)));
+    statePerp = std::max(
+        -envelope,
+        std::min(envelope, (guidedPerp * (1.0 - 0.25 * stateAlong)) + curveOffset));
 
     bool terminal = actionId != kMoveAction || stateAlong >= clickThreshold;
     if (terminal) {
@@ -341,6 +358,7 @@ std::vector<MouseTrajectoryPoint> MouseRuntimeModel::GenerateFromConfig(
   int maxSteps = configInt("humanize.mouseMaxSteps", 128);
   double clickThreshold = configDouble("humanize.mouseClickThreshold", 0.98);
   double minDtMs = configDouble("humanize.mouseMinDtMs", 4.0);
+  double pathCurveSigma = configDouble("humanize.mousePathCurveSigma", 0.04);
 
   static std::once_flag initFlag;
   static std::unique_ptr<MouseRuntimeModel> model;
@@ -356,7 +374,7 @@ std::vector<MouseTrajectoryPoint> MouseRuntimeModel::GenerateFromConfig(
 
   if (model) {
     return model->decode(fromX, fromY, toX, toY, clickAtEnd, maxSteps,
-                         clickThreshold, minDtMs);
+                         clickThreshold, minDtMs, pathCurveSigma);
   }
   MouseRuntimeModel fallbackModel{RuntimeWeights()};
   return fallbackModel.fallback(fromX, fromY, toX, toY, clickAtEnd, maxSteps);

@@ -27,6 +27,8 @@ struct Options {
   int mouseMaxSteps = 128;
   double mouseClickThreshold = 0.98;
   double mouseMinDtMs = 4.0;
+  double mousePathCurveSigma = 0.0;
+  std::uint32_t mouseRandomSeed = 13;
   int keyboardMaxSteps = 256;
   int keyboardStructuredExtraSteps = 6;
   double keyboardCanonicalBias = 3.0;
@@ -74,6 +76,8 @@ int usage(const char* binary) {
       << "  --mouse-max-steps <int>                 default 128\n"
       << "  --mouse-click-threshold <float>         default 0.98\n"
       << "  --mouse-min-dt-ms <float>               default 4.0\n"
+      << "  --mouse-path-curve-sigma <float>        default 0.0\n"
+      << "  --mouse-random-seed <int>               default 13\n"
       << "  --keyboard-max-steps <int>              default 256\n"
       << "  --keyboard-structured-extra-steps <int> default 6\n"
       << "  --keyboard-canonical-bias <float>       default 3.0\n"
@@ -116,6 +120,15 @@ std::optional<Options> parseOptions(int argc, char** argv) {
       auto next = value();
       if (!next) return std::nullopt;
       options.mouseMinDtMs = std::stod(*next);
+    } else if (isOption(arg, "--mouse-path-curve-sigma")) {
+      auto next = value();
+      if (!next) return std::nullopt;
+      options.mousePathCurveSigma = std::stod(*next);
+    } else if (isOption(arg, "--mouse-random-seed")) {
+      auto next = value();
+      if (!next) return std::nullopt;
+      options.mouseRandomSeed =
+          static_cast<std::uint32_t>(std::stoul(*next));
     } else if (isOption(arg, "--keyboard-max-steps")) {
       auto next = value();
       if (!next) return std::nullopt;
@@ -719,6 +732,8 @@ nlohmann::json diagnosticRun(const Options& options) {
       {"mouseMaxSteps", options.mouseMaxSteps},
       {"mouseClickThreshold", options.mouseClickThreshold},
       {"mouseMinDtMs", options.mouseMinDtMs},
+      {"mousePathCurveSigma", options.mousePathCurveSigma},
+      {"mouseRandomSeed", options.mouseRandomSeed},
       {"keyboardMaxSteps", options.keyboardMaxSteps},
       {"keyboardStructuredExtraSteps", options.keyboardStructuredExtraSteps},
       {"keyboardCanonicalBias", options.keyboardCanonicalBias},
@@ -734,6 +749,10 @@ nlohmann::json diagnosticRun(const Options& options) {
   output["metadata"] = {{"mouse", mouseMetadata}, {"keyboard", keyboardMetadata}};
   output["nativeSelection"] = {
       {"mouseAction", "argmax(action_head) with endpoint override"},
+      {"mousePath",
+       options.mousePathCurveSigma > 0.0
+           ? "sampled low-frequency goal-relative curve bias"
+           : "deterministic learned perpendicular head"},
       {"keyboardAction",
        "argmax(valid action logits + canonical bias); no multinomial sampling"},
       {"keyboardTypo",
@@ -755,7 +774,8 @@ nlohmann::json diagnosticRun(const Options& options) {
     auto trace = mouse->traceDecode(
         testCase.fromX, testCase.fromY, testCase.toX, testCase.toY,
         testCase.clickAtEnd, options.mouseMaxSteps,
-        options.mouseClickThreshold, options.mouseMinDtMs);
+        options.mouseClickThreshold, options.mouseMinDtMs,
+        options.mousePathCurveSigma, options.mouseRandomSeed);
     output["mouseCases"].push_back(
         mouseCaseJson(testCase, trace, mouseActions, options.includeVectors));
   }

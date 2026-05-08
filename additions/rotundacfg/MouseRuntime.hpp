@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdint>
 #include <optional>
 #include <string>
 #include <vector>
@@ -52,12 +53,16 @@ class MouseRuntimeModel {
                                            bool clickAtEnd,
                                            int maxSteps = 128,
                                            double clickThreshold = 0.98,
-                                           double minDtMs = 4.0) const;
+                                           double minDtMs = 4.0,
+                                           double pathCurveSigma = 0.0,
+                                           std::uint32_t randomSeed = 0) const;
   MouseRuntimeTrace traceDecode(double fromX, double fromY, double toX,
                                 double toY, bool clickAtEnd,
                                 int maxSteps = 128,
                                 double clickThreshold = 0.98,
-                                double minDtMs = 4.0) const;
+                                double minDtMs = 4.0,
+                                double pathCurveSigma = 0.0,
+                                std::uint32_t randomSeed = 0) const;
 
  private:
   explicit MouseRuntimeModel(RuntimeWeights weights);
@@ -76,7 +81,8 @@ class MouseRuntimeModel {
   MouseRuntimeTrace decodeInternal(double fromX, double fromY, double toX,
                                    double toY, bool clickAtEnd,
                                    int maxSteps, double clickThreshold,
-                                   double minDtMs,
+                                   double minDtMs, double pathCurveSigma,
+                                   std::uint32_t randomSeed,
                                    bool collectTrace) const;
 
   RuntimeWeights m_weights;

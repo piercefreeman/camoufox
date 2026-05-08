@@ -82,6 +82,13 @@ class HumanizeProfile {
       }
       m_mouseMinDtMs = value.get<double>();
     }
+    if (json.contains("mousePathCurveSigma") && !json.at("mousePathCurveSigma").is_null()) {
+      const auto& value = json.at("mousePathCurveSigma");
+      if (!value.is_number()) {
+        return false;
+      }
+      m_mousePathCurveSigma = value.get<double>();
+    }
     if (json.contains("keyboardSampleTypos") && !json.at("keyboardSampleTypos").is_null()) {
       const auto& value = json.at("keyboardSampleTypos");
       if (!value.is_boolean()) {
@@ -138,6 +145,9 @@ class HumanizeProfile {
     }
     if (m_mouseMinDtMs.has_value()) {
       json["mouseMinDtMs"] = *m_mouseMinDtMs;
+    }
+    if (m_mousePathCurveSigma.has_value()) {
+      json["mousePathCurveSigma"] = *m_mousePathCurveSigma;
     }
     if (m_keyboardSampleTypos.has_value()) {
       json["keyboardSampleTypos"] = *m_keyboardSampleTypos;
@@ -220,6 +230,14 @@ class HumanizeProfile {
     m_mouseMinDtMs = value;
   }
 
+  bool mousePathCurveSigmaIsSet() const { return m_mousePathCurveSigma.has_value(); }
+  std::optional<double> getMousePathCurveSigma() const {
+    return m_mousePathCurveSigma;
+  }
+  void setMousePathCurveSigma(const double& value) {
+    m_mousePathCurveSigma = value;
+  }
+
   bool keyboardSampleTyposIsSet() const { return m_keyboardSampleTypos.has_value(); }
   std::optional<bool> isKeyboardSampleTypos() const {
     return m_keyboardSampleTypos;
@@ -262,6 +280,7 @@ class HumanizeProfile {
   std::optional<int32_t> m_mouseMaxSteps;
   std::optional<double> m_mouseClickThreshold;
   std::optional<double> m_mouseMinDtMs;
+  std::optional<double> m_mousePathCurveSigma;
   std::optional<bool> m_keyboardSampleTypos;
   std::optional<double> m_keyboardTimingJitterSigma;
   std::optional<double> m_keyboardPauseProbability;

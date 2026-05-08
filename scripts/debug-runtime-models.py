@@ -35,6 +35,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--mouse-max-steps", type=int, default=128)
     parser.add_argument("--mouse-click-threshold", type=float, default=0.98)
     parser.add_argument("--mouse-min-dt-ms", type=float, default=4.0)
+    parser.add_argument("--mouse-path-curve-sigma", type=float, default=0.0)
+    parser.add_argument("--mouse-random-seed", type=int, default=13)
     parser.add_argument("--keyboard-max-steps", type=int, default=256)
     parser.add_argument("--keyboard-structured-extra-steps", type=int, default=6)
     parser.add_argument("--keyboard-canonical-bias", type=float, default=3.0)
@@ -124,6 +126,10 @@ def run_diagnostics(args: argparse.Namespace, binary: Path) -> dict[str, Any]:
         str(args.mouse_click_threshold),
         "--mouse-min-dt-ms",
         str(args.mouse_min_dt_ms),
+        "--mouse-path-curve-sigma",
+        str(args.mouse_path_curve_sigma),
+        "--mouse-random-seed",
+        str(args.mouse_random_seed),
         "--keyboard-max-steps",
         str(args.keyboard_max_steps),
         "--keyboard-structured-extra-steps",

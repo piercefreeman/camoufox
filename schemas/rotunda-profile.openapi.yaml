@@ -334,6 +334,9 @@ components:
         mouseMinDtMs:
           type: number
           minimum: 0
+        mousePathCurveSigma:
+          type: number
+          minimum: 0
         keyboardSampleTypos:
           type: boolean
         keyboardTimingJitterSigma:
