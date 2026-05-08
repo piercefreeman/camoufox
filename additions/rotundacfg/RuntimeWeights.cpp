@@ -196,10 +196,11 @@ std::optional<std::string> RuntimeWeights::ResolveBundledModelPath(
   candidates.push_back(joinPath(
       joinPath(joinPath(joinPath(executableDir, ".."), ".."), "runtime-models"),
       fileName));
-#ifdef __APPLE__
   // Content/helper processes run from nested helper apps, e.g.
   // Rotunda.app/Contents/MacOS/plugin-container.app/Contents/MacOS.
   // Those processes should still resolve the main app's bundled resources.
+  // Keep this candidate platform-neutral so the Linux C++ parity probe can
+  // exercise the macOS bundle layout.
   candidates.push_back(joinPath(
       joinPath(joinPath(joinPath(joinPath(joinPath(joinPath(executableDir, ".."),
                                                   ".."),
@@ -208,7 +209,6 @@ std::optional<std::string> RuntimeWeights::ResolveBundledModelPath(
                           "Resources"),
                "runtime-models"),
       fileName));
-#endif
 
   for (const auto& candidate : candidates) {
     if (fileExists(candidate)) return candidate;
