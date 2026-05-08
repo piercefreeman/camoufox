@@ -198,3 +198,95 @@ def test_keyboard_episodes_confirm_rapid_keys_with_delayed_snapshot(tmp_path: Pa
     assert episodes[0].final_string == "hi"
     assert [step.action for step in episodes[0].steps] == ["h", "i"]
     assert metadata["selected_key_stream"]["key_level_action_count"] == 2
+
+
+def test_keyboard_episodes_bridge_small_coalesced_value_jumps(tmp_path: Path) -> None:
+    field = {
+        "bundleID": "com.example",
+        "processID": 1,
+        "accessibilityID": "field-a",
+        "role": "AXTextArea",
+        "isPassword": False,
+        "valueRedacted": False,
+    }
+    path = write_events(
+        tmp_path,
+        [
+            {"type": "session_started"},
+            {"type": "mouse_move", "offsetMs": 0, "x": 1, "y": 1, "deltaX": 0, "deltaY": 0, "dragButton": "none", "screenWidth": 1512, "screenHeight": 982},
+            {"type": "focused_element", "offsetMs": 10, "focusedElement": {**field, "value": "stor"}},
+            {"type": "keyboard", "offsetMs": 20, "key": "t", "keyCode": 17, "keyClass": "regular", "isRepeat": False, "focusedElement": {**field, "value": "storty"}},
+            {"type": "keyboard", "offsetMs": 30, "key": "y", "keyCode": 16, "keyClass": "regular", "isRepeat": False, "focusedElement": {**field, "value": "storty"}},
+            {"type": "keyboard", "offsetMs": 40, "key": " ", "keyCode": 49, "keyClass": "regular", "isRepeat": False, "focusedElement": {**field, "value": "storty "}},
+            {"type": "keyboard", "offsetMs": 100, "key": "Backspace", "keyCode": 51, "keyClass": "backspace", "isRepeat": False, "focusedElement": {**field, "value": "storty"}},
+            {"type": "keyboard", "offsetMs": 120, "key": "Backspace", "keyCode": 51, "keyClass": "backspace", "isRepeat": False, "focusedElement": {**field, "value": "stort"}},
+            {"type": "focused_element", "offsetMs": 130, "triggerOffsetMs": 120, "focusedElement": {**field, "value": "stor"}},
+            {"type": "keyboard", "offsetMs": 140, "key": "Backspace", "keyCode": 51, "keyClass": "backspace", "isRepeat": False, "focusedElement": {**field, "value": "stor"}},
+            {"type": "keyboard", "offsetMs": 150, "key": "y", "keyCode": 16, "keyClass": "regular", "isRepeat": False, "focusedElement": {**field, "value": "story"}},
+            {"type": "keyboard", "offsetMs": 160, "key": " ", "keyCode": 49, "keyClass": "regular", "isRepeat": False, "focusedElement": {**field, "value": "story "}},
+        ],
+    )
+
+    episodes, metadata = extract_focused_text_keyboard_episodes(
+        [path],
+        gap_ms=1000,
+        accessibility_id="field-a",
+        max_snapshot_edit_actions=12,
+        screen_filter=ScreenSizeFilter(),
+    )
+
+    assert len(episodes) == 1
+    assert episodes[0].initial_string == "stor"
+    assert episodes[0].final_string == "story "
+    assert [step.action for step in episodes[0].steps] == [
+        "t",
+        "y",
+        " ",
+        KEY_BACKSPACE,
+        KEY_BACKSPACE,
+        KEY_BACKSPACE,
+        "y",
+        " ",
+    ]
+    assert metadata["selected_key_stream"]["key_level_bridge_action_count"] == 3
+
+
+def test_keyboard_episodes_do_not_bridge_large_field_resets(tmp_path: Path) -> None:
+    field = {
+        "bundleID": "com.example",
+        "processID": 1,
+        "accessibilityID": "field-a",
+        "role": "AXTextArea",
+        "isPassword": False,
+        "valueRedacted": False,
+    }
+    path = write_events(
+        tmp_path,
+        [
+            {"type": "session_started"},
+            {"type": "mouse_move", "offsetMs": 0, "x": 1, "y": 1, "deltaX": 0, "deltaY": 0, "dragButton": "none", "screenWidth": 1512, "screenHeight": 982},
+            {"type": "focused_element", "offsetMs": 10, "focusedElement": {**field, "value": "p"}},
+            {"type": "keyboard", "offsetMs": 20, "key": "h", "keyCode": 4, "keyClass": "regular", "isRepeat": False, "focusedElement": {**field, "value": "p"}},
+            {"type": "keyboard", "offsetMs": 30, "key": "o", "keyCode": 31, "keyClass": "regular", "isRepeat": False, "focusedElement": {**field, "value": "ph"}},
+            {"type": "keyboard", "offsetMs": 40, "key": "n", "keyCode": 45, "keyClass": "regular", "isRepeat": False, "focusedElement": {**field, "value": "pho"}},
+            {"type": "keyboard", "offsetMs": 50, "key": "e", "keyCode": 14, "keyClass": "regular", "isRepeat": False, "focusedElement": {**field, "value": "phon"}},
+            {"type": "focused_element", "offsetMs": 60, "triggerOffsetMs": 50, "focusedElement": {**field, "value": "phone"}},
+            {"type": "keyboard", "offsetMs": 200, "key": "w", "keyCode": 13, "keyClass": "regular", "isRepeat": False, "focusedElement": {**field, "value": "w"}},
+            {"type": "keyboard", "offsetMs": 220, "key": "e", "keyCode": 14, "keyClass": "regular", "isRepeat": False, "focusedElement": {**field, "value": "w"}},
+            {"type": "focused_element", "offsetMs": 250, "triggerOffsetMs": 220, "focusedElement": {**field, "value": "we"}},
+        ],
+    )
+
+    episodes, metadata = extract_focused_text_keyboard_episodes(
+        [path],
+        gap_ms=1000,
+        accessibility_id="field-a",
+        max_snapshot_edit_actions=12,
+        screen_filter=ScreenSizeFilter(),
+    )
+
+    assert [(episode.initial_string, episode.final_string) for episode in episodes] == [
+        ("p", "phone"),
+        ("w", "we"),
+    ]
+    assert metadata["selected_key_stream"].get("key_level_bridge_action_count", 0) == 0

@@ -23,6 +23,7 @@ from .keyboard_logic import (
     constrained_keyboard_action,
     keyboard_next_char,
     minimum_terminal_edit_steps,
+    terminal_edit_actions,
 )
 from .models.keyboard import KeyboardActionGRU
 from .models.mouse import MouseTrajectoryGRU
@@ -223,12 +224,22 @@ def encode_final_string(final_string: str, char_to_id: dict[str, int], device: t
     return encode_keyboard_condition("", final_string, char_to_id, device)
 
 
-def require_keyboard_target_supported(final_string: str, action_to_id: dict[str, int]) -> None:
-    """Raise if constrained keyboard decoding cannot emit every target character."""
-    missing = sorted({char for char in final_string if char not in action_to_id})
+def require_keyboard_target_supported(
+    initial_string: str,
+    final_string: str,
+    action_to_id: dict[str, int],
+) -> None:
+    """Raise if constrained keyboard decoding cannot emit required insertions."""
+    missing = sorted(
+        {
+            action
+            for action in terminal_edit_actions(initial_string, final_string)
+            if action != KEY_BACKSPACE and action not in action_to_id
+        }
+    )
     if missing:
         labels = ", ".join(repr(char) for char in missing)
-        raise SystemExit(f"Target contains characters outside the keyboard action vocabulary: {labels}")
+        raise SystemExit(f"Target edit requires characters outside the keyboard action vocabulary: {labels}")
 
 
 def structured_keyboard_action_ids(
@@ -655,7 +666,7 @@ def _decode_keyboard_rows_impl(
     # amount of extra room for learned repairs; canonical mode follows the
     # shortest path; unconstrained mode is raw logits and may miss the target.
     if decode_mode == "constrained":
-        require_keyboard_target_supported(final_string, action_to_id)
+        require_keyboard_target_supported(initial_string, final_string, action_to_id)
         min_steps = minimum_terminal_edit_steps(final_string, list(initial_string))
         effective_max_steps = min(max_steps, min_steps + max(0, structured_extra_steps))
         if max_steps < min_steps:
@@ -664,7 +675,7 @@ def _decode_keyboard_rows_impl(
                 f"got --max-steps {max_steps}."
             )
     elif decode_mode == "canonical":
-        require_keyboard_target_supported(final_string, action_to_id)
+        require_keyboard_target_supported(initial_string, final_string, action_to_id)
         min_steps = minimum_terminal_edit_steps(final_string, list(initial_string))
         effective_max_steps = max_steps
         if max_steps < min_steps:

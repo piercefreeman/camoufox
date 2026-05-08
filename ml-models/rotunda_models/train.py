@@ -22,6 +22,7 @@ from .data import (
     iter_capture_events,
     screen_filter_allows,
 )
+from .dataset_inspection import format_keyboard_episode_report
 from .diagnostics import log_click_rollout_diagnostics, log_keyboard_rollout_diagnostics
 from .models.keyboard import (
     KeyboardActionGRU,
@@ -595,6 +596,17 @@ def inspect_recordings(args: Any) -> None:
         max_snapshot_edit_actions=args.keyboard_max_snapshot_edit_actions,
         screen_filter=args.screen_filter,
     )
+    if getattr(args, "keyboard_details", False):
+        print(
+            format_keyboard_episode_report(
+                keyboard_episodes,
+                metadata=focused_meta,
+                limit=getattr(args, "keyboard_detail_limit", 20),
+                query=getattr(args, "keyboard_detail_query", None),
+                ansi=getattr(args, "keyboard_detail_ansi", False),
+            )
+        )
+        return
     result = {
         "files": [str(path) for path in paths],
         "event_counts": counts,

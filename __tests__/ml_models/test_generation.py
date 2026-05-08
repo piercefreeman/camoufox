@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import pytest
 import torch
 from rotunda_models.constants import KEY_BACKSPACE, KEY_STOP
 from rotunda_models.generation import (
     decode_keyboard_rows,
+    require_keyboard_target_supported,
     structured_keyboard_action_ids,
 )
 from rotunda_models.models.keyboard import KeyboardActionGRU
@@ -34,6 +36,15 @@ def test_structured_decode_does_not_backspace_valid_prefix() -> None:
     assert action_to_id[KEY_BACKSPACE] not in valid_from_empty
     assert action_to_id[KEY_BACKSPACE] not in valid_from_prefix
     assert action_to_id[KEY_BACKSPACE] in valid_from_mismatch
+
+
+def test_keyboard_target_support_only_checks_required_insertions() -> None:
+    action_to_id = {"a": 0, "t": 1, KEY_BACKSPACE: 2, KEY_STOP: 3}
+
+    require_keyboard_target_supported("@C", "@Cat", action_to_id)
+
+    with pytest.raises(SystemExit, match="'n'"):
+        require_keyboard_target_supported("@C", "@Can", action_to_id)
 
 
 def test_learned_typo_head_can_choose_reachable_wrong_character() -> None:

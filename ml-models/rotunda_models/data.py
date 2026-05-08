@@ -104,6 +104,11 @@ def apply_keyboard_action_to_string(value: str, action: str) -> str:
     return "".join(chars)
 
 
+def inferred_backspace_count(actions: list[str]) -> int:
+    """Count inferred deletions in a terminal edit action list."""
+    return sum(1 for action in actions if action == KEY_BACKSPACE)
+
+
 def extract_mouse_episodes(
     paths: list[Path],
     rest_ms: int,
@@ -490,6 +495,7 @@ def _build_focused_text_diff_episodes(
 def _build_focused_text_key_stream_episodes(
     snapshots: list[FocusedTextSnapshot],
     gap_ms: int,
+    max_snapshot_edit_actions: int,
     stats: dict[str, int] | None = None,
 ) -> list[KeyboardEpisode]:
     if not snapshots:
@@ -555,6 +561,46 @@ def _build_focused_text_key_stream_episodes(
         identity = snapshot.identity
         last_action_offset = snapshot.offset_ms
 
+    def commit_bridge_actions(snapshot: FocusedTextSnapshot, actions: list[str]) -> None:
+        nonlocal confirmed_value, current_value, last_action_offset
+        if not actions:
+            return
+        total_dt_ms = max(0.0, float(snapshot.offset_ms - last_action_offset))
+        dt_ms = total_dt_ms / len(actions)
+        committed_steps.extend(KeyStep(dt_ms=dt_ms, action=action) for action in actions)
+        confirmed_value = snapshot.value
+        current_value = snapshot.value
+        last_action_offset = snapshot.offset_ms
+        increment("key_level_bridge_transition_count")
+        increment("key_level_bridge_action_count", len(actions))
+        increment("key_level_action_count", len(actions))
+
+    def bridge_to_observed(snapshot: FocusedTextSnapshot) -> bool:
+        nonlocal pending_steps, current_value
+        candidates: list[tuple[int, bool, list[str]]] = []
+        current_actions = terminal_edit_actions(current_value, snapshot.value)
+        if (
+            len(current_actions) <= max_snapshot_edit_actions
+            and inferred_backspace_count(current_actions) <= 3
+        ):
+            candidates.append((len(current_actions), True, current_actions))
+        confirmed_actions = terminal_edit_actions(confirmed_value, snapshot.value)
+        if (
+            len(confirmed_actions) <= max_snapshot_edit_actions
+            and inferred_backspace_count(confirmed_actions) <= 3
+        ):
+            candidates.append((len(confirmed_actions), False, confirmed_actions))
+        if not candidates:
+            return False
+
+        _, keep_pending, actions = min(candidates, key=lambda item: (item[0], not item[1]))
+        if keep_pending:
+            commit_pending()
+        else:
+            drop_pending()
+        commit_bridge_actions(snapshot, actions)
+        return True
+
     def observe(snapshot: FocusedTextSnapshot) -> None:
         nonlocal current_value, confirmed_value
         observed_value = snapshot.value
@@ -565,6 +611,8 @@ def _build_focused_text_key_stream_episodes(
             # A key candidate was observed but the accessible text did not
             # change. Treat it as a shortcut/no-op for text modeling.
             drop_pending()
+            return
+        if bridge_to_observed(snapshot):
             return
         increment("key_level_mismatch_count")
         reset_to(snapshot)
@@ -613,6 +661,9 @@ def _build_focused_text_key_stream_episodes(
             commit_pending()
             return
 
+        if bridge_to_observed(snapshot):
+            return
+
         increment("key_level_mismatch_count")
         increment("key_level_unmodeled_action_count")
         reset_to(snapshot)
@@ -654,7 +705,12 @@ def build_focused_text_episodes(
     stats: dict[str, int] | None = None,
 ) -> list[KeyboardEpisode]:
     if any(snapshot.is_keyboard_event for snapshot in snapshots):
-        return _build_focused_text_key_stream_episodes(snapshots, gap_ms=gap_ms, stats=stats)
+        return _build_focused_text_key_stream_episodes(
+            snapshots,
+            gap_ms=gap_ms,
+            max_snapshot_edit_actions=max_snapshot_edit_actions,
+            stats=stats,
+        )
     return _build_focused_text_diff_episodes(
         snapshots,
         gap_ms=gap_ms,
