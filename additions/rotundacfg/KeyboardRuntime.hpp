@@ -50,6 +50,8 @@ struct KeyboardRuntimeTrace {
 class KeyboardRuntimeModel {
  public:
   static std::optional<KeyboardRuntimeModel> Load(const std::string& path);
+  static std::vector<KeyboardRuntimeRow> GenerateFromConfig(
+      const std::string& initialString, const std::string& finalString);
 
   std::vector<KeyboardRuntimeRow> decode(
       const std::string& initialString, const std::string& finalString,

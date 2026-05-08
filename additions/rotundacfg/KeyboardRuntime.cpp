@@ -1,8 +1,12 @@
 #include "KeyboardRuntime.hpp"
 
+#include "MaskConfig.hpp"
+
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <memory>
+#include <mutex>
 #include <set>
 #include <utility>
 
@@ -89,6 +93,28 @@ std::optional<KeyboardRuntimeModel> KeyboardRuntimeModel::Load(
   KeyboardRuntimeModel model(std::move(*weights));
   if (!model.isLoaded()) return std::nullopt;
   return model;
+}
+
+std::vector<KeyboardRuntimeRow> KeyboardRuntimeModel::GenerateFromConfig(
+    const std::string& initialString, const std::string& finalString) {
+  static std::once_flag initFlag;
+  static std::unique_ptr<KeyboardRuntimeModel> model;
+  std::call_once(initFlag, []() {
+    auto path = MaskConfig::GetString("humanize.keyboardModelPath");
+    if (!path || path->empty()) return;
+    auto loaded = KeyboardRuntimeModel::Load(*path);
+    if (loaded) {
+      model = std::make_unique<KeyboardRuntimeModel>(std::move(*loaded));
+    }
+  });
+
+  if (!model) return {};
+
+  int maxSteps = 256;
+  if (auto configured = MaskConfig::GetInt32("humanize.keyboardMaxSteps")) {
+    maxSteps = std::max(1, *configured);
+  }
+  return model->decode(initialString, finalString, maxSteps);
 }
 
 int KeyboardRuntimeModel::charId(const std::string& token) const {
