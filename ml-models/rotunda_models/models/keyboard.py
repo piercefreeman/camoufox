@@ -10,10 +10,11 @@ from torch import nn
 from torch.nn import functional as F
 from torch.utils.data import Dataset
 
-from ..constants import CHAR_EOS, CHAR_SEP, CHAR_UNK, KEY_STOP
+from ..constants import CHAR_EOS, CHAR_SEP, CHAR_UNK, KEY_BACKSPACE, KEY_STOP
 from ..keyboard_logic import (
     apply_keyboard_action,
     canonical_keyboard_steps,
+    constrained_keyboard_action,
     keyboard_next_char,
 )
 from ..types import KeyboardEpisode
@@ -32,12 +33,16 @@ class KeyboardSample(TypedDict):
     - `dt`: `[steps]` log1p millisecond delays, including the terminal stop row.
     - `actions`: `[steps]` action token ids, including `KEY_STOP`.
     - `next_char_ids`: `[steps]` target-character token ids visible to the decoder.
+    - `typo_labels`: `[steps]` binary labels for learned wrong-character proposals.
+    - `typo_action_ids`: `[steps]` wrong-character action ids, ignored when no typo occurs.
     """
 
     final_ids: torch.Tensor
     dt: torch.Tensor
     actions: torch.Tensor
     next_char_ids: torch.Tensor
+    typo_labels: torch.Tensor
+    typo_action_ids: torch.Tensor
 
 
 class KeyboardBatch(TypedDict):
@@ -50,6 +55,8 @@ class KeyboardBatch(TypedDict):
     previous_actions: torch.Tensor
     previous_dt: torch.Tensor
     next_char_ids: torch.Tensor
+    typo_labels: torch.Tensor
+    typo_action_ids: torch.Tensor
     mask: torch.Tensor
 
 
@@ -63,6 +70,10 @@ class KeyboardLossMetrics(TypedDict):
     weighted_action_loss: float
     duration_loss: float
     weighted_duration_loss: float
+    typo_loss: float
+    weighted_typo_loss: float
+    typo_action_loss: float
+    weighted_typo_action_loss: float
 
 
 class KeyboardTrajectoryDataset(Dataset):
@@ -109,11 +120,28 @@ class KeyboardTrajectoryDataset(Dataset):
         actions = [self.action_to_id[action] for action in action_tokens]
         dt = [dt_to_log(step.dt_ms) for step in steps] + [0.0]
         next_char_ids: list[int] = []
+        typo_labels: list[float] = []
+        typo_action_ids: list[int] = []
         current_text: list[str] = list(episode.initial_string)
 
-        for action in action_tokens:
+        for action_index, action in enumerate(action_tokens):
             next_char = keyboard_next_char(episode.final_string, current_text)
             next_char_ids.append(self.char_to_id.get(next_char, self.char_to_id[CHAR_UNK]))
+            preferred_action = constrained_keyboard_action(episode.final_string, current_text)
+            current = "".join(current_text)
+            candidate_text = list(current_text)
+            if action != KEY_STOP:
+                apply_keyboard_action(candidate_text, action)
+            next_action = action_tokens[action_index + 1] if action_index + 1 < len(action_tokens) else KEY_STOP
+            typo_action = (
+                episode.final_string.startswith(current)
+                and current != episode.final_string
+                and action not in {preferred_action, KEY_BACKSPACE, KEY_STOP}
+                and not episode.final_string.startswith("".join(candidate_text))
+                and next_action == KEY_BACKSPACE
+            )
+            typo_labels.append(1.0 if typo_action else 0.0)
+            typo_action_ids.append(self.action_to_id[action] if typo_action else -100)
 
             if action == KEY_STOP:
                 continue
@@ -125,6 +153,8 @@ class KeyboardTrajectoryDataset(Dataset):
             "dt": torch.tensor(dt, dtype=torch.float32),
             "actions": torch.tensor(actions, dtype=torch.long),
             "next_char_ids": torch.tensor(next_char_ids, dtype=torch.long),
+            "typo_labels": torch.tensor(typo_labels, dtype=torch.float32),
+            "typo_action_ids": torch.tensor(typo_action_ids, dtype=torch.long),
         }
 
 
@@ -142,6 +172,8 @@ def collate_keyboard(batch: list[KeyboardSample], action_vocab_size: int) -> Key
     previous_actions = torch.full((batch_size, max_steps), bos_index, dtype=torch.long)
     previous_dt = torch.zeros(batch_size, max_steps, dtype=torch.float32)
     next_char_ids = torch.zeros(batch_size, max_steps, dtype=torch.long)
+    typo_labels = torch.zeros(batch_size, max_steps, dtype=torch.float32)
+    typo_action_ids = torch.full((batch_size, max_steps), -100, dtype=torch.long)
     mask = torch.zeros(batch_size, max_steps, dtype=torch.bool)
 
     for row, item in enumerate(batch):
@@ -154,6 +186,8 @@ def collate_keyboard(batch: list[KeyboardSample], action_vocab_size: int) -> Key
         dt[row, :step_len] = item["dt"]
         actions[row, :step_len] = item["actions"]
         next_char_ids[row, :step_len] = item["next_char_ids"]
+        typo_labels[row, :step_len] = item["typo_labels"]
+        typo_action_ids[row, :step_len] = item["typo_action_ids"]
         mask[row, :step_len] = True
 
         for step in range(1, step_len):
@@ -170,6 +204,8 @@ def collate_keyboard(batch: list[KeyboardSample], action_vocab_size: int) -> Key
         "previous_actions": previous_actions,
         "previous_dt": previous_dt,
         "next_char_ids": next_char_ids,
+        "typo_labels": typo_labels,
+        "typo_action_ids": typo_action_ids,
         "mask": mask,
     }
 
@@ -181,10 +217,11 @@ class KeyboardActionGRU(nn.Module):
     and uses the final hidden state as a compact target representation. The
     decoder receives that representation at every timestep along with the
     previous action embedding, previous log delay, and embedding of the next
-    desired target character. It predicts two heads: the next log delay and the
-    next action token. Constrained decoding lives outside this module, so the
-    network stays focused on cadence and local edit preference rather than
-    owning the full text-edit search problem.
+    desired target character. It predicts the next log delay and action token,
+    plus optional heads for wrong-character likelihood and wrong-character
+    choice. Constrained decoding lives outside this module, so the network stays
+    focused on cadence and local edit preference rather than owning the full
+    text-edit search problem.
     """
 
     def __init__(
@@ -196,6 +233,7 @@ class KeyboardActionGRU(nn.Module):
         action_embed_size: int,
         layers: int,
         dropout: float,
+        learned_typo_head: bool = False,
     ):
         super().__init__()
         self.char_embed = nn.Embedding(char_vocab_size, char_embed_size, padding_idx=0)
@@ -210,6 +248,13 @@ class KeyboardActionGRU(nn.Module):
         )
         self.dt_head = nn.Linear(hidden_size, 1)
         self.action_head = nn.Linear(hidden_size, action_vocab_size)
+        self.learned_typo_head = learned_typo_head
+        if learned_typo_head:
+            self.typo_head = nn.Linear(hidden_size, 1)
+            self.typo_action_head = nn.Linear(hidden_size, action_vocab_size)
+        else:
+            self.typo_head = None
+            self.typo_action_head = None
         self.layers = layers
 
     def encode(self, final_ids: torch.Tensor, final_lengths: torch.Tensor) -> torch.Tensor:
@@ -230,7 +275,7 @@ class KeyboardActionGRU(nn.Module):
         previous_actions: torch.Tensor,
         previous_dt: torch.Tensor,
         next_char_ids: torch.Tensor,
-    ) -> tuple[torch.Tensor, torch.Tensor]:
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor | None, torch.Tensor | None]:
         condition = self.encode(final_ids, final_lengths)
         repeated = condition.unsqueeze(1).expand(-1, previous_actions.shape[1], -1)
         previous_action_embedding = self.action_embed(previous_actions)
@@ -241,7 +286,9 @@ class KeyboardActionGRU(nn.Module):
         )
         h0 = condition.unsqueeze(0).expand(self.layers, -1, -1).contiguous()
         output, _ = self.decoder(decoder_input, h0)
-        return self.dt_head(output).squeeze(-1), self.action_head(output)
+        typo_logits = self.typo_head(output).squeeze(-1) if self.typo_head is not None else None
+        typo_action_logits = self.typo_action_head(output) if self.typo_action_head is not None else None
+        return self.dt_head(output).squeeze(-1), self.action_head(output), typo_logits, typo_action_logits
 
 
 def keyboard_loss(
@@ -252,19 +299,24 @@ def keyboard_loss(
     duration_weight: float = 0.0,
     backspace_action_weight: float = 4.0,
     stop_action_weight: float = 8.0,
+    typo_weight: float = 1.0,
+    typo_action_weight: float = 1.0,
+    typo_positive_weight: float = 8.0,
 ) -> tuple[torch.Tensor, KeyboardLossMetrics]:
     """Compute the weighted keyboard action objective and scalar metrics.
 
     The optimized objective is:
 
     `L = w_dt * SmoothL1(dt_hat, dt) + w_action * CE(action_logits, action)
-       + w_duration * SmoothL1(log1p(sum(exp(dt_hat)-1)), log1p(sum(exp(dt)-1)))`
+       + w_duration * SmoothL1(log1p(sum(exp(dt_hat)-1)), log1p(sum(exp(dt)-1)))
+       + w_typo * BCE(typo_logit, is_wrong_char)
+       + w_typo_action * CE(typo_action_logits, wrong_char_action)`
 
     Padding is masked out of all sequence terms. Backspace and stop receive
     larger cross-entropy weights because they are sparse but determine whether
     generated edits can terminate cleanly or repair mistakes.
     """
-    dt_pred, action_logits = model(
+    dt_pred, action_logits, typo_logits, typo_action_logits = model(
         batch["final_ids"],
         batch["final_lengths"],
         batch["previous_actions"],
@@ -291,6 +343,8 @@ def keyboard_loss(
     )
 
     duration_loss = dt_pred.sum() * 0.0
+    typo_loss = dt_pred.sum() * 0.0
+    typo_action_loss = dt_pred.sum() * 0.0
 
     if duration_weight > 0:
         # Match full edit duration in addition to per-key delays; this helps
@@ -301,7 +355,27 @@ def keyboard_loss(
         target_duration = (target_dt_ms * mask.float()).sum(dim=1)
         duration_loss = F.smooth_l1_loss(torch.log1p(pred_duration), torch.log1p(target_duration))
 
-    total = (dt_weight * dt_loss) + (action_weight * action_loss) + (duration_weight * duration_loss)
+    if typo_logits is not None:
+        pos_weight = torch.tensor(float(typo_positive_weight), device=typo_logits.device)
+        typo_loss = F.binary_cross_entropy_with_logits(
+            typo_logits[mask],
+            batch["typo_labels"][mask],
+            pos_weight=pos_weight,
+        )
+    if typo_action_logits is not None and bool((batch["typo_action_ids"] != -100).any()):
+        typo_action_loss = F.cross_entropy(
+            typo_action_logits.reshape(-1, typo_action_logits.shape[-1]),
+            batch["typo_action_ids"].reshape(-1),
+            ignore_index=-100,
+        )
+
+    total = (
+        (dt_weight * dt_loss)
+        + (action_weight * action_loss)
+        + (duration_weight * duration_loss)
+        + (typo_weight * typo_loss)
+        + (typo_action_weight * typo_action_loss)
+    )
 
     return total, {
         "loss": float(total.detach().cpu()),
@@ -311,4 +385,8 @@ def keyboard_loss(
         "weighted_action_loss": float((action_weight * action_loss).detach().cpu()),
         "duration_loss": float(duration_loss.detach().cpu()),
         "weighted_duration_loss": float((duration_weight * duration_loss).detach().cpu()),
+        "typo_loss": float(typo_loss.detach().cpu()),
+        "weighted_typo_loss": float((typo_weight * typo_loss).detach().cpu()),
+        "typo_action_loss": float(typo_action_loss.detach().cpu()),
+        "weighted_typo_action_loss": float((typo_action_weight * typo_action_loss).detach().cpu()),
     }

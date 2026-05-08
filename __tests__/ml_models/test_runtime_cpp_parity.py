@@ -185,6 +185,56 @@ def _export_keyboard_checkpoint(tmp_path: Path) -> tuple[Path, KeyboardActionGRU
     return runtime_path, model, char_to_id, action_to_id
 
 
+def _export_learned_typo_keyboard_checkpoint(tmp_path: Path) -> Path:
+    char_to_id = {
+        CHAR_PAD: 0,
+        CHAR_UNK: 1,
+        CHAR_EOS: 2,
+        CHAR_SEP: 3,
+        "a": 4,
+        "x": 5,
+    }
+    action_to_id = {"a": 0, "x": 1, KEY_BACKSPACE: 2, KEY_STOP: 3}
+    id_to_action = {index: action for action, index in action_to_id.items()}
+    model_config = {
+        "char_vocab_size": len(char_to_id),
+        "action_vocab_size": len(action_to_id),
+        "hidden_size": 5,
+        "char_embed_size": 4,
+        "action_embed_size": 3,
+        "layers": 1,
+        "dropout": 0.0,
+        "learned_typo_head": True,
+    }
+    model = KeyboardActionGRU(**model_config)
+    with torch.no_grad():
+        for parameter in model.parameters():
+            parameter.zero_()
+        model.action_head.bias[action_to_id["a"]] = 4.0
+        model.action_head.bias[action_to_id[KEY_BACKSPACE]] = 3.0
+        model.action_head.bias[action_to_id[KEY_STOP]] = -4.0
+        model.typo_head.bias.fill_(8.0)
+        model.typo_action_head.bias[action_to_id["x"]] = 6.0
+    model.eval()
+
+    checkpoint_path = tmp_path / "keyboard-learned-typo.pt"
+    runtime_path = tmp_path / "keyboard-learned-typo.safetensors"
+    torch.save(
+        {
+            "kind": "keyboard_action_gru",
+            "model_config": model_config,
+            "char_to_id": char_to_id,
+            "action_to_id": action_to_id,
+            "id_to_action": id_to_action,
+            "sequence_mode": "raw",
+            "model_state": model.state_dict(),
+        },
+        checkpoint_path,
+    )
+    export_runtime_checkpoint(checkpoint_path, runtime_path)
+    return runtime_path
+
+
 def _run_probe(binary: Path, *args: object) -> dict:
     result = subprocess.run(
         [str(binary), *[str(arg) for arg in args]],
@@ -549,3 +599,24 @@ def test_keyboard_cpp_runtime_trace_matches_python_rollout(runtime_probe: Path, 
             assert actual[key] == pytest.approx(expected[key], **APPROX)
         for key in ["action", "textAfter", "stepKind"]:
             assert actual[key] == expected[key]
+
+
+def test_keyboard_cpp_runtime_uses_learned_typo_head(runtime_probe: Path, tmp_path: Path) -> None:
+    runtime_path = _export_learned_typo_keyboard_checkpoint(tmp_path)
+
+    cpp = _run_probe(
+        runtime_probe,
+        "keyboard",
+        runtime_path,
+        "",
+        "a",
+        4,
+        "constrained",
+        2,
+        1.5,
+    )
+
+    assert [row["action"] for row in cpp["rows"]] == ["x", KEY_BACKSPACE, "a"]
+    assert cpp["rows"][0]["stepKind"] == "learned_typo"
+    assert cpp["rows"][-1]["textAfter"] == "a"
+    assert cpp["steps"][0]["learnedTypoProbability"] > 0.99

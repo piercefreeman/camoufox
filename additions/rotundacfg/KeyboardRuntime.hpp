@@ -27,10 +27,13 @@ struct KeyboardRuntimeTraceStep {
   std::vector<double> hidden;
   std::vector<double> dtHead;
   std::vector<double> actionHead;
+  std::vector<double> typoHead;
+  std::vector<double> typoActionHead;
   std::vector<int> validActionIds;
   int previousActionId = 0;
   int selectedActionId = -1;
   int preferredActionId = -1;
+  double learnedTypoProbability = 0.0;
   double previousDt = 0.0;
   double offsetMs = 0.0;
   double dtMs = 0.0;
@@ -56,11 +59,13 @@ class KeyboardRuntimeModel {
   std::vector<KeyboardRuntimeRow> decode(
       const std::string& initialString, const std::string& finalString,
       int maxSteps = 256, const std::string& decodeMode = "constrained",
-      int structuredExtraSteps = 6, double canonicalBias = 1.5) const;
+      int structuredExtraSteps = 6, double canonicalBias = 1.5,
+      double learnedTypoThreshold = 0.2, int maxLearnedTypos = 2) const;
   KeyboardRuntimeTrace traceDecode(
       const std::string& initialString, const std::string& finalString,
       int maxSteps = 256, const std::string& decodeMode = "constrained",
-      int structuredExtraSteps = 6, double canonicalBias = 1.5) const;
+      int structuredExtraSteps = 6, double canonicalBias = 1.5,
+      double learnedTypoThreshold = 0.2, int maxLearnedTypos = 2) const;
 
   const nlohmann::json& metadata() const { return m_metadata; }
   bool isLoaded() const { return m_loaded; }
@@ -99,7 +104,8 @@ class KeyboardRuntimeModel {
   KeyboardRuntimeTrace decodeInternal(
       const std::string& initialString, const std::string& finalString,
       int maxSteps, const std::string& decodeMode, int structuredExtraSteps,
-      double canonicalBias, bool collectTrace) const;
+      double canonicalBias, double learnedTypoThreshold,
+      int maxLearnedTypos, bool collectTrace) const;
 
   RuntimeWeights m_weights;
   nlohmann::json m_metadata;
@@ -110,6 +116,7 @@ class KeyboardRuntimeModel {
   int m_layers = 1;
   int m_actionCount = 0;
   bool m_loaded = false;
+  bool m_hasLearnedTypoHead = false;
 };
 
 }  // namespace rotundacfg

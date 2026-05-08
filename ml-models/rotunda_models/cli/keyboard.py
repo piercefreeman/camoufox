@@ -40,6 +40,7 @@ from .common import CONTEXT_SETTINGS, PATH_TYPE
 @click.option("--keyboard-max-typo-chars", type=int, default=3, show_default=True, help="Maximum wrong characters in one forward typo event.")
 @click.option("--keyboard-max-backtrack-chars", type=int, default=2, show_default=True, help="Maximum already-correct characters to backspace in one backtrack event.")
 @click.option("--keyboard-typo-min-dt-ms", type=float, default=20.0, show_default=True, help="Minimum delay for injected correction-event actions.")
+@click.option("--keyboard-learned-typo-threshold", type=float, default=0.2, show_default=True, help="Deterministic threshold for learned wrong-character emission in constrained mode.")
 @click.option("--device", default=None)
 def generate_keyboard_command(
     checkpoint,
@@ -58,6 +59,7 @@ def generate_keyboard_command(
     keyboard_max_typo_chars: int,
     keyboard_max_backtrack_chars: int,
     keyboard_typo_min_dt_ms: float,
+    keyboard_learned_typo_threshold: float,
     device: str | None,
 ) -> None:
     """Print generated keyboard rows as JSON for CLI callers."""
@@ -89,6 +91,7 @@ def generate_keyboard_command(
         max_typo_chars=keyboard_max_typo_chars,
         max_backtrack_chars=keyboard_max_backtrack_chars,
         typo_min_dt_ms=keyboard_typo_min_dt_ms,
+        learned_typo_threshold=keyboard_learned_typo_threshold,
     )
     for row in rows:
         row["offsetMs"] = round(float(row["offsetMs"]), 3)

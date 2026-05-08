@@ -194,7 +194,11 @@ rotunda-models generate-keyboard \
   --decode-mode canonical
 ```
 
-Add bounded typo and correction events:
+New keyboard checkpoints learn wrong-character likelihood and wrong-character
+choice from raw focused-text edits. Constrained decoding can emit those learned
+wrong keys when the resulting text is still repairable, then returns to normal
+structured decoding for the correction. For older checkpoints, the legacy forced
+typo planner remains available:
 
 ```bash
 rotunda-models generate-keyboard \

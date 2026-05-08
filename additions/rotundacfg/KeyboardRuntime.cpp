@@ -81,6 +81,10 @@ KeyboardRuntimeModel::KeyboardRuntimeModel(RuntimeWeights weights)
       m_actionCount = config.value("action_vocab_size",
                                    static_cast<int>(m_idToAction.size()));
     }
+    m_hasLearnedTypoHead = m_weights.get("typo_head.weight") &&
+                           m_weights.get("typo_head.bias") &&
+                           m_weights.get("typo_action_head.weight") &&
+                           m_weights.get("typo_action_head.bias");
     m_loaded = m_hiddenSize > 0 && m_layers > 0 && !m_charToId.empty() &&
                !m_idToAction.empty() && !m_actionToId.empty();
   }
@@ -117,7 +121,17 @@ std::vector<KeyboardRuntimeRow> KeyboardRuntimeModel::GenerateFromConfig(
   if (auto configured = MaskConfig::GetInt32("humanize.keyboardMaxSteps")) {
     maxSteps = std::max(1, *configured);
   }
-  return model->decode(initialString, finalString, maxSteps);
+  double learnedTypoThreshold = 0.2;
+  if (auto configured =
+          MaskConfig::GetDouble("humanize.keyboardLearnedTypoThreshold")) {
+    learnedTypoThreshold = std::max(0.0, std::min(1.0, *configured));
+  }
+  int maxLearnedTypos = 2;
+  if (auto configured = MaskConfig::GetInt32("humanize.keyboardMaxTypos")) {
+    maxLearnedTypos = std::max(0, *configured);
+  }
+  return model->decode(initialString, finalString, maxSteps, "constrained", 6,
+                       1.5, learnedTypoThreshold, maxLearnedTypos);
 }
 
 int KeyboardRuntimeModel::charId(const std::string& token) const {
@@ -322,28 +336,35 @@ bool KeyboardRuntimeModel::targetSupported(const std::string& finalString) const
 std::vector<KeyboardRuntimeRow> KeyboardRuntimeModel::decode(
     const std::string& initialString, const std::string& finalString,
     int maxSteps, const std::string& decodeMode, int structuredExtraSteps,
-    double canonicalBias) const {
+    double canonicalBias, double learnedTypoThreshold,
+    int maxLearnedTypos) const {
   return decodeInternal(initialString, finalString, maxSteps, decodeMode,
-                        structuredExtraSteps, canonicalBias, false)
+                        structuredExtraSteps, canonicalBias,
+                        learnedTypoThreshold, maxLearnedTypos, false)
       .rows;
 }
 
 KeyboardRuntimeTrace KeyboardRuntimeModel::traceDecode(
     const std::string& initialString, const std::string& finalString,
     int maxSteps, const std::string& decodeMode, int structuredExtraSteps,
-    double canonicalBias) const {
+    double canonicalBias, double learnedTypoThreshold,
+    int maxLearnedTypos) const {
   return decodeInternal(initialString, finalString, maxSteps, decodeMode,
-                        structuredExtraSteps, canonicalBias, true);
+                        structuredExtraSteps, canonicalBias,
+                        learnedTypoThreshold, maxLearnedTypos, true);
 }
 
 KeyboardRuntimeTrace KeyboardRuntimeModel::decodeInternal(
     const std::string& initialString, const std::string& finalString,
     int maxSteps, const std::string& decodeMode, int structuredExtraSteps,
-    double canonicalBias, bool collectTrace) const {
+    double canonicalBias, double learnedTypoThreshold, int maxLearnedTypos,
+    bool collectTrace) const {
   KeyboardRuntimeTrace trace;
   if (!m_loaded || maxSteps <= 0) return {};
   if (decodeMode != "constrained" && decodeMode != "canonical") return {};
   if (!targetSupported(finalString)) return {};
+  learnedTypoThreshold = std::max(0.0, std::min(1.0, learnedTypoThreshold));
+  maxLearnedTypos = std::max(0, maxLearnedTypos);
 
   int minSteps = minimumTerminalEditSteps(finalString, initialString);
   if (maxSteps < minSteps) return {};
@@ -365,6 +386,8 @@ KeyboardRuntimeTrace KeyboardRuntimeModel::decodeInternal(
   double offset = 0.0;
   std::string text = initialString;
   std::vector<KeyboardRuntimeRow> rows;
+  int learnedTyposUsed = 0;
+  std::set<std::string> learnedTypoPrefixes;
 
   for (int step = 0; step < maxSteps; ++step) {
     std::string next = nextChar(finalString, text);
@@ -402,10 +425,21 @@ KeyboardRuntimeTrace KeyboardRuntimeModel::decodeInternal(
     std::vector<double> actionHead =
         linear(input, "action_head.weight", "action_head.bias");
     if (dtHead.empty() || actionHead.empty()) return {};
+    std::vector<double> typoHead;
+    std::vector<double> typoActionHead;
+    if (m_hasLearnedTypoHead) {
+      typoHead = linear(input, "typo_head.weight", "typo_head.bias");
+      typoActionHead =
+          linear(input, "typo_action_head.weight", "typo_action_head.bias");
+      if (typoHead.empty() || typoActionHead.empty()) return {};
+    }
     if (collectTrace) {
       traceStep.hidden = input;
       traceStep.dtHead = dtHead;
       traceStep.actionHead = actionHead;
+      traceStep.typoHead = typoHead;
+      traceStep.typoActionHead = typoActionHead;
+      if (!typoHead.empty()) traceStep.learnedTypoProbability = sigmoid(typoHead[0]);
     }
 
     std::string action;
@@ -423,18 +457,50 @@ KeyboardRuntimeTrace KeyboardRuntimeModel::decodeInternal(
       std::string preferred = constrainedAction(finalString, text);
       preferredId = actionId(preferred);
       if (collectTrace) traceStep.validActionIds = valid;
-      double bestLogit = -std::numeric_limits<double>::infinity();
-      for (int id : valid) {
-        if (id < 0 || static_cast<size_t>(id) >= actionHead.size()) continue;
-        double value = actionHead[static_cast<size_t>(id)] +
-                       (id == preferredId ? canonicalBias : 0.0);
-        if (selectedActionId < 0 || value > bestLogit) {
-          bestLogit = value;
-          selectedActionId = id;
+      if (m_hasLearnedTypoHead && learnedTyposUsed < maxLearnedTypos &&
+          learnedTypoPrefixes.find(text) == learnedTypoPrefixes.end() &&
+          startsWith(finalString, text) && text != finalString &&
+          !typoHead.empty() && !typoActionHead.empty() &&
+          sigmoid(typoHead[0]) >= learnedTypoThreshold) {
+        double bestTypoLogit = -std::numeric_limits<double>::infinity();
+        for (int id : valid) {
+          if (id < 0 || static_cast<size_t>(id) >= typoActionHead.size() ||
+              id == preferredId) {
+            continue;
+          }
+          std::string candidateAction = actionForId(id);
+          if (candidateAction == kBackspace || candidateAction == kStop) {
+            continue;
+          }
+          double value = typoActionHead[static_cast<size_t>(id)];
+          if (selectedActionId < 0 || value > bestTypoLogit) {
+            bestTypoLogit = value;
+            selectedActionId = id;
+          }
+        }
+        if (selectedActionId >= 0) {
+          ++learnedTyposUsed;
+          learnedTypoPrefixes.insert(text);
+          stepKind = "learned_typo";
+        }
+      }
+      if (selectedActionId < 0) {
+        double bestLogit = -std::numeric_limits<double>::infinity();
+        for (int id : valid) {
+          if (id < 0 || static_cast<size_t>(id) >= actionHead.size()) continue;
+          double value = actionHead[static_cast<size_t>(id)] +
+                         (id == preferredId ? canonicalBias : 0.0);
+          if (selectedActionId < 0 || value > bestLogit) {
+            bestLogit = value;
+            selectedActionId = id;
+          }
         }
       }
       action = actionForId(selectedActionId);
-      if (action == kStop) {
+      if (stepKind == "learned_typo") {
+        // The learned typo head selected a wrong character. The next steps go
+        // back through normal structured decoding, which decides the repair.
+      } else if (action == kStop) {
         stepKind = "model_stop";
       } else if (action == kBackspace) {
         stepKind = "model_repair";

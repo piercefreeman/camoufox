@@ -462,6 +462,7 @@ def train_keyboard(args: Any | TrainingExperimentSettings) -> None:
         "action_embed_size": args.action_embed_size,
         "layers": args.layers,
         "dropout": args.dropout,
+        "learned_typo_head": True,
     }
     model = KeyboardActionGRU(**model_config).to(device)
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
@@ -527,6 +528,9 @@ def train_keyboard(args: Any | TrainingExperimentSettings) -> None:
                 duration_weight=args.keyboard_duration_loss_weight,
                 backspace_action_weight=args.backspace_action_weight,
                 stop_action_weight=args.stop_action_weight,
+                typo_weight=args.keyboard_typo_loss_weight,
+                typo_action_weight=args.keyboard_typo_action_loss_weight,
+                typo_positive_weight=args.keyboard_typo_positive_weight,
             ),
             checkpoint_payload=checkpoint_payload,
             early_stopping_patience=args.early_stopping_patience,

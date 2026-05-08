@@ -106,6 +106,9 @@ class KeyboardSettings(BaseModel):
     dt_loss_weight: float = 1.0
     keyboard_action_loss_weight: float = 1.0
     keyboard_duration_loss_weight: float = 1.0
+    keyboard_typo_loss_weight: float = 1.0
+    keyboard_typo_action_loss_weight: float = 1.0
+    keyboard_typo_positive_weight: float = 8.0
     backspace_action_weight: float = 4.0
     stop_action_weight: float = 8.0
     wandb_keyboard_rollout_examples: int = 128

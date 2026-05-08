@@ -125,9 +125,10 @@ def test_keyboard_model_forward_backward_step_on_tiny_dataset() -> None:
         action_embed_size=8,
         layers=1,
         dropout=0.0,
+        learned_typo_head=True,
     )
 
-    dt_pred, action_logits = model(
+    dt_pred, action_logits, typo_logits, typo_action_logits = model(
         batch["final_ids"],
         batch["final_lengths"],
         batch["previous_actions"],
@@ -138,6 +139,11 @@ def test_keyboard_model_forward_backward_step_on_tiny_dataset() -> None:
     assert dt_pred.shape == batch["dt"].shape
     assert action_logits.shape[:2] == batch["actions"].shape
     assert action_logits.shape[-1] == len(action_to_id)
+    assert typo_logits is not None
+    assert typo_action_logits is not None
+    assert typo_logits.shape == batch["dt"].shape
+    assert typo_action_logits.shape[:2] == batch["actions"].shape
+    assert typo_action_logits.shape[-1] == len(action_to_id)
 
     loss, metrics = keyboard_loss(batch, model, duration_weight=0.5)
     assert torch.isfinite(loss)
@@ -150,3 +156,30 @@ def test_keyboard_model_forward_backward_step_on_tiny_dataset() -> None:
     assert has_nonzero_gradient(model)
 
     optimizer.step()
+
+
+def test_keyboard_dataset_labels_raw_wrong_character_actions() -> None:
+    episode = KeyboardEpisode(
+        source="fixture-typo",
+        initial_string="",
+        final_string="ab",
+        steps=(
+            KeyStep(dt_ms=30.0, action="a"),
+            KeyStep(dt_ms=35.0, action="c"),
+            KeyStep(dt_ms=40.0, action="<BACKSPACE>"),
+            KeyStep(dt_ms=45.0, action="b"),
+        ),
+    )
+    char_to_id, action_to_id = build_keyboard_vocabs([episode])
+    dataset = KeyboardTrajectoryDataset(
+        [episode],
+        char_to_id=char_to_id,
+        action_to_id=action_to_id,
+        sequence_mode="raw",
+    )
+
+    sample = dataset[0]
+
+    assert sample["typo_labels"].tolist() == [0.0, 1.0, 0.0, 0.0, 0.0]
+    assert sample["typo_action_ids"].tolist()[1] == action_to_id["c"]
+    assert sample["typo_action_ids"].tolist()[0] == -100
