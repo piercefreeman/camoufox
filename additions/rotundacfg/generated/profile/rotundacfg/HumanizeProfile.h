@@ -103,6 +103,13 @@ class HumanizeProfile {
       }
       m_keyboardTimingJitterSigma = value.get<double>();
     }
+    if (json.contains("keyboardTimingTemperature") && !json.at("keyboardTimingTemperature").is_null()) {
+      const auto& value = json.at("keyboardTimingTemperature");
+      if (!value.is_number()) {
+        return false;
+      }
+      m_keyboardTimingTemperature = value.get<double>();
+    }
     if (json.contains("keyboardPauseProbability") && !json.at("keyboardPauseProbability").is_null()) {
       const auto& value = json.at("keyboardPauseProbability");
       if (!value.is_number()) {
@@ -154,6 +161,9 @@ class HumanizeProfile {
     }
     if (m_keyboardTimingJitterSigma.has_value()) {
       json["keyboardTimingJitterSigma"] = *m_keyboardTimingJitterSigma;
+    }
+    if (m_keyboardTimingTemperature.has_value()) {
+      json["keyboardTimingTemperature"] = *m_keyboardTimingTemperature;
     }
     if (m_keyboardPauseProbability.has_value()) {
       json["keyboardPauseProbability"] = *m_keyboardPauseProbability;
@@ -254,6 +264,14 @@ class HumanizeProfile {
     m_keyboardTimingJitterSigma = value;
   }
 
+  bool keyboardTimingTemperatureIsSet() const { return m_keyboardTimingTemperature.has_value(); }
+  std::optional<double> getKeyboardTimingTemperature() const {
+    return m_keyboardTimingTemperature;
+  }
+  void setKeyboardTimingTemperature(const double& value) {
+    m_keyboardTimingTemperature = value;
+  }
+
   bool keyboardPauseProbabilityIsSet() const { return m_keyboardPauseProbability.has_value(); }
   std::optional<double> getKeyboardPauseProbability() const {
     return m_keyboardPauseProbability;
@@ -283,6 +301,7 @@ class HumanizeProfile {
   std::optional<double> m_mousePathCurveSigma;
   std::optional<bool> m_keyboardSampleTypos;
   std::optional<double> m_keyboardTimingJitterSigma;
+  std::optional<double> m_keyboardTimingTemperature;
   std::optional<double> m_keyboardPauseProbability;
   std::optional<double> m_keyboardPauseMeanMs;
 };

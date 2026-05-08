@@ -35,6 +35,8 @@ from .common import CONTEXT_SETTINGS, PATH_TYPE
 @click.option("--keyboard-max-typos", type=int, default=2, show_default=True, help="Maximum learned typo events allowed during constrained keyboard generation.")
 @click.option("--keyboard-typo-seed", type=int, default=13, show_default=True, help="Random seed for learned typo sampling.")
 @click.option("--keyboard-learned-typo-threshold", type=float, default=0.2, show_default=True, help="Deterministic threshold for learned wrong-character emission in constrained mode.")
+@click.option("--keyboard-timing-temperature", type=float, default=0.0, show_default=True, help="Sampling temperature for lognormal timing heads.")
+@click.option("--keyboard-timing-seed", type=int, default=None, help="Random seed for lognormal timing sampling.")
 @click.option("--device", default=None)
 def generate_keyboard_command(
     checkpoint,
@@ -49,6 +51,8 @@ def generate_keyboard_command(
     keyboard_max_typos: int,
     keyboard_typo_seed: int,
     keyboard_learned_typo_threshold: float,
+    keyboard_timing_temperature: float,
+    keyboard_timing_seed: int | None,
     device: str | None,
 ) -> None:
     """Print generated keyboard rows as JSON for CLI callers."""
@@ -76,6 +80,8 @@ def generate_keyboard_command(
         max_typos=keyboard_max_typos,
         typo_seed=keyboard_typo_seed,
         learned_typo_threshold=keyboard_learned_typo_threshold,
+        timing_temperature=keyboard_timing_temperature,
+        timing_seed=keyboard_timing_seed,
     )
     for row in rows:
         row["offsetMs"] = round(float(row["offsetMs"]), 3)

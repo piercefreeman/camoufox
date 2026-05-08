@@ -342,6 +342,9 @@ components:
         keyboardTimingJitterSigma:
           type: number
           minimum: 0
+        keyboardTimingTemperature:
+          type: number
+          minimum: 0
         keyboardPauseProbability:
           type: number
           minimum: 0

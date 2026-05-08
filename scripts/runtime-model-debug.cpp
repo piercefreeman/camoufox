@@ -36,6 +36,7 @@ struct Options {
   int keyboardMaxTypos = 2;
   bool keyboardSampleTypos = true;
   double keyboardTimingJitterSigma = 0.22;
+  double keyboardTimingTemperature = 0.0;
   double keyboardPauseProbability = 0.0;
   double keyboardPauseMeanMs = 35.0;
   std::uint32_t keyboardRandomSeed = 13;
@@ -85,6 +86,7 @@ int usage(const char* binary) {
       << "  --keyboard-max-typos <int>              default 2\n"
       << "  --no-keyboard-sample-typos              disable typo sampling\n"
       << "  --keyboard-timing-jitter-sigma <float>  default 0.22\n"
+      << "  --keyboard-timing-temperature <float>   default 0.0\n"
       << "  --keyboard-pause-probability <float>    default 0.0\n"
       << "  --keyboard-pause-mean-ms <float>        default 35.0\n"
       << "  --keyboard-random-seed <int>            default 13\n"
@@ -157,6 +159,10 @@ std::optional<Options> parseOptions(int argc, char** argv) {
       auto next = value();
       if (!next) return std::nullopt;
       options.keyboardTimingJitterSigma = std::stod(*next);
+    } else if (isOption(arg, "--keyboard-timing-temperature")) {
+      auto next = value();
+      if (!next) return std::nullopt;
+      options.keyboardTimingTemperature = std::stod(*next);
     } else if (isOption(arg, "--keyboard-pause-probability")) {
       auto next = value();
       if (!next) return std::nullopt;
@@ -743,6 +749,7 @@ nlohmann::json diagnosticRun(const Options& options) {
       {"keyboardMaxTypos", options.keyboardMaxTypos},
       {"keyboardSampleTypos", options.keyboardSampleTypos},
       {"keyboardTimingJitterSigma", options.keyboardTimingJitterSigma},
+      {"keyboardTimingTemperature", options.keyboardTimingTemperature},
       {"keyboardPauseProbability", options.keyboardPauseProbability},
       {"keyboardPauseMeanMs", options.keyboardPauseMeanMs},
       {"keyboardRandomSeed", options.keyboardRandomSeed},
@@ -765,8 +772,9 @@ nlohmann::json diagnosticRun(const Options& options) {
              "no probabilistic typo sampling"},
       {"keyboardTiming",
        options.keyboardTimingJitterSigma > 0.0 ||
+               options.keyboardTimingTemperature > 0.0 ||
                options.keyboardPauseProbability > 0.0
-           ? "lognormal residual timing sampler plus optional random pauses"
+           ? "learned timing temperature or residual timing sampler plus optional random pauses"
            : "deterministic dt_head point estimate"},
   };
   output["mouseCases"] = nlohmann::json::array();
@@ -790,7 +798,7 @@ nlohmann::json diagnosticRun(const Options& options) {
         options.keyboardMaxTypos, options.keyboardSampleTypos,
         options.keyboardTimingJitterSigma,
         options.keyboardPauseProbability, options.keyboardPauseMeanMs,
-        options.keyboardRandomSeed);
+        options.keyboardRandomSeed, options.keyboardTimingTemperature);
     nlohmann::json caseOutput =
         keyboardCaseJson(testCase, trace, keyboardActions, options.includeVectors);
     if (trace.rows.empty() && testCase.initial != testCase.final) {

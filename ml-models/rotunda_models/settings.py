@@ -87,6 +87,7 @@ class ClickSettings(BaseModel):
     pos_loss_weight: float = 1.0
     click_action_weight: float = 8.0
     click_duration_loss_weight: float = 0.0
+    timing_distribution: Literal["point", "lognormal"] = "point"
     wandb_click_rollout_examples: int = 128
     wandb_click_rollout_max_steps: int = 80
     wandb_click_rollout_click_threshold: float = 0.98
@@ -105,6 +106,7 @@ class KeyboardSettings(BaseModel):
     char_embed_size: int = 32
     action_embed_size: int = 32
     dt_loss_weight: float = 1.0
+    timing_distribution: Literal["point", "lognormal"] = "point"
     keyboard_action_loss_weight: float = 1.0
     keyboard_duration_loss_weight: float = 1.0
     keyboard_press_count_loss_weight: float = 1.0

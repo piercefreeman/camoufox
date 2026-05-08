@@ -68,7 +68,7 @@ class KeyboardRuntimeModel {
       double learnedTypoThreshold = 0.2, int maxLearnedTypos = 2,
       bool sampleLearnedTypos = false, double timingJitterSigma = 0.0,
       double pauseProbability = 0.0, double pauseMeanMs = 35.0,
-      std::uint32_t randomSeed = 0) const;
+      std::uint32_t randomSeed = 0, double timingTemperature = 0.0) const;
   KeyboardRuntimeTrace traceDecode(
       const std::string& initialString, const std::string& finalString,
       int maxSteps = 256, const std::string& decodeMode = "constrained",
@@ -76,7 +76,7 @@ class KeyboardRuntimeModel {
       double learnedTypoThreshold = 0.2, int maxLearnedTypos = 2,
       bool sampleLearnedTypos = false, double timingJitterSigma = 0.0,
       double pauseProbability = 0.0, double pauseMeanMs = 35.0,
-      std::uint32_t randomSeed = 0) const;
+      std::uint32_t randomSeed = 0, double timingTemperature = 0.0) const;
 
   const nlohmann::json& metadata() const { return m_metadata; }
   bool isLoaded() const { return m_loaded; }
@@ -120,8 +120,8 @@ class KeyboardRuntimeModel {
       int maxSteps, const std::string& decodeMode, int structuredExtraSteps,
       double canonicalBias, double learnedTypoThreshold,
       int maxLearnedTypos, bool sampleLearnedTypos, double timingJitterSigma,
-      double pauseProbability, double pauseMeanMs, std::uint32_t randomSeed,
-      bool collectTrace) const;
+      double timingTemperature, double pauseProbability, double pauseMeanMs,
+      std::uint32_t randomSeed, bool collectTrace) const;
 
   RuntimeWeights m_weights;
   nlohmann::json m_metadata;
@@ -134,6 +134,7 @@ class KeyboardRuntimeModel {
   bool m_loaded = false;
   bool m_hasLearnedTypoHead = false;
   bool m_hasPressCountHead = false;
+  std::string m_timingDistribution = "point";
 };
 
 }  // namespace rotundacfg

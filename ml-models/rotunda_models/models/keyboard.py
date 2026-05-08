@@ -19,7 +19,7 @@ from ..keyboard_logic import (
 )
 from ..types import KeyboardEpisode
 from ..utils import dt_to_log
-from .common import masked_smooth_l1
+from .common import masked_timing_loss, timing_log_mu
 
 KeyboardSequenceMode = Literal["constrained", "raw"]
 MAX_PREDICTED_PRESS_COUNT = 1024.0
@@ -290,8 +290,12 @@ class KeyboardActionGRU(nn.Module):
         dropout: float,
         learned_typo_head: bool = False,
         predict_press_count_head: bool = False,
+        timing_distribution: str = "point",
     ):
         super().__init__()
+        if timing_distribution not in {"point", "lognormal"}:
+            raise ValueError(f"Unsupported timing_distribution: {timing_distribution!r}")
+        self.timing_distribution = timing_distribution
         self.char_embed = nn.Embedding(char_vocab_size, char_embed_size, padding_idx=0)
         self.encoder = nn.GRU(char_embed_size, hidden_size, batch_first=True)
         self.action_embed = nn.Embedding(action_vocab_size + 1, action_embed_size)
@@ -302,7 +306,7 @@ class KeyboardActionGRU(nn.Module):
             dropout=dropout if layers > 1 else 0.0,
             batch_first=True,
         )
-        self.dt_head = nn.Linear(hidden_size, 1)
+        self.dt_head = nn.Linear(hidden_size, 2 if timing_distribution == "lognormal" else 1)
         self.action_head = nn.Linear(hidden_size, action_vocab_size)
         self.predict_press_count_head = predict_press_count_head
         self.press_count_head = nn.Linear(hidden_size, 1) if predict_press_count_head else None
@@ -347,7 +351,10 @@ class KeyboardActionGRU(nn.Module):
         press_count_logits = self.press_count_head(condition).squeeze(-1) if self.press_count_head is not None else None
         typo_logits = self.typo_head(output).squeeze(-1) if self.typo_head is not None else None
         typo_action_logits = self.typo_action_head(output) if self.typo_action_head is not None else None
-        return self.dt_head(output).squeeze(-1), self.action_head(output), typo_logits, typo_action_logits, press_count_logits
+        dt = self.dt_head(output)
+        if self.timing_distribution == "point":
+            dt = dt.squeeze(-1)
+        return dt, self.action_head(output), typo_logits, typo_action_logits, press_count_logits
 
 
 def decode_press_count_logits(press_count_logits: torch.Tensor) -> torch.Tensor:
@@ -369,7 +376,8 @@ def keyboard_metric_observations(
     if not bool(action_mask.any()):
         return {}
 
-    pred_dt_ms = torch.expm1(torch.clamp(dt_pred, min=0.0, max=math.log1p(5000.0)))
+    dt_log_mu = timing_log_mu(dt_pred)
+    pred_dt_ms = torch.expm1(torch.clamp(dt_log_mu, min=0.0, max=math.log1p(5000.0)))
     target_dt_ms = torch.expm1(torch.clamp(batch["dt"], min=0.0, max=math.log1p(5000.0)))
     pred_action_ids = action_logits.argmax(dim=-1)
 
@@ -458,7 +466,7 @@ def keyboard_loss(
     mask = batch["mask"]
 
     # Timing is trained over valid decoder positions while padding is ignored.
-    dt_loss = masked_smooth_l1(dt_pred, batch["dt"], mask)
+    dt_loss = masked_timing_loss(dt_pred, batch["dt"], mask)
 
     # Backspace and stop are rare but behaviorally important, so expose their
     # weights as training knobs instead of hiding them in the dataset.
@@ -474,15 +482,16 @@ def keyboard_loss(
         weight=action_weights,
     )
 
-    duration_loss = dt_pred.sum() * 0.0
-    press_count_loss = dt_pred.sum() * 0.0
-    typo_loss = dt_pred.sum() * 0.0
-    typo_action_loss = dt_pred.sum() * 0.0
+    dt_log_mu = timing_log_mu(dt_pred)
+    duration_loss = dt_log_mu.sum() * 0.0
+    press_count_loss = dt_log_mu.sum() * 0.0
+    typo_loss = dt_log_mu.sum() * 0.0
+    typo_action_loss = dt_log_mu.sum() * 0.0
 
     if duration_weight > 0:
         # Match full edit duration in addition to per-key delays; this helps
         # avoid plausible-looking sequences that are globally too fast or slow.
-        pred_dt_ms = torch.expm1(torch.clamp(dt_pred, min=0.0, max=math.log1p(5000.0)))
+        pred_dt_ms = torch.expm1(torch.clamp(dt_log_mu, min=0.0, max=math.log1p(5000.0)))
         target_dt_ms = torch.expm1(torch.clamp(batch["dt"], min=0.0, max=math.log1p(5000.0)))
         pred_duration = (pred_dt_ms * mask.float()).sum(dim=1)
         target_duration = (target_dt_ms * mask.float()).sum(dim=1)

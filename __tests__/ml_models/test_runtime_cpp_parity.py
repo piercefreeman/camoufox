@@ -217,6 +217,51 @@ def _export_keyboard_checkpoint(tmp_path: Path) -> tuple[Path, KeyboardActionGRU
     return runtime_path, model, char_to_id, action_to_id
 
 
+def _export_keyboard_lognormal_checkpoint(
+    tmp_path: Path,
+) -> tuple[Path, KeyboardActionGRU, dict[str, int], dict[str, int]]:
+    char_to_id = {
+        CHAR_PAD: 0,
+        CHAR_UNK: 1,
+        CHAR_EOS: 2,
+        CHAR_SEP: 3,
+        "a": 4,
+        "b": 5,
+    }
+    action_to_id = {"a": 0, "b": 1, KEY_BACKSPACE: 2, KEY_STOP: 3}
+    id_to_action = {index: action for action, index in action_to_id.items()}
+    model_config = {
+        "char_vocab_size": len(char_to_id),
+        "action_vocab_size": len(action_to_id),
+        "hidden_size": 5,
+        "char_embed_size": 4,
+        "action_embed_size": 3,
+        "layers": 1,
+        "dropout": 0.0,
+        "timing_distribution": "lognormal",
+    }
+    model = KeyboardActionGRU(**model_config)
+    _copy_deterministic_weights(model, seed_offset=0.02)
+    model.eval()
+
+    checkpoint_path = tmp_path / "keyboard-lognormal.pt"
+    runtime_path = tmp_path / "keyboard-lognormal.safetensors"
+    torch.save(
+        {
+            "kind": "keyboard_action_gru",
+            "model_config": model_config,
+            "char_to_id": char_to_id,
+            "action_to_id": action_to_id,
+            "id_to_action": id_to_action,
+            "sequence_mode": "constrained",
+            "model_state": model.state_dict(),
+        },
+        checkpoint_path,
+    )
+    export_runtime_checkpoint(checkpoint_path, runtime_path)
+    return runtime_path, model, char_to_id, action_to_id
+
+
 def _export_keyboard_checkpoint_with_condition_only_chars(tmp_path: Path) -> Path:
     char_to_id = {
         CHAR_PAD: 0,
@@ -704,6 +749,40 @@ def test_keyboard_cpp_runtime_trace_matches_python_rollout(runtime_probe: Path, 
             assert actual[key] == pytest.approx(expected[key], **APPROX)
         for key in ["action", "textAfter", "stepKind"]:
             assert actual[key] == expected[key]
+
+
+def test_keyboard_cpp_runtime_reads_lognormal_timing_head(runtime_probe: Path, tmp_path: Path) -> None:
+    runtime_path, model, char_to_id, action_to_id = _export_keyboard_lognormal_checkpoint(tmp_path)
+    args = {
+        "initial": "a",
+        "final": "ab",
+        "max_steps": 4,
+        "decode_mode": "canonical",
+        "structured_extra_steps": 6,
+        "canonical_bias": 1.5,
+        "char_to_id": char_to_id,
+        "action_to_id": action_to_id,
+    }
+
+    cpp = _run_probe(
+        runtime_probe,
+        "keyboard",
+        runtime_path,
+        args["initial"],
+        args["final"],
+        args["max_steps"],
+        args["decode_mode"],
+        args["structured_extra_steps"],
+        args["canonical_bias"],
+    )
+    py = _keyboard_python_trace(model, **args)
+
+    assert len(cpp["steps"][0]["dtHead"]) == 2
+    assert len(py["steps"][0]["dtHead"]) == 2
+    for actual, expected in zip(cpp["steps"], py["steps"], strict=True):
+        _assert_vector(actual["dtHead"], expected["dtHead"])
+        assert actual["previousDt"] == pytest.approx(expected["previousDt"], **APPROX)
+        assert actual["dtMs"] == pytest.approx(expected["dtMs"], **APPROX)
 
 
 def test_keyboard_cpp_runtime_uses_learned_typo_head(runtime_probe: Path, tmp_path: Path) -> None:

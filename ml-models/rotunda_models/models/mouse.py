@@ -13,7 +13,7 @@ from torch.utils.data import Dataset
 from ..constants import MOUSE_ACTIONS
 from ..types import MouseEpisode
 from ..utils import dt_to_log, goal_relative_position
-from .common import masked_smooth_l1
+from .common import is_timing_distribution, masked_smooth_l1, masked_timing_loss, timing_log_mu
 
 
 class MouseSample(TypedDict):
@@ -169,8 +169,20 @@ class MouseTrajectoryGRU(nn.Module):
     planner.
     """
 
-    def __init__(self, condition_dim: int, previous_dim: int, hidden_size: int, action_count: int, layers: int, dropout: float):
+    def __init__(
+        self,
+        condition_dim: int,
+        previous_dim: int,
+        hidden_size: int,
+        action_count: int,
+        layers: int,
+        dropout: float,
+        timing_distribution: str = "point",
+    ):
         super().__init__()
+        if timing_distribution not in {"point", "lognormal"}:
+            raise ValueError(f"Unsupported timing_distribution: {timing_distribution!r}")
+        self.timing_distribution = timing_distribution
         self.condition = nn.Sequential(
             nn.Linear(condition_dim, hidden_size),
             nn.Tanh(),
@@ -184,7 +196,7 @@ class MouseTrajectoryGRU(nn.Module):
             dropout=dropout if layers > 1 else 0.0,
             batch_first=True,
         )
-        self.dt_head = nn.Linear(hidden_size, 1)
+        self.dt_head = nn.Linear(hidden_size, 2 if timing_distribution == "lognormal" else 1)
         self.pos_head = nn.Linear(hidden_size, 2)
         self.action_head = nn.Linear(hidden_size, action_count)
         self.layers = layers
@@ -195,7 +207,10 @@ class MouseTrajectoryGRU(nn.Module):
         decoder_input = torch.cat([repeated, previous], dim=-1)
         h0 = condition_embedding.unsqueeze(0).expand(self.layers, -1, -1).contiguous()
         output, _ = self.gru(decoder_input, h0)
-        return self.dt_head(output).squeeze(-1), self.pos_head(output), self.action_head(output)
+        dt = self.dt_head(output)
+        if self.timing_distribution == "point":
+            dt = dt.squeeze(-1)
+        return dt, self.pos_head(output), self.action_head(output)
 
 
 def mouse_loss(
@@ -222,7 +237,7 @@ def mouse_loss(
     mask = batch["mask"]
 
     # Fit timing and goal-relative movement only on real sequence positions.
-    dt_loss = masked_smooth_l1(dt_pred, batch["dt"], mask)
+    dt_loss = masked_timing_loss(dt_pred, batch["dt"], mask)
     pos_loss = masked_smooth_l1(pos_pred, batch["pos"], mask)
 
     # Click actions are sparse compared with move actions, so give them an
@@ -235,11 +250,15 @@ def mouse_loss(
         ignore_index=-100,
         weight=action_weights,
     )
-    duration_loss = dt_pred.sum() * 0.0
+    dt_log_mu = timing_log_mu(dt_pred)
+    duration_loss = dt_log_mu.sum() * 0.0
     if duration_weight > 0:
         # Compare full episode durations in log space to avoid tiny movements
         # dominating the timing objective.
-        pred_log_dt = torch.clamp(F.softplus(dt_pred), max=math.log1p(5000.0))
+        if is_timing_distribution(dt_pred):
+            pred_log_dt = torch.clamp(dt_log_mu, min=0.0, max=math.log1p(5000.0))
+        else:
+            pred_log_dt = torch.clamp(F.softplus(dt_log_mu), max=math.log1p(5000.0))
         target_log_dt = torch.clamp(batch["dt"], min=0.0, max=math.log1p(5000.0))
         pred_duration = (torch.expm1(pred_log_dt) * mask.float()).sum(dim=1)
         target_duration = (torch.expm1(target_log_dt) * mask.float()).sum(dim=1)

@@ -24,6 +24,7 @@ from .keyboard_logic import (
     terminal_edit_actions,
 )
 from .models.keyboard import KeyboardActionGRU, decode_press_count_logits
+from .models.common import sample_timing_log
 from .models.mouse import MouseTrajectoryGRU
 from .types import MouseEpisode
 from .utils import log_to_dt, screen_position_from_goal_relative
@@ -67,6 +68,8 @@ class MouseDecoder:
         endpoint_guidance: bool = True,
         sample: bool = False,
         temperature: float = 1.0,
+        timing_temperature: float = 0.0,
+        timing_seed: int | None = None,
         click_at_end: bool = True,
     ) -> list[dict[str, float | str]]:
         """Roll out a complete mouse trajectory before any caller dispatches it."""
@@ -97,6 +100,10 @@ class MouseDecoder:
         rows: list[dict[str, float | str]] = []
         previous_rows: list[list[float]] = [[0.0, 0.0, 0.0] + [0.0] * (action_count + 1)]
         previous_rows[0][3 + bos_index] = 1.0
+        timing_generator = None
+        if timing_temperature > 0 and timing_seed is not None:
+            timing_generator = torch.Generator(device=self.device)
+            timing_generator.manual_seed(int(timing_seed))
         with torch.no_grad():
             for step_index in range(max_steps):
                 previous = torch.tensor([previous_rows], dtype=torch.float32, device=self.device)
@@ -110,7 +117,12 @@ class MouseDecoder:
                 else:
                     action_id = int(logits[0, 0].argmax().item())
                 action = actions[action_id]
-                dt_ms = log_to_dt(float(dt_pred[0, 0].cpu()))
+                dt_log = sample_timing_log(
+                    dt_pred[0, 0],
+                    timing_temperature,
+                    generator=timing_generator,
+                )
+                dt_ms = log_to_dt(float(dt_log.cpu()))
                 if rows:
                     dt_ms = max(dt_ms, min_dt_ms)
                 offset += dt_ms
@@ -158,7 +170,7 @@ class MouseDecoder:
                     break
 
                 next_previous = [0.0, state_along, state_perp] + [0.0] * (action_count + 1)
-                next_previous[0] = float(dt_pred[0, 0].detach().cpu())
+                next_previous[0] = float(dt_log.detach().cpu())
                 next_previous[3 + action_id] = 1.0
                 previous_rows.append(next_previous)
 
@@ -178,6 +190,8 @@ def simulate_mouse_click_rows(
     endpoint_guidance: bool = True,
     sample: bool = False,
     temperature: float = 1.0,
+    timing_temperature: float = 0.0,
+    timing_seed: int | None = None,
     click_at_end: bool = True,
 ) -> list[dict[str, float | str]]:
     """Compatibility wrapper around `MouseDecoder.decode`."""
@@ -195,6 +209,8 @@ def simulate_mouse_click_rows(
         endpoint_guidance=endpoint_guidance,
         sample=sample,
         temperature=temperature,
+        timing_temperature=timing_temperature,
+        timing_seed=timing_seed,
         click_at_end=click_at_end,
     )
 
@@ -388,6 +404,8 @@ class KeyboardDecoder:
         max_typos: int = 2,
         typo_seed: int | None = 13,
         learned_typo_threshold: float = 0.2,
+        timing_temperature: float = 0.0,
+        timing_seed: int | None = None,
     ) -> list[dict[str, Any]]:
         return _decode_keyboard_rows_impl(
             checkpoint=self.checkpoint,
@@ -404,6 +422,8 @@ class KeyboardDecoder:
             max_typos=max_typos,
             typo_seed=typo_seed,
             learned_typo_threshold=learned_typo_threshold,
+            timing_temperature=timing_temperature,
+            timing_seed=timing_seed,
         )
 
 
@@ -449,6 +469,8 @@ def _decode_keyboard_rows_impl(
     max_typos: int = 2,
     typo_seed: int | None = 13,
     learned_typo_threshold: float = 0.2,
+    timing_temperature: float = 0.0,
+    timing_seed: int | None = None,
 ) -> list[dict[str, Any]]:
     """Roll out keyboard edit rows from a trained keyboard checkpoint model.
 
@@ -520,6 +542,10 @@ def _decode_keyboard_rows_impl(
     previous_dt_values = [0.0]
     next_char_id_values: list[int] = []
     typo_rng = random.Random(typo_seed)
+    timing_generator = None
+    if timing_temperature > 0 and timing_seed is not None:
+        timing_generator = torch.Generator(device=device)
+        timing_generator.manual_seed(int(timing_seed))
     typos_used = 0
     learned_typo_prefixes: set[str] = set()
     with torch.no_grad():
@@ -636,7 +662,14 @@ def _decode_keyboard_rows_impl(
                 action = id_to_action[action_id]
                 step_kind = "model"
 
-            dt_ms = log_to_dt(float(dt_pred[0, 0].cpu()))
+            dt_log = sample_timing_log(
+                dt_pred[0, 0],
+                timing_temperature,
+                generator=timing_generator,
+            )
+            dt_ms = log_to_dt(float(dt_log.cpu()))
+            if timing_temperature > 0:
+                dt_ms = min(650.0, max(6.0, dt_ms))
             offset += dt_ms
             if action == KEY_STOP:
                 # Stop is emitted only after the target is complete in
@@ -655,7 +688,7 @@ def _decode_keyboard_rows_impl(
                 }
             )
             previous_action_ids.append(action_id)
-            previous_dt_values.append(float(dt_pred[0, 0].detach().cpu()))
+            previous_dt_values.append(float(dt_log.detach().cpu()))
 
     # Constrained modes are intended for execution, so failing to reach the
     # requested text is an invariant violation rather than a soft metric.
@@ -688,6 +721,8 @@ def decode_keyboard_rows(
     max_typos: int = 2,
     typo_seed: int | None = 13,
     learned_typo_threshold: float = 0.2,
+    timing_temperature: float = 0.0,
+    timing_seed: int | None = None,
 ) -> list[dict[str, Any]]:
     """Compatibility wrapper around `KeyboardDecoder.decode`."""
     return KeyboardDecoder(checkpoint=checkpoint, model=model, device=device).decode(
@@ -702,4 +737,6 @@ def decode_keyboard_rows(
         max_typos=max_typos,
         typo_seed=typo_seed,
         learned_typo_threshold=learned_typo_threshold,
+        timing_temperature=timing_temperature,
+        timing_seed=timing_seed,
     )

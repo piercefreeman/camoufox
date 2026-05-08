@@ -310,6 +310,7 @@ def train_clicks(args: Any | TrainingExperimentSettings) -> None:
         "action_count": len(MOUSE_ACTIONS),
         "layers": args.layers,
         "dropout": args.dropout,
+        "timing_distribution": args.timing_distribution,
     }
     model = MouseTrajectoryGRU(**model_config).to(device)
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
@@ -521,6 +522,7 @@ def train_keyboard(args: Any | TrainingExperimentSettings) -> None:
         "dropout": args.dropout,
         "learned_typo_head": True,
         "predict_press_count_head": True,
+        "timing_distribution": args.timing_distribution,
     }
     model = KeyboardActionGRU(**model_config).to(device)
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
