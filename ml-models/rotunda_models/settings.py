@@ -100,7 +100,8 @@ class KeyboardSettings(BaseModel):
     keyboard_max_snapshot_edit_actions: int = 12
     keyboard_min_final_length: int = 1
     keyboard_min_duration_ms: float = 0.0
-    keyboard_max_condition_length: int | None = None
+    keyboard_max_condition_length: int | None = 1024
+    keyboard_max_steps: int | None = 256
     char_embed_size: int = 32
     action_embed_size: int = 32
     dt_loss_weight: float = 1.0
@@ -113,6 +114,14 @@ class KeyboardSettings(BaseModel):
     stop_action_weight: float = 8.0
     wandb_keyboard_rollout_examples: int = 128
     wandb_keyboard_rollout_max_steps: int = 256
+
+    @field_validator("keyboard_max_condition_length", "keyboard_max_steps")
+    @classmethod
+    def normalize_optional_positive_int(cls, value: int | None) -> int | None:
+        """Treat non-positive length caps as disabled."""
+        if value is not None and value <= 0:
+            return None
+        return value
 
 
 class TrainingExperimentSettings(BaseSettings):

@@ -43,6 +43,7 @@ from .training_utils import (
     coordinate_scale_for,
     filter_keyboard_training_episodes,
     keyboard_condition_length,
+    keyboard_training_filter_counts,
     move_batch_to_device,
     split_items,
 )
@@ -377,28 +378,41 @@ def train_keyboard(args: Any | TrainingExperimentSettings) -> None:
         f"focused_text_episodes={len(episodes)} selected_identity={selected} "
         f"snapshots={focused_text_meta.get('selected_focused_text_snapshots', 0)}"
     )
-    vocab_episodes = episodes
     if (
         args.keyboard_min_final_length > 0
         or args.keyboard_min_duration_ms > 0
         or args.keyboard_max_condition_length is not None
+        or args.keyboard_max_steps is not None
     ):
         before_filter = len(episodes)
+        filter_counts = keyboard_training_filter_counts(
+            episodes,
+            sequence_mode=keyboard_sequence_mode,
+            min_final_length=args.keyboard_min_final_length,
+            min_duration_ms=args.keyboard_min_duration_ms,
+            max_condition_length=args.keyboard_max_condition_length,
+            max_steps=args.keyboard_max_steps,
+        )
         episodes = filter_keyboard_training_episodes(
             episodes,
             sequence_mode=keyboard_sequence_mode,
             min_final_length=args.keyboard_min_final_length,
             min_duration_ms=args.keyboard_min_duration_ms,
             max_condition_length=args.keyboard_max_condition_length,
+            max_steps=args.keyboard_max_steps,
         )
         log_info(
             f"filtered_keyboard_episodes={len(episodes)} from={before_filter} "
             f"min_final_length={args.keyboard_min_final_length} "
             f"min_duration_ms={args.keyboard_min_duration_ms:g} "
-            f"max_condition_length={args.keyboard_max_condition_length or 'none'}"
+            f"max_condition_length={args.keyboard_max_condition_length or 'none'} "
+            f"max_steps={args.keyboard_max_steps or 'none'} "
+            f"dropped_condition_length={filter_counts['dropped_max_condition_length']} "
+            f"dropped_steps={filter_counts['dropped_max_steps']}"
         )
         if not episodes:
             raise SystemExit("No keyboard episodes remain after the current training filters.")
+    vocab_episodes = episodes
     lengths = [len(episode.steps) for episode in episodes]
     condition_lengths = [keyboard_condition_length(episode) for episode in episodes]
     log_info(
@@ -407,8 +421,8 @@ def train_keyboard(args: Any | TrainingExperimentSettings) -> None:
         f"source=focused_text sequence_mode={keyboard_sequence_mode}"
     )
 
-    # Build vocabularies from the unfiltered candidate set so generation can
-    # still emit characters seen in valid source data but filtered from training.
+    # Build vocabularies after preprocessing so long terminal buffers do not
+    # leak rare prompt/output characters into the keyboard checkpoint.
     log_stage("building vocabularies and splitting data")
     char_to_id, action_to_id = build_keyboard_vocabs(vocab_episodes)
     id_to_char = {index: token for token, index in char_to_id.items()}
@@ -596,6 +610,15 @@ def inspect_recordings(args: Any) -> None:
         max_snapshot_edit_actions=args.keyboard_max_snapshot_edit_actions,
         screen_filter=args.screen_filter,
     )
+    keyboard_sequence_mode = "raw"
+    keyboard_filter_counts = keyboard_training_filter_counts(
+        keyboard_episodes,
+        sequence_mode=keyboard_sequence_mode,
+        min_final_length=getattr(args, "keyboard_min_final_length", 1),
+        min_duration_ms=getattr(args, "keyboard_min_duration_ms", 0.0),
+        max_condition_length=getattr(args, "keyboard_max_condition_length", 1024),
+        max_steps=getattr(args, "keyboard_max_steps", 256),
+    )
     if getattr(args, "keyboard_details", False):
         print(
             format_keyboard_episode_report(
@@ -615,6 +638,15 @@ def inspect_recordings(args: Any) -> None:
         "screen_filter": namespace_config(SimpleNamespace(screen_filter=args.screen_filter))["screen_filter"],
         "motivated_click_episodes": len(mouse_episodes),
         "focused_text_keyboard_episodes": len(keyboard_episodes),
+        "focused_text_keyboard_training_episodes": keyboard_filter_counts["output"],
+        "focused_text_keyboard_training_filter": {
+            **keyboard_filter_counts,
+            "sequence_mode": keyboard_sequence_mode,
+            "min_final_length": getattr(args, "keyboard_min_final_length", 1),
+            "min_duration_ms": getattr(args, "keyboard_min_duration_ms", 0.0),
+            "max_condition_length": getattr(args, "keyboard_max_condition_length", 1024),
+            "max_steps": getattr(args, "keyboard_max_steps", 256),
+        },
         "focused_text": focused_meta,
     }
     print(json.dumps(result, indent=2, sort_keys=True))

@@ -45,6 +45,7 @@ keyboard:
   keyboard_min_final_length: 1
   keyboard_min_duration_ms: 0.0
   keyboard_max_condition_length: 1024
+  keyboard_max_steps: 256
   char_embed_size: 32
   action_embed_size: 32
   dt_loss_weight: 1.0

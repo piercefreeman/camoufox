@@ -82,9 +82,70 @@ def keyboard_episode_duration_ms(episode: KeyboardEpisode, sequence_mode: str) -
     return sum(step.dt_ms for step in steps)
 
 
+def keyboard_step_count(episode: KeyboardEpisode, sequence_mode: str) -> int:
+    """Return the decoder action count used for keyboard length filtering."""
+    steps = canonical_keyboard_steps(episode) if sequence_mode == "constrained" else episode.steps
+    return len(steps)
+
+
 def keyboard_condition_length(episode: KeyboardEpisode) -> int:
     """Return encoded initial/final text length including separator and EOS."""
     return len(episode.initial_string) + 1 + len(episode.final_string) + 1
+
+
+def keyboard_training_filter_reason(
+    episode: KeyboardEpisode,
+    sequence_mode: str,
+    min_final_length: int,
+    min_duration_ms: float,
+    max_condition_length: int | None,
+    max_steps: int | None,
+) -> str | None:
+    """Return the first training filter reason that rejects a keyboard episode."""
+    if len(episode.final_string) < min_final_length:
+        return "min_final_length"
+    if keyboard_episode_duration_ms(episode, sequence_mode) < min_duration_ms:
+        return "min_duration_ms"
+    if max_condition_length is not None and keyboard_condition_length(episode) > max_condition_length:
+        return "max_condition_length"
+    if max_steps is not None and keyboard_step_count(episode, sequence_mode) > max_steps:
+        return "max_steps"
+    return None
+
+
+def keyboard_training_filter_counts(
+    episodes: list[KeyboardEpisode],
+    sequence_mode: str,
+    min_final_length: int,
+    min_duration_ms: float,
+    max_condition_length: int | None,
+    max_steps: int | None,
+) -> dict[str, int]:
+    """Count keyboard episodes kept and rejected by preprocessing filters."""
+    counts = {
+        "input": len(episodes),
+        "output": 0,
+        "dropped": 0,
+        "dropped_min_final_length": 0,
+        "dropped_min_duration_ms": 0,
+        "dropped_max_condition_length": 0,
+        "dropped_max_steps": 0,
+    }
+    for episode in episodes:
+        reason = keyboard_training_filter_reason(
+            episode,
+            sequence_mode=sequence_mode,
+            min_final_length=min_final_length,
+            min_duration_ms=min_duration_ms,
+            max_condition_length=max_condition_length,
+            max_steps=max_steps,
+        )
+        if reason is None:
+            counts["output"] += 1
+        else:
+            counts["dropped"] += 1
+            counts[f"dropped_{reason}"] += 1
+    return counts
 
 
 def filter_keyboard_training_episodes(
@@ -93,15 +154,20 @@ def filter_keyboard_training_episodes(
     min_final_length: int,
     min_duration_ms: float,
     max_condition_length: int | None,
+    max_steps: int | None,
 ) -> list[KeyboardEpisode]:
     """Drop keyboard episodes with targets or text conditions outside training bounds."""
     filtered = []
     for episode in episodes:
-        if len(episode.final_string) < min_final_length:
-            continue
-        if keyboard_episode_duration_ms(episode, sequence_mode) < min_duration_ms:
-            continue
-        if max_condition_length is not None and keyboard_condition_length(episode) > max_condition_length:
+        reason = keyboard_training_filter_reason(
+            episode,
+            sequence_mode=sequence_mode,
+            min_final_length=min_final_length,
+            min_duration_ms=min_duration_ms,
+            max_condition_length=max_condition_length,
+            max_steps=max_steps,
+        )
+        if reason is not None:
             continue
         filtered.append(episode)
     return filtered
