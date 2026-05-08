@@ -70,10 +70,15 @@ class ElementFrame(BaseModel):
     height: float | None = None
 
 
+class KeyboardClass(Enum):
+    regular = 'regular'
+    backspace = 'backspace'
+
+
 class MouseButton(Enum):
     left = 'left'
     middle = 'middle'
-    center = 'center'
+    center_ = 'center'
     right = 'right'
     other = 'other'
 
@@ -82,7 +87,7 @@ class MouseButtonOrNone(Enum):
     none = 'none'
     left = 'left'
     middle = 'middle'
-    center = 'center'
+    center_ = 'center'
     right = 'right'
     other = 'other'
 
@@ -149,7 +154,17 @@ class KeyboardEvent(BaseModel):
     trigger_offset_ms: int | None = Field(None, alias='triggerOffsetMs', ge=0)
     screen_width: int | None = Field(None, alias='screenWidth', ge=0)
     screen_height: int | None = Field(None, alias='screenHeight', ge=0)
-    key_class: str | None = Field(None, alias='keyClass')
+    key: str | None = Field(
+        None,
+        description='Logical key value emitted by the keyboard event. Uses UI Events key names for non-printing keys when available.',
+    )
+    key_code: int | None = Field(
+        None,
+        alias='keyCode',
+        description='macOS virtual key code for the physical key.',
+        ge=0,
+    )
+    key_class: KeyboardClass | None = Field(None, alias='keyClass')
     key_delta_x: float | None = Field(None, alias='keyDeltaX')
     key_delta_y: float | None = Field(None, alias='keyDeltaY')
     key_distance: float | None = Field(None, alias='keyDistance')

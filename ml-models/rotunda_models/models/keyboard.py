@@ -24,6 +24,40 @@ from .common import masked_smooth_l1
 KeyboardSequenceMode = Literal["constrained", "raw"]
 
 
+def repaired_wrong_character_action(
+    final_string: str,
+    current_text: list[str],
+    action_tokens: list[str],
+    action_index: int,
+) -> bool:
+    """Return whether a raw action is a wrong character later repaired by deletion."""
+    action = action_tokens[action_index]
+    current = "".join(current_text)
+    preferred_action = constrained_keyboard_action(final_string, current_text)
+    if (
+        not final_string.startswith(current)
+        or current == final_string
+        or action in {preferred_action, KEY_BACKSPACE, KEY_STOP}
+    ):
+        return False
+
+    future_text = list(current_text)
+    apply_keyboard_action(future_text, action)
+    if final_string.startswith("".join(future_text)):
+        return False
+
+    saw_backspace = False
+    for future_action in action_tokens[action_index + 1:]:
+        if future_action == KEY_STOP:
+            break
+        if future_action == KEY_BACKSPACE and future_text:
+            saw_backspace = True
+        apply_keyboard_action(future_text, future_action)
+        if final_string.startswith("".join(future_text)):
+            return saw_backspace
+    return False
+
+
 class KeyboardSample(TypedDict):
     """Unbatched tensors emitted by KeyboardTrajectoryDataset.
 
@@ -127,18 +161,11 @@ class KeyboardTrajectoryDataset(Dataset):
         for action_index, action in enumerate(action_tokens):
             next_char = keyboard_next_char(episode.final_string, current_text)
             next_char_ids.append(self.char_to_id.get(next_char, self.char_to_id[CHAR_UNK]))
-            preferred_action = constrained_keyboard_action(episode.final_string, current_text)
-            current = "".join(current_text)
-            candidate_text = list(current_text)
-            if action != KEY_STOP:
-                apply_keyboard_action(candidate_text, action)
-            next_action = action_tokens[action_index + 1] if action_index + 1 < len(action_tokens) else KEY_STOP
-            typo_action = (
-                episode.final_string.startswith(current)
-                and current != episode.final_string
-                and action not in {preferred_action, KEY_BACKSPACE, KEY_STOP}
-                and not episode.final_string.startswith("".join(candidate_text))
-                and next_action == KEY_BACKSPACE
+            typo_action = repaired_wrong_character_action(
+                episode.final_string,
+                current_text,
+                action_tokens,
+                action_index,
             )
             typo_labels.append(1.0 if typo_action else 0.0)
             typo_action_ids.append(self.action_to_id[action] if typo_action else -100)

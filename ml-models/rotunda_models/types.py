@@ -103,6 +103,9 @@ class FocusedTextSnapshot:
     identity: str
     raw_accessibility_id: str | None
     value: str
+    key_action: str | None = None
+    key_code: int | None = None
+    is_keyboard_event: bool = False
 
     @property
     def effective_offset_ms(self) -> int:

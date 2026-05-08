@@ -183,3 +183,34 @@ def test_keyboard_dataset_labels_raw_wrong_character_actions() -> None:
     assert sample["typo_labels"].tolist() == [0.0, 1.0, 0.0, 0.0, 0.0]
     assert sample["typo_action_ids"].tolist()[1] == action_to_id["c"]
     assert sample["typo_action_ids"].tolist()[0] == -100
+
+
+def test_keyboard_dataset_labels_wrong_character_repaired_later() -> None:
+    episode = KeyboardEpisode(
+        source="fixture-typo",
+        initial_string="t",
+        final_string="thanks",
+        steps=(
+            KeyStep(dt_ms=30.0, action="h"),
+            KeyStep(dt_ms=35.0, action="a"),
+            KeyStep(dt_ms=40.0, action="n"),
+            KeyStep(dt_ms=45.0, action="s"),
+            KeyStep(dt_ms=50.0, action="k"),
+            KeyStep(dt_ms=55.0, action="<BACKSPACE>"),
+            KeyStep(dt_ms=60.0, action="<BACKSPACE>"),
+            KeyStep(dt_ms=65.0, action="k"),
+            KeyStep(dt_ms=70.0, action="s"),
+        ),
+    )
+    char_to_id, action_to_id = build_keyboard_vocabs([episode])
+    dataset = KeyboardTrajectoryDataset(
+        [episode],
+        char_to_id=char_to_id,
+        action_to_id=action_to_id,
+        sequence_mode="raw",
+    )
+
+    sample = dataset[0]
+
+    assert sample["typo_labels"].tolist() == [0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    assert sample["typo_action_ids"].tolist()[3] == action_to_id["s"]
