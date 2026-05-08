@@ -180,7 +180,7 @@ std::vector<KeyboardRuntimeRow> KeyboardRuntimeModel::GenerateFromConfig(
           MaskConfig::GetDouble("humanize.keyboardTimingJitterSigma")) {
     timingJitterSigma = std::max(0.0, *configured);
   }
-  double pauseProbability = 0.02;
+  double pauseProbability = 0.0;
   if (auto configured =
           MaskConfig::GetDouble("humanize.keyboardPauseProbability")) {
     pauseProbability = std::max(0.0, std::min(1.0, *configured));

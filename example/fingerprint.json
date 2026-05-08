@@ -112,7 +112,7 @@
     "mouseMinDtMs": 4.0,
     "keyboardSampleTypos": true,
     "keyboardTimingJitterSigma": 0.22,
-    "keyboardPauseProbability": 0.02,
+    "keyboardPauseProbability": 0.0,
     "keyboardPauseMeanMs": 35.0
   },
   "showcursor": false,
