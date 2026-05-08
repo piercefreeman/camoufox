@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <cstdlib>
 #include <iomanip>
 #include <iostream>
@@ -31,6 +32,10 @@ struct Options {
   double keyboardCanonicalBias = 3.0;
   double keyboardLearnedTypoThreshold = 0.2;
   int keyboardMaxTypos = 2;
+  double keyboardTimingJitterSigma = 0.0;
+  double keyboardPauseProbability = 0.0;
+  double keyboardPauseMeanMs = 35.0;
+  std::uint32_t keyboardRandomSeed = 13;
   bool includeVectors = false;
 };
 
@@ -73,6 +78,10 @@ int usage(const char* binary) {
       << "  --keyboard-canonical-bias <float>       default 3.0\n"
       << "  --keyboard-learned-typo-threshold <float> default 0.2\n"
       << "  --keyboard-max-typos <int>              default 2\n"
+      << "  --keyboard-timing-jitter-sigma <float>  default 0.0\n"
+      << "  --keyboard-pause-probability <float>    default 0.0\n"
+      << "  --keyboard-pause-mean-ms <float>        default 35.0\n"
+      << "  --keyboard-random-seed <int>            default 13\n"
       << "  --include-vectors                       include hidden/input vectors\n";
   return 2;
 }
@@ -125,6 +134,23 @@ std::optional<Options> parseOptions(int argc, char** argv) {
       auto next = value();
       if (!next) return std::nullopt;
       options.keyboardMaxTypos = std::stoi(*next);
+    } else if (isOption(arg, "--keyboard-timing-jitter-sigma")) {
+      auto next = value();
+      if (!next) return std::nullopt;
+      options.keyboardTimingJitterSigma = std::stod(*next);
+    } else if (isOption(arg, "--keyboard-pause-probability")) {
+      auto next = value();
+      if (!next) return std::nullopt;
+      options.keyboardPauseProbability = std::stod(*next);
+    } else if (isOption(arg, "--keyboard-pause-mean-ms")) {
+      auto next = value();
+      if (!next) return std::nullopt;
+      options.keyboardPauseMeanMs = std::stod(*next);
+    } else if (isOption(arg, "--keyboard-random-seed")) {
+      auto next = value();
+      if (!next) return std::nullopt;
+      options.keyboardRandomSeed =
+          static_cast<std::uint32_t>(std::stoul(*next));
     } else if (isOption(arg, "--include-vectors")) {
       options.includeVectors = true;
     } else {
@@ -694,6 +720,10 @@ nlohmann::json diagnosticRun(const Options& options) {
       {"keyboardCanonicalBias", options.keyboardCanonicalBias},
       {"keyboardLearnedTypoThreshold", options.keyboardLearnedTypoThreshold},
       {"keyboardMaxTypos", options.keyboardMaxTypos},
+      {"keyboardTimingJitterSigma", options.keyboardTimingJitterSigma},
+      {"keyboardPauseProbability", options.keyboardPauseProbability},
+      {"keyboardPauseMeanMs", options.keyboardPauseMeanMs},
+      {"keyboardRandomSeed", options.keyboardRandomSeed},
       {"includeVectors", options.includeVectors},
   };
   output["metadata"] = {{"mouse", mouseMetadata}, {"keyboard", keyboardMetadata}};
@@ -704,6 +734,11 @@ nlohmann::json diagnosticRun(const Options& options) {
       {"keyboardTypo",
        "sigmoid(typo_head) >= threshold, then argmax(typo_action_head); no "
        "probabilistic typo sampling"},
+      {"keyboardTiming",
+       options.keyboardTimingJitterSigma > 0.0 ||
+               options.keyboardPauseProbability > 0.0
+           ? "lognormal residual timing sampler plus optional random pauses"
+           : "deterministic dt_head point estimate"},
   };
   output["mouseCases"] = nlohmann::json::array();
   output["keyboardCases"] = nlohmann::json::array();
@@ -722,7 +757,9 @@ nlohmann::json diagnosticRun(const Options& options) {
         testCase.initial, testCase.final, options.keyboardMaxSteps,
         "constrained", options.keyboardStructuredExtraSteps,
         options.keyboardCanonicalBias, options.keyboardLearnedTypoThreshold,
-        options.keyboardMaxTypos);
+        options.keyboardMaxTypos, options.keyboardTimingJitterSigma,
+        options.keyboardPauseProbability, options.keyboardPauseMeanMs,
+        options.keyboardRandomSeed);
     nlohmann::json caseOutput =
         keyboardCaseJson(testCase, trace, keyboardActions, options.includeVectors);
     if (trace.rows.empty() && testCase.initial != testCase.final) {

@@ -4,9 +4,11 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <limits>
 #include <memory>
 #include <mutex>
+#include <random>
 #include <set>
 #include <utility>
 
@@ -20,6 +22,8 @@ constexpr const char* kUnk = "<UNK>";
 constexpr const char* kEos = "<EOS>";
 constexpr const char* kSep = "<SEP>";
 constexpr double kMaxPredictedPressCount = 1024.0;
+constexpr double kMinSampledDtMs = 6.0;
+constexpr double kMaxSampledDtMs = 650.0;
 
 double sigmoid(double value) { return 1.0 / (1.0 + std::exp(-value)); }
 
@@ -30,6 +34,26 @@ double softplus(double value) {
 
 double logToDt(double value) {
   return std::expm1(std::max(0.0, std::min(value, std::log1p(5000.0))));
+}
+
+double sampledKeyboardDt(double dtMs, double timingJitterSigma,
+                         double pauseProbability, double pauseMeanMs,
+                         std::mt19937& rng) {
+  double sampled = dtMs;
+  if (timingJitterSigma > 0.0) {
+    double sigma = std::min(std::max(0.0, timingJitterSigma), 1.0);
+    std::lognormal_distribution<double> residual(
+        -0.5 * sigma * sigma, sigma);
+    sampled *= residual(rng);
+  }
+  if (pauseProbability > 0.0 && pauseMeanMs > 0.0) {
+    std::uniform_real_distribution<double> uniform(0.0, 1.0);
+    if (uniform(rng) < std::min(std::max(0.0, pauseProbability), 1.0)) {
+      std::exponential_distribution<double> pause(1.0 / pauseMeanMs);
+      sampled += pause(rng);
+    }
+  }
+  return std::min(kMaxSampledDtMs, std::max(kMinSampledDtMs, sampled));
 }
 
 bool startsWith(const std::string& value, const std::string& prefix) {
@@ -147,9 +171,24 @@ std::vector<KeyboardRuntimeRow> KeyboardRuntimeModel::GenerateFromConfig(
   if (auto configured = MaskConfig::GetInt32("humanize.keyboardMaxTypos")) {
     maxLearnedTypos = std::max(0, *configured);
   }
+  double timingJitterSigma = 0.22;
+  if (auto configured =
+          MaskConfig::GetDouble("humanize.keyboardTimingJitterSigma")) {
+    timingJitterSigma = std::max(0.0, *configured);
+  }
+  double pauseProbability = 0.02;
+  if (auto configured =
+          MaskConfig::GetDouble("humanize.keyboardPauseProbability")) {
+    pauseProbability = std::max(0.0, std::min(1.0, *configured));
+  }
+  double pauseMeanMs = 35.0;
+  if (auto configured = MaskConfig::GetDouble("humanize.keyboardPauseMeanMs")) {
+    pauseMeanMs = std::max(0.0, *configured);
+  }
   return model->decode(initialString, finalString, maxSteps, "constrained",
                        structuredExtraSteps, canonicalBias,
-                       learnedTypoThreshold, maxLearnedTypos);
+                       learnedTypoThreshold, maxLearnedTypos,
+                       timingJitterSigma, pauseProbability, pauseMeanMs);
 }
 
 int KeyboardRuntimeModel::charId(const std::string& token) const {
@@ -371,29 +410,36 @@ bool KeyboardRuntimeModel::targetSupported(
 std::vector<KeyboardRuntimeRow> KeyboardRuntimeModel::decode(
     const std::string& initialString, const std::string& finalString,
     int maxSteps, const std::string& decodeMode, int structuredExtraSteps,
-    double canonicalBias, double learnedTypoThreshold,
-    int maxLearnedTypos) const {
+    double canonicalBias, double learnedTypoThreshold, int maxLearnedTypos,
+    double timingJitterSigma, double pauseProbability, double pauseMeanMs,
+    std::uint32_t randomSeed) const {
   return decodeInternal(initialString, finalString, maxSteps, decodeMode,
                         structuredExtraSteps, canonicalBias,
-                        learnedTypoThreshold, maxLearnedTypos, false)
+                        learnedTypoThreshold, maxLearnedTypos,
+                        timingJitterSigma, pauseProbability, pauseMeanMs,
+                        randomSeed, false)
       .rows;
 }
 
 KeyboardRuntimeTrace KeyboardRuntimeModel::traceDecode(
     const std::string& initialString, const std::string& finalString,
     int maxSteps, const std::string& decodeMode, int structuredExtraSteps,
-    double canonicalBias, double learnedTypoThreshold,
-    int maxLearnedTypos) const {
+    double canonicalBias, double learnedTypoThreshold, int maxLearnedTypos,
+    double timingJitterSigma, double pauseProbability, double pauseMeanMs,
+    std::uint32_t randomSeed) const {
   return decodeInternal(initialString, finalString, maxSteps, decodeMode,
                         structuredExtraSteps, canonicalBias,
-                        learnedTypoThreshold, maxLearnedTypos, true);
+                        learnedTypoThreshold, maxLearnedTypos,
+                        timingJitterSigma, pauseProbability, pauseMeanMs,
+                        randomSeed, true);
 }
 
 KeyboardRuntimeTrace KeyboardRuntimeModel::decodeInternal(
     const std::string& initialString, const std::string& finalString,
     int maxSteps, const std::string& decodeMode, int structuredExtraSteps,
     double canonicalBias, double learnedTypoThreshold, int maxLearnedTypos,
-    bool collectTrace) const {
+    double timingJitterSigma, double pauseProbability, double pauseMeanMs,
+    std::uint32_t randomSeed, bool collectTrace) const {
   KeyboardRuntimeTrace trace;
   if (!m_loaded || maxSteps <= 0) return {};
   if (decodeMode != "constrained" && decodeMode != "canonical") return {};
@@ -441,6 +487,12 @@ KeyboardRuntimeTrace KeyboardRuntimeModel::decodeInternal(
   std::vector<KeyboardRuntimeRow> rows;
   int learnedTyposUsed = 0;
   std::set<std::string> learnedTypoPrefixes;
+  bool sampleTiming =
+      timingJitterSigma > 0.0 || (pauseProbability > 0.0 && pauseMeanMs > 0.0);
+  std::optional<std::mt19937> timingRng;
+  if (sampleTiming) {
+    timingRng.emplace(randomSeed == 0 ? std::random_device{}() : randomSeed);
+  }
 
   for (int step = 0; step < effectiveMaxSteps; ++step) {
     std::string next = nextChar(finalString, text);
@@ -567,6 +619,10 @@ KeyboardRuntimeTrace KeyboardRuntimeModel::decodeInternal(
 
     if (selectedActionId < 0) return {};
     double dtMs = logToDt(dtHead[0]);
+    if (sampleTiming && action != kStop && timingRng.has_value()) {
+      dtMs = sampledKeyboardDt(dtMs, timingJitterSigma, pauseProbability,
+                               pauseMeanMs, *timingRng);
+    }
     offset += dtMs;
     if (collectTrace) {
       traceStep.selectedActionId = selectedActionId;
