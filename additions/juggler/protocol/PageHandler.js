@@ -25,38 +25,41 @@ function isHumanizeEnabled() {
   return ChromeUtils.rotundaGetBool('humanize.enabled', false);
 }
 
-function humanizedMousePoints(fromX, fromY, toX, toY, bounds) {
+function humanizedMousePlan(fromX, fromY, toX, toY, bounds, clickAtEnd = false) {
   if (!isHumanizeEnabled() || fromX === toX && fromY === toY)
     return null;
 
-  const flatPoints = ChromeUtils.rotundaGetMouseTrajectory(
+  const flatPlan = ChromeUtils.rotundaGetMouseTrajectory(
     Math.round(fromX),
     Math.round(fromY),
     Math.round(toX),
-    Math.round(toY)
+    Math.round(toY),
+    clickAtEnd
   );
-  if (!flatPoints || flatPoints.length < 4)
+  if (!flatPlan || flatPlan.length < 4)
     return null;
 
-  const points = [];
-  for (let i = 0; i + 1 < flatPoints.length; i += 2) {
-    let x = flatPoints[i];
-    let y = flatPoints[i + 1];
+  const plan = [];
+  for (let i = 0; i + 3 < flatPlan.length; i += 4) {
+    let x = flatPlan[i];
+    let y = flatPlan[i + 1];
+    const dtMs = Math.max(0, flatPlan[i + 2] || 0);
+    const action = flatPlan[i + 3] || 0;
     if (bounds) {
       x = Math.max(0, Math.min(bounds.width, x));
       y = Math.max(0, Math.min(bounds.height, y));
     }
-    if (points.length && points[points.length - 1].x === x && points[points.length - 1].y === y)
+    if (plan.length && plan[plan.length - 1].x === x && plan[plan.length - 1].y === y)
       continue;
-    points.push({x, y});
+    plan.push({x, y, dtMs, action});
   }
 
-  if (points.length && points[0].x === fromX && points[0].y === fromY)
-    points.shift();
-  if (!points.length || points[points.length - 1].x !== toX || points[points.length - 1].y !== toY)
-    points.push({x: toX, y: toY});
+  if (plan.length && plan[0].x === fromX && plan[0].y === fromY)
+    plan.shift();
+  if (!plan.length || plan[plan.length - 1].x !== toX || plan[plan.length - 1].y !== toY)
+    plan.push({x: toX, y: toY, dtMs: HUMANIZED_MOUSE_INTERVAL_MS, action: clickAtEnd ? 1 : 0});
 
-  return points;
+  return plan;
 }
 
 class WorkerHandler {
@@ -568,9 +571,11 @@ export class PageHandler {
       await Promise.all(promises);
       await watcher.dispose();
     };
-    const waitForHumanizedMouseInterval = async (hasMorePoints) => {
-      if (hasMorePoints)
-        await new Promise(resolve => setTimeout(resolve, HUMANIZED_MOUSE_INTERVAL_MS));
+    const waitForHumanizedMouseInterval = async (points, index) => {
+      if (index + 1 < points.length) {
+        const delay = points[index + 1].dtMs || HUMANIZED_MOUSE_INTERVAL_MS;
+        await new Promise(resolve => setTimeout(resolve, delay));
+      }
     };
     const sendDragOver = async (eventX, eventY) => {
       const watcher = new EventWatcher(this._pageEventSink, ['dragover'], this._pendingEventWatchers);
@@ -581,7 +586,7 @@ export class PageHandler {
       for (let i = startIndex; i < points.length; ++i) {
         const point = points[i];
         await sendDragOver(point.x, point.y);
-        await waitForHumanizedMouseInterval(i + 1 < points.length);
+        await waitForHumanizedMouseInterval(points, i);
       }
     };
     const sendPotentialDragPath = async (points) => {
@@ -600,12 +605,19 @@ export class PageHandler {
         }
 
         if (this._isDragging) {
-          await waitForHumanizedMouseInterval(i + 1 < points.length);
+          await waitForHumanizedMouseInterval(points, i);
           await sendDragOverPath(points, i + 1);
           return;
         }
 
-        await waitForHumanizedMouseInterval(i + 1 < points.length);
+        await waitForHumanizedMouseInterval(points, i);
+      }
+    };
+    const sendMouseMovePath = async (points) => {
+      for (let i = 0; i < points.length; ++i) {
+        const point = points[i];
+        await sendEvents(['mousemove'], point.x, point.y);
+        await waitForHumanizedMouseInterval(points, i);
       }
     };
 
@@ -647,6 +659,11 @@ export class PageHandler {
         if (this._isDragging)
           return;
 
+        const previousMousePosition = this._lastMousePosition || {x: 0, y: 0};
+        const points = humanizedMousePlan(previousMousePosition.x, previousMousePosition.y, x, y, boundingBox);
+        if (points)
+          await sendMouseMovePath(points);
+        this._lastMousePosition = { x, y };
         const eventNames = button === 2 ? ['mousedown', 'contextmenu'] : ['mousedown'];
         await sendEvents(eventNames);
         return;
@@ -656,7 +673,7 @@ export class PageHandler {
         const previousMousePosition = this._lastMousePosition || {x: 0, y: 0};
         this._lastMousePosition = { x, y };
         if (this._isDragging) {
-          const points = humanizedMousePoints(previousMousePosition.x, previousMousePosition.y, x, y, boundingBox);
+          const points = humanizedMousePlan(previousMousePosition.x, previousMousePosition.y, x, y, boundingBox);
           if (points)
             await sendDragOverPath(points);
           else
@@ -665,19 +682,15 @@ export class PageHandler {
         }
 
         if (buttons === 0) {
-          const points = humanizedMousePoints(previousMousePosition.x, previousMousePosition.y, x, y, boundingBox);
+          const points = humanizedMousePlan(previousMousePosition.x, previousMousePosition.y, x, y, boundingBox);
           if (points) {
-            for (let i = 0; i < points.length; ++i) {
-              const point = points[i];
-              await sendEvents(['mousemove'], point.x, point.y);
-              await waitForHumanizedMouseInterval(i + 1 < points.length);
-            }
+            await sendMouseMovePath(points);
             return;
           }
         }
 
         if (buttons) {
-          const points = humanizedMousePoints(previousMousePosition.x, previousMousePosition.y, x, y, boundingBox);
+          const points = humanizedMousePlan(previousMousePosition.x, previousMousePosition.y, x, y, boundingBox);
           if (points) {
             await sendPotentialDragPath(points);
             return;
@@ -704,7 +717,7 @@ export class PageHandler {
         const previousMousePosition = this._lastMousePosition || {x, y};
         this._lastMousePosition = { x, y };
         if (this._isDragging) {
-          const points = humanizedMousePoints(previousMousePosition.x, previousMousePosition.y, x, y, boundingBox);
+          const points = humanizedMousePlan(previousMousePosition.x, previousMousePosition.y, x, y, boundingBox);
           if (points)
             await sendDragOverPath(points);
           else

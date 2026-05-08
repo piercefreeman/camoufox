@@ -47,6 +47,41 @@ class HumanizeProfile {
       }
       m_minTime = value.get<double>();
     }
+    if (json.contains("mouseModelPath") && !json.at("mouseModelPath").is_null()) {
+      const auto& value = json.at("mouseModelPath");
+      if (!value.is_string()) {
+        return false;
+      }
+      m_mouseModelPath = value.get<std::string>();
+    }
+    if (json.contains("keyboardModelPath") && !json.at("keyboardModelPath").is_null()) {
+      const auto& value = json.at("keyboardModelPath");
+      if (!value.is_string()) {
+        return false;
+      }
+      m_keyboardModelPath = value.get<std::string>();
+    }
+    if (json.contains("mouseMaxSteps") && !json.at("mouseMaxSteps").is_null()) {
+      const auto& value = json.at("mouseMaxSteps");
+      if (!value.is_number_integer()) {
+        return false;
+      }
+      m_mouseMaxSteps = value.get<int32_t>();
+    }
+    if (json.contains("mouseClickThreshold") && !json.at("mouseClickThreshold").is_null()) {
+      const auto& value = json.at("mouseClickThreshold");
+      if (!value.is_number()) {
+        return false;
+      }
+      m_mouseClickThreshold = value.get<double>();
+    }
+    if (json.contains("mouseMinDtMs") && !json.at("mouseMinDtMs").is_null()) {
+      const auto& value = json.at("mouseMinDtMs");
+      if (!value.is_number()) {
+        return false;
+      }
+      m_mouseMinDtMs = value.get<double>();
+    }
     return true;
   }
 
@@ -60,6 +95,21 @@ class HumanizeProfile {
     }
     if (m_minTime.has_value()) {
       json["minTime"] = *m_minTime;
+    }
+    if (m_mouseModelPath.has_value()) {
+      json["mouseModelPath"] = *m_mouseModelPath;
+    }
+    if (m_keyboardModelPath.has_value()) {
+      json["keyboardModelPath"] = *m_keyboardModelPath;
+    }
+    if (m_mouseMaxSteps.has_value()) {
+      json["mouseMaxSteps"] = *m_mouseMaxSteps;
+    }
+    if (m_mouseClickThreshold.has_value()) {
+      json["mouseClickThreshold"] = *m_mouseClickThreshold;
+    }
+    if (m_mouseMinDtMs.has_value()) {
+      json["mouseMinDtMs"] = *m_mouseMinDtMs;
     }
     return json;
   }
@@ -90,14 +140,58 @@ class HumanizeProfile {
     m_minTime = value;
   }
 
+  bool mouseModelPathIsSet() const { return m_mouseModelPath.has_value(); }
+  std::optional<std::string> getMouseModelPath() const {
+    return m_mouseModelPath;
+  }
+  void setMouseModelPath(const std::string& value) {
+    m_mouseModelPath = value;
+  }
+
+  bool keyboardModelPathIsSet() const { return m_keyboardModelPath.has_value(); }
+  std::optional<std::string> getKeyboardModelPath() const {
+    return m_keyboardModelPath;
+  }
+  void setKeyboardModelPath(const std::string& value) {
+    m_keyboardModelPath = value;
+  }
+
+  bool mouseMaxStepsIsSet() const { return m_mouseMaxSteps.has_value(); }
+  std::optional<int32_t> getMouseMaxSteps() const {
+    return m_mouseMaxSteps;
+  }
+  void setMouseMaxSteps(const int32_t& value) {
+    m_mouseMaxSteps = value;
+  }
+
+  bool mouseClickThresholdIsSet() const { return m_mouseClickThreshold.has_value(); }
+  std::optional<double> getMouseClickThreshold() const {
+    return m_mouseClickThreshold;
+  }
+  void setMouseClickThreshold(const double& value) {
+    m_mouseClickThreshold = value;
+  }
+
+  bool mouseMinDtMsIsSet() const { return m_mouseMinDtMs.has_value(); }
+  std::optional<double> getMouseMinDtMs() const {
+    return m_mouseMinDtMs;
+  }
+  void setMouseMinDtMs(const double& value) {
+    m_mouseMinDtMs = value;
+  }
+
  private:
   bool m_IsSet = false;
   std::optional<bool> m_enabled;
   std::optional<double> m_maxTime;
   std::optional<double> m_minTime;
+  std::optional<std::string> m_mouseModelPath;
+  std::optional<std::string> m_keyboardModelPath;
+  std::optional<int32_t> m_mouseMaxSteps;
+  std::optional<double> m_mouseClickThreshold;
+  std::optional<double> m_mouseMinDtMs;
 };
 
 }  // namespace rotundacfg
 
 #endif  // ROTUNDA_PROFILE_HumanizeProfile_H_
-

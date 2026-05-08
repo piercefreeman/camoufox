@@ -1,0 +1,15 @@
+{
+  "artifacts": [
+    {
+      "kind": "mouse_click_gru",
+      "path": "mouse.safetensors",
+      "tensorCount": 14
+    },
+    {
+      "kind": "keyboard_action_gru",
+      "path": "keyboard.safetensors",
+      "tensorCount": 14
+    }
+  ],
+  "format": "rotunda-runtime-manifest-v1"
+}

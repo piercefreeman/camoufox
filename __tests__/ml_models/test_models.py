@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import unittest
-
 import torch
 from rotunda_models.constants import MOUSE_ACTIONS
 from rotunda_models.models.keyboard import (
@@ -75,84 +73,80 @@ def has_nonzero_gradient(model: torch.nn.Module) -> bool:
     )
 
 
-class ModelSmokeTests(unittest.TestCase):
-    def test_mouse_model_forward_backward_step_on_tiny_dataset(self) -> None:
-        torch.manual_seed(0)
-        dataset = MouseTrajectoryDataset(tiny_mouse_episodes(), coordinate_scale=100.0)
-        batch = collate_mouse([dataset[0], dataset[1]])
-        model = MouseTrajectoryGRU(
-            condition_dim=7,
-            previous_dim=3 + len(MOUSE_ACTIONS) + 1,
-            hidden_size=12,
-            action_count=len(MOUSE_ACTIONS),
-            layers=1,
-            dropout=0.0,
-        )
+def test_mouse_model_forward_backward_step_on_tiny_dataset() -> None:
+    torch.manual_seed(0)
+    dataset = MouseTrajectoryDataset(tiny_mouse_episodes(), coordinate_scale=100.0)
+    batch = collate_mouse([dataset[0], dataset[1]])
+    model = MouseTrajectoryGRU(
+        condition_dim=7,
+        previous_dim=3 + len(MOUSE_ACTIONS) + 1,
+        hidden_size=12,
+        action_count=len(MOUSE_ACTIONS),
+        layers=1,
+        dropout=0.0,
+    )
 
-        dt_pred, pos_pred, action_logits = model(batch["condition"], batch["previous"])
+    dt_pred, pos_pred, action_logits = model(batch["condition"], batch["previous"])
 
-        self.assertEqual(dt_pred.shape, batch["dt"].shape)
-        self.assertEqual(pos_pred.shape, batch["pos"].shape)
-        self.assertEqual(action_logits.shape[:2], batch["actions"].shape)
-        self.assertEqual(action_logits.shape[-1], len(MOUSE_ACTIONS))
+    assert dt_pred.shape == batch["dt"].shape
+    assert pos_pred.shape == batch["pos"].shape
+    assert action_logits.shape[:2] == batch["actions"].shape
+    assert action_logits.shape[-1] == len(MOUSE_ACTIONS)
 
-        loss, metrics = mouse_loss(batch, model, duration_weight=0.5)
-        self.assertTrue(torch.isfinite(loss))
-        self.assertGreater(metrics["loss"], 0.0)
+    loss, metrics = mouse_loss(batch, model, duration_weight=0.5)
+    assert torch.isfinite(loss)
+    assert metrics["loss"] > 0.0
 
-        optimizer = torch.optim.AdamW(model.parameters(), lr=1e-3)
-        optimizer.zero_grad(set_to_none=True)
-        loss.backward()
+    optimizer = torch.optim.AdamW(model.parameters(), lr=1e-3)
+    optimizer.zero_grad(set_to_none=True)
+    loss.backward()
 
-        self.assertTrue(has_nonzero_gradient(model))
+    assert has_nonzero_gradient(model)
 
-        optimizer.step()
-
-    def test_keyboard_model_forward_backward_step_on_tiny_dataset(self) -> None:
-        torch.manual_seed(0)
-        episodes = tiny_keyboard_episodes()
-        char_to_id, action_to_id = build_keyboard_vocabs(episodes)
-        dataset = KeyboardTrajectoryDataset(
-            episodes,
-            char_to_id=char_to_id,
-            action_to_id=action_to_id,
-            sequence_mode="raw",
-        )
-        batch = collate_keyboard([dataset[0], dataset[1]], len(action_to_id))
-        model = KeyboardActionGRU(
-            char_vocab_size=len(char_to_id),
-            action_vocab_size=len(action_to_id),
-            hidden_size=12,
-            char_embed_size=8,
-            action_embed_size=8,
-            layers=1,
-            dropout=0.0,
-        )
-
-        dt_pred, action_logits = model(
-            batch["final_ids"],
-            batch["final_lengths"],
-            batch["previous_actions"],
-            batch["previous_dt"],
-            batch["next_char_ids"],
-        )
-
-        self.assertEqual(dt_pred.shape, batch["dt"].shape)
-        self.assertEqual(action_logits.shape[:2], batch["actions"].shape)
-        self.assertEqual(action_logits.shape[-1], len(action_to_id))
-
-        loss, metrics = keyboard_loss(batch, model, duration_weight=0.5)
-        self.assertTrue(torch.isfinite(loss))
-        self.assertGreater(metrics["loss"], 0.0)
-
-        optimizer = torch.optim.AdamW(model.parameters(), lr=1e-3)
-        optimizer.zero_grad(set_to_none=True)
-        loss.backward()
-
-        self.assertTrue(has_nonzero_gradient(model))
-
-        optimizer.step()
+    optimizer.step()
 
 
-if __name__ == "__main__":
-    unittest.main()
+def test_keyboard_model_forward_backward_step_on_tiny_dataset() -> None:
+    torch.manual_seed(0)
+    episodes = tiny_keyboard_episodes()
+    char_to_id, action_to_id = build_keyboard_vocabs(episodes)
+    dataset = KeyboardTrajectoryDataset(
+        episodes,
+        char_to_id=char_to_id,
+        action_to_id=action_to_id,
+        sequence_mode="raw",
+    )
+    batch = collate_keyboard([dataset[0], dataset[1]], len(action_to_id))
+    model = KeyboardActionGRU(
+        char_vocab_size=len(char_to_id),
+        action_vocab_size=len(action_to_id),
+        hidden_size=12,
+        char_embed_size=8,
+        action_embed_size=8,
+        layers=1,
+        dropout=0.0,
+    )
+
+    dt_pred, action_logits = model(
+        batch["final_ids"],
+        batch["final_lengths"],
+        batch["previous_actions"],
+        batch["previous_dt"],
+        batch["next_char_ids"],
+    )
+
+    assert dt_pred.shape == batch["dt"].shape
+    assert action_logits.shape[:2] == batch["actions"].shape
+    assert action_logits.shape[-1] == len(action_to_id)
+
+    loss, metrics = keyboard_loss(batch, model, duration_weight=0.5)
+    assert torch.isfinite(loss)
+    assert metrics["loss"] > 0.0
+
+    optimizer = torch.optim.AdamW(model.parameters(), lr=1e-3)
+    optimizer.zero_grad(set_to_none=True)
+    loss.backward()
+
+    assert has_nonzero_gradient(model)
+
+    optimizer.step()

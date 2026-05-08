@@ -13,6 +13,7 @@ authors = [
     { name = "Pierce Freeman", email = "pierce@freeman.vc" },
 ]
 dependencies = [
+    "click>=8.1",
     "numpy>=1.26",
     "Pillow>=10",
     "pydantic>=2.13",

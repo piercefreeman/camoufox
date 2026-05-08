@@ -35,6 +35,127 @@ def load_checkpoint(path: Path, device: torch.device) -> dict:
     return torch.load(path, map_location=device, weights_only=False)
 
 
+class MouseDecoder:
+    """Autoregressive runtime decoder for `MouseTrajectoryGRU` checkpoints."""
+
+    def __init__(
+        self,
+        model: MouseTrajectoryGRU,
+        coordinate_scale: float,
+        position_frame: str,
+        actions: list[str],
+        device: torch.device,
+    ):
+        self.model = model
+        self.coordinate_scale = coordinate_scale
+        self.position_frame = position_frame
+        self.actions = actions
+        self.device = device
+
+    def decode(
+        self,
+        episode: MouseEpisode,
+        max_steps: int,
+        click_threshold: float,
+        min_dt_ms: float,
+        endpoint_guidance: bool = True,
+        sample: bool = False,
+        temperature: float = 1.0,
+        click_at_end: bool = True,
+    ) -> list[dict[str, float | str]]:
+        """Roll out a complete mouse trajectory before any caller dispatches it."""
+        # Mouse generation is an autoregressive rollout conditioned on one concrete
+        # target. The model predicts the next delay, movement increment, and action
+        # class; endpoint guidance keeps the known target reachable for execution.
+        actions = self.actions
+        action_count = len(actions)
+        bos_index = action_count
+        start_x = episode.start_x
+        start_y = episode.start_y
+        dst_x = episode.dst_x
+        dst_y = episode.dst_y
+        dx = dst_x - start_x
+        dy = dst_y - start_y
+        distance = math.hypot(dx, dy)
+        scale = max(1.0, float(self.coordinate_scale))
+        condition = torch.tensor(
+            [[start_x / scale, start_y / scale, dst_x / scale, dst_y / scale, dx / scale, dy / scale, distance / scale]],
+            dtype=torch.float32,
+            device=self.device,
+        )
+
+        offset = 0.0
+        state_along = 0.0
+        state_perp = 0.0
+        rows: list[dict[str, float | str]] = []
+        previous_rows: list[list[float]] = [[0.0, 0.0, 0.0] + [0.0] * (action_count + 1)]
+        previous_rows[0][3 + bos_index] = 1.0
+        with torch.no_grad():
+            for step_index in range(max_steps):
+                previous = torch.tensor([previous_rows], dtype=torch.float32, device=self.device)
+                dt_pred_all, pos_pred_all, logits_all = self.model(condition, previous)
+                dt_pred = dt_pred_all[:, -1:]
+                pos_pred = pos_pred_all[:, -1:, :]
+                logits = logits_all[:, -1:, :]
+                if sample:
+                    probs = torch.softmax(logits[0, 0] / max(temperature, 1e-4), dim=-1)
+                    action_id = int(torch.multinomial(probs, 1).item())
+                else:
+                    action_id = int(logits[0, 0].argmax().item())
+                action = actions[action_id]
+                dt_ms = log_to_dt(float(dt_pred[0, 0].cpu()))
+                if rows:
+                    dt_ms = max(dt_ms, min_dt_ms)
+                offset += dt_ms
+
+                rel_x = float(pos_pred[0, 0, 0].cpu())
+                rel_y = float(pos_pred[0, 0, 1].cpu())
+                if self.position_frame == "goal_relative_delta":
+                    if endpoint_guidance:
+                        remaining_steps = max(1, max_steps - step_index)
+                        min_delta = (1.0 - state_along) / remaining_steps
+                        state_along = min(1.0, state_along + max(rel_x, min_delta, 0.0))
+                        guided_perp = state_perp + rel_y
+                        envelope = max(0.0, 0.35 * math.sin(math.pi * max(0.0, min(1.0, state_along))))
+                        state_perp = max(-envelope, min(envelope, guided_perp * (1.0 - 0.25 * state_along)))
+                        if state_along >= click_threshold:
+                            action = "left_click" if click_at_end else "move"
+                            action_id = actions.index("left_click") if click_at_end and "left_click" in actions else 0
+                            state_along = 1.0
+                            state_perp = 0.0
+                    else:
+                        state_along += rel_x
+                        state_perp += rel_y
+                    x, y = screen_position_from_goal_relative(start_x, start_y, dst_x, dst_y, state_along, state_perp)
+                elif self.position_frame == "goal_relative":
+                    state_along = rel_x
+                    state_perp = rel_y
+                    x, y = screen_position_from_goal_relative(start_x, start_y, dst_x, dst_y, rel_x, rel_y)
+                else:
+                    x = start_x + rel_x * scale
+                    y = start_y + rel_y * scale
+                    state_along = rel_x
+                    state_perp = rel_y
+
+                terminal = action != "move" or state_along >= click_threshold
+                if terminal:
+                    x = dst_x
+                    y = dst_y
+                    if not click_at_end:
+                        action = "move"
+                        action_id = 0
+                rows.append({"offsetMs": offset, "dtMs": dt_ms, "x": x, "y": y, "action": action})
+                if terminal:
+                    break
+
+                next_previous = [0.0, state_along, state_perp] + [0.0] * (action_count + 1)
+                next_previous[0] = float(dt_pred[0, 0].detach().cpu())
+                next_previous[3 + action_id] = 1.0
+                previous_rows.append(next_previous)
+
+        return rows
+
+
 def simulate_mouse_click_rows(
     model: MouseTrajectoryGRU,
     episode: MouseEpisode,
@@ -48,116 +169,25 @@ def simulate_mouse_click_rows(
     endpoint_guidance: bool = True,
     sample: bool = False,
     temperature: float = 1.0,
+    click_at_end: bool = True,
 ) -> list[dict[str, float | str]]:
-    """Roll out a mouse click trajectory from a trained mouse checkpoint model.
-
-    The returned rows are execution-ready dictionaries containing cumulative
-    `offsetMs`, per-step `dtMs`, screen coordinates, and an action label. The
-    GRU predicts timing, movement increments, and action logits. When
-    `endpoint_guidance` is enabled, the decoder constrains progress toward the
-    known click destination and snaps the terminal click to that destination;
-    disable it to inspect raw free-running spatial behavior.
-    """
-    # Mouse generation is an autoregressive rollout conditioned on one concrete
-    # click target. The model predicts the next delay, movement increment, and
-    # action class; the decoder keeps enough state to feed those predictions
-    # back into the next timestep in the same shape used during training.
-    action_count = len(actions)
-    bos_index = action_count
-    start_x = episode.start_x
-    start_y = episode.start_y
-    dst_x = episode.dst_x
-    dst_y = episode.dst_y
-    dx = dst_x - start_x
-    dy = dst_y - start_y
-    distance = math.hypot(dx, dy)
-    scale = max(1.0, float(coordinate_scale))
-    condition = torch.tensor(
-        [[start_x / scale, start_y / scale, dst_x / scale, dst_y / scale, dx / scale, dy / scale, distance / scale]],
-        dtype=torch.float32,
+    """Compatibility wrapper around `MouseDecoder.decode`."""
+    return MouseDecoder(
+        model=model,
+        coordinate_scale=coordinate_scale,
+        position_frame=position_frame,
+        actions=actions,
         device=device,
+    ).decode(
+        episode,
+        max_steps=max_steps,
+        click_threshold=click_threshold,
+        min_dt_ms=min_dt_ms,
+        endpoint_guidance=endpoint_guidance,
+        sample=sample,
+        temperature=temperature,
+        click_at_end=click_at_end,
     )
-
-    offset = 0.0
-    state_along = 0.0
-    state_perp = 0.0
-    rows: list[dict[str, float | str]] = []
-    # Previous rows store log delay, goal-relative position state, and a
-    # previous-action one-hot vector. The first row uses a BOS action slot.
-    previous_rows: list[list[float]] = [[0.0, 0.0, 0.0] + [0.0] * (action_count + 1)]
-    previous_rows[0][3 + bos_index] = 1.0
-    with torch.no_grad():
-        for step_index in range(max_steps):
-            # Re-run the decoder over the full prefix and consume only the last
-            # prediction. This is simple and matches the training-time sequence
-            # interface; these rollouts are short enough that caching hidden
-            # state is not worth the extra control flow.
-            previous = torch.tensor([previous_rows], dtype=torch.float32, device=device)
-            dt_pred_all, pos_pred_all, logits_all = model(condition, previous)
-            dt_pred = dt_pred_all[:, -1:]
-            pos_pred = pos_pred_all[:, -1:, :]
-            logits = logits_all[:, -1:, :]
-            if sample:
-                probs = torch.softmax(logits[0, 0] / max(temperature, 1e-4), dim=-1)
-                action_id = int(torch.multinomial(probs, 1).item())
-            else:
-                action_id = int(logits[0, 0].argmax().item())
-            action = actions[action_id]
-            dt_ms = log_to_dt(float(dt_pred[0, 0].cpu()))
-            if rows:
-                dt_ms = max(dt_ms, min_dt_ms)
-            offset += dt_ms
-
-            rel_x = float(pos_pred[0, 0, 0].cpu())
-            rel_y = float(pos_pred[0, 0, 1].cpu())
-            if position_frame == "goal_relative_delta":
-                if endpoint_guidance:
-                    # Guided rollout still uses the model's movement deltas, but
-                    # constrains progress so a known destination click completes
-                    # at the requested target instead of drifting forever. Raw
-                    # decoder behavior can be inspected with endpoint guidance
-                    # disabled.
-                    remaining_steps = max(1, max_steps - step_index)
-                    min_delta = (1.0 - state_along) / remaining_steps
-                    state_along = min(1.0, state_along + max(rel_x, min_delta, 0.0))
-                    guided_perp = state_perp + rel_y
-                    envelope = max(0.0, 0.35 * math.sin(math.pi * max(0.0, min(1.0, state_along))))
-                    state_perp = max(-envelope, min(envelope, guided_perp * (1.0 - 0.25 * state_along)))
-                    if state_along >= click_threshold:
-                        action = "left_click"
-                        action_id = actions.index(action)
-                        state_along = 1.0
-                        state_perp = 0.0
-                else:
-                    state_along += rel_x
-                    state_perp += rel_y
-                x, y = screen_position_from_goal_relative(start_x, start_y, dst_x, dst_y, state_along, state_perp)
-            elif position_frame == "goal_relative":
-                state_along = rel_x
-                state_perp = rel_y
-                x, y = screen_position_from_goal_relative(start_x, start_y, dst_x, dst_y, rel_x, rel_y)
-            else:
-                x = start_x + rel_x * scale
-                y = start_y + rel_y * scale
-                state_along = rel_x
-                state_perp = rel_y
-
-            if action != "move":
-                # Non-move actions are terminal click events. Snap their
-                # reported coordinate to the requested destination so downstream
-                # consumers execute the click at the conditioned target.
-                x = dst_x
-                y = dst_y
-            rows.append({"offsetMs": offset, "dtMs": dt_ms, "x": x, "y": y, "action": action})
-            if action != "move":
-                break
-
-            next_previous = [0.0, state_along, state_perp] + [0.0] * (action_count + 1)
-            next_previous[0] = float(dt_pred[0, 0].detach().cpu())
-            next_previous[3 + action_id] = 1.0
-            previous_rows.append(next_previous)
-
-    return rows
 
 
 def encode_keyboard_condition(
@@ -469,7 +499,55 @@ def sample_keyboard_typo_plan(
     return []
 
 
-def decode_keyboard_rows(
+class KeyboardDecoder:
+    """Runtime decoder for `KeyboardActionGRU` checkpoints."""
+
+    def __init__(self, checkpoint: dict, model: KeyboardActionGRU, device: torch.device):
+        self.checkpoint = checkpoint
+        self.model = model
+        self.device = device
+
+    def decode(
+        self,
+        final_string: str,
+        max_steps: int,
+        decode_mode: str = "constrained",
+        sample: bool = False,
+        temperature: float = 1.0,
+        initial_string: str = "",
+        structured_extra_steps: int = 6,
+        canonical_bias: float = 1.5,
+        typo_rate: float = 0.0,
+        max_typos: int = 2,
+        typo_seed: int | None = 13,
+        typo_mode_weights: str | dict[str, float] | None = None,
+        max_typo_chars: int = 3,
+        max_backtrack_chars: int = 2,
+        typo_min_dt_ms: float = 20.0,
+    ) -> list[dict[str, Any]]:
+        return _decode_keyboard_rows_impl(
+            checkpoint=self.checkpoint,
+            model=self.model,
+            final_string=final_string,
+            device=self.device,
+            max_steps=max_steps,
+            decode_mode=decode_mode,
+            sample=sample,
+            temperature=temperature,
+            initial_string=initial_string,
+            structured_extra_steps=structured_extra_steps,
+            canonical_bias=canonical_bias,
+            typo_rate=typo_rate,
+            max_typos=max_typos,
+            typo_seed=typo_seed,
+            typo_mode_weights=typo_mode_weights,
+            max_typo_chars=max_typo_chars,
+            max_backtrack_chars=max_backtrack_chars,
+            typo_min_dt_ms=typo_min_dt_ms,
+        )
+
+
+def _decode_keyboard_rows_impl(
     checkpoint: dict,
     model: KeyboardActionGRU,
     final_string: str,
@@ -703,3 +781,43 @@ def decode_keyboard_rows(
             f"ended at {''.join(text)!r} after {max_steps} steps."
         )
     return rows
+
+
+def decode_keyboard_rows(
+    checkpoint: dict,
+    model: KeyboardActionGRU,
+    final_string: str,
+    device: torch.device,
+    max_steps: int,
+    decode_mode: str = "constrained",
+    sample: bool = False,
+    temperature: float = 1.0,
+    initial_string: str = "",
+    structured_extra_steps: int = 6,
+    canonical_bias: float = 1.5,
+    typo_rate: float = 0.0,
+    max_typos: int = 2,
+    typo_seed: int | None = 13,
+    typo_mode_weights: str | dict[str, float] | None = None,
+    max_typo_chars: int = 3,
+    max_backtrack_chars: int = 2,
+    typo_min_dt_ms: float = 20.0,
+) -> list[dict[str, Any]]:
+    """Compatibility wrapper around `KeyboardDecoder.decode`."""
+    return KeyboardDecoder(checkpoint=checkpoint, model=model, device=device).decode(
+        final_string=final_string,
+        max_steps=max_steps,
+        decode_mode=decode_mode,
+        sample=sample,
+        temperature=temperature,
+        initial_string=initial_string,
+        structured_extra_steps=structured_extra_steps,
+        canonical_bias=canonical_bias,
+        typo_rate=typo_rate,
+        max_typos=max_typos,
+        typo_seed=typo_seed,
+        typo_mode_weights=typo_mode_weights,
+        max_typo_chars=max_typo_chars,
+        max_backtrack_chars=max_backtrack_chars,
+        typo_min_dt_ms=typo_min_dt_ms,
+    )

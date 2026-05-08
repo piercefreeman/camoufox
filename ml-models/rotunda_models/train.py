@@ -3,10 +3,11 @@
 
 from __future__ import annotations
 
-import argparse
 import json
 import random
 from pathlib import Path
+from types import SimpleNamespace
+from typing import Any
 
 import torch
 from torch import nn
@@ -40,6 +41,7 @@ from .training_utils import (
     build_keyboard_vocabs,
     coordinate_scale_for,
     filter_keyboard_training_episodes,
+    keyboard_condition_length,
     move_batch_to_device,
     split_items,
 )
@@ -62,9 +64,9 @@ from .wandb import (
 
 
 def training_namespace(
-    args: argparse.Namespace | TrainingExperimentSettings,
+    args: Any | TrainingExperimentSettings,
     task: str,
-) -> argparse.Namespace:
+) -> Any:
     """Resolve CLI/config settings into the flat namespace used by trainers."""
     if isinstance(args, TrainingExperimentSettings):
         return args.to_namespace(task)  # type: ignore[arg-type]
@@ -78,7 +80,7 @@ def training_namespace(
     return args
 
 
-def train_experiment(args: argparse.Namespace) -> None:
+def train_experiment(args: Any) -> None:
     """Run the task or tasks declared by a YAML experiment config."""
     settings = load_experiment_settings(args.config)
     # A single config can intentionally train both models; task-specific
@@ -205,7 +207,7 @@ def train_loop(
             wandb_log_artifacts(wandb_state, wandb_task or "cadence", run_dir)
 
 
-def train_clicks(args: argparse.Namespace | TrainingExperimentSettings) -> None:
+def train_clicks(args: Any | TrainingExperimentSettings) -> None:
     """Train the mouse click trajectory model from configured recordings."""
     args = training_namespace(args, "clicks")
     random.seed(args.seed)
@@ -342,7 +344,7 @@ def train_clicks(args: argparse.Namespace | TrainingExperimentSettings) -> None:
         finish_wandb_run(wandb_state)
 
 
-def train_keyboard(args: argparse.Namespace | TrainingExperimentSettings) -> None:
+def train_keyboard(args: Any | TrainingExperimentSettings) -> None:
     """Train the keyboard action model from focused accessibility text."""
     args = training_namespace(args, "keyboard")
     random.seed(args.seed)
@@ -375,24 +377,33 @@ def train_keyboard(args: argparse.Namespace | TrainingExperimentSettings) -> Non
         f"snapshots={focused_text_meta.get('selected_focused_text_snapshots', 0)}"
     )
     vocab_episodes = episodes
-    if args.keyboard_min_final_length > 1 or args.keyboard_min_duration_ms > 0:
+    if (
+        args.keyboard_min_final_length > 0
+        or args.keyboard_min_duration_ms > 0
+        or args.keyboard_max_condition_length is not None
+    ):
         before_filter = len(episodes)
         episodes = filter_keyboard_training_episodes(
             episodes,
             sequence_mode=keyboard_sequence_mode,
             min_final_length=args.keyboard_min_final_length,
             min_duration_ms=args.keyboard_min_duration_ms,
+            max_condition_length=args.keyboard_max_condition_length,
         )
         log_info(
             f"filtered_keyboard_episodes={len(episodes)} from={before_filter} "
-            f"min_final_length={args.keyboard_min_final_length} min_duration_ms={args.keyboard_min_duration_ms:g}"
+            f"min_final_length={args.keyboard_min_final_length} "
+            f"min_duration_ms={args.keyboard_min_duration_ms:g} "
+            f"max_condition_length={args.keyboard_max_condition_length or 'none'}"
         )
         if not episodes:
             raise SystemExit("No keyboard episodes remain after the current training filters.")
     lengths = [len(episode.steps) for episode in episodes]
+    condition_lengths = [keyboard_condition_length(episode) for episode in episodes]
     log_info(
         f"episodes={len(episodes)} steps_avg={sum(lengths) / len(lengths):.1f} "
-        f"steps_max={max(lengths)} source=focused_text sequence_mode={keyboard_sequence_mode}"
+        f"steps_max={max(lengths)} condition_max={max(condition_lengths)} "
+        f"source=focused_text sequence_mode={keyboard_sequence_mode}"
     )
 
     # Build vocabularies from the unfiltered candidate set so generation can
@@ -539,7 +550,7 @@ def train_keyboard(args: argparse.Namespace | TrainingExperimentSettings) -> Non
         finish_wandb_run(wandb_state)
 
 
-def inspect_recordings(args: argparse.Namespace) -> None:
+def inspect_recordings(args: Any) -> None:
     """Print corpus event counts and extractable episode counts as JSON."""
     if not hasattr(args, "screen_filter"):
         args.screen_filter = ScreenSizeFilter()
@@ -585,7 +596,7 @@ def inspect_recordings(args: argparse.Namespace) -> None:
         "event_counts": counts,
         "screen_filtered_event_counts": filtered_counts,
         "screen_sizes": screen_counts,
-        "screen_filter": namespace_config(argparse.Namespace(screen_filter=args.screen_filter))["screen_filter"],
+        "screen_filter": namespace_config(SimpleNamespace(screen_filter=args.screen_filter))["screen_filter"],
         "motivated_click_episodes": len(mouse_episodes),
         "focused_text_keyboard_episodes": len(keyboard_episodes),
         "focused_text": focused_meta,

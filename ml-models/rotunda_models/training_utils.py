@@ -82,18 +82,26 @@ def keyboard_episode_duration_ms(episode: KeyboardEpisode, sequence_mode: str) -
     return sum(step.dt_ms for step in steps)
 
 
+def keyboard_condition_length(episode: KeyboardEpisode) -> int:
+    """Return encoded initial/final text length including separator and EOS."""
+    return len(episode.initial_string) + 1 + len(episode.final_string) + 1
+
+
 def filter_keyboard_training_episodes(
     episodes: list[KeyboardEpisode],
     sequence_mode: str,
     min_final_length: int,
     min_duration_ms: float,
+    max_condition_length: int | None,
 ) -> list[KeyboardEpisode]:
-    """Drop keyboard episodes that are too short or too quick to train on."""
+    """Drop keyboard episodes with targets or text conditions outside training bounds."""
     filtered = []
     for episode in episodes:
         if len(episode.final_string) < min_final_length:
             continue
         if keyboard_episode_duration_ms(episode, sequence_mode) < min_duration_ms:
+            continue
+        if max_condition_length is not None and keyboard_condition_length(episode) > max_condition_length:
             continue
         filtered.append(episode)
     return filtered

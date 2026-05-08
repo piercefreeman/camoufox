@@ -8,8 +8,10 @@ with Files("**"):
     BUG_COMPONENT = ("Core", "DOM: UI Events & Focus Handling")
 
 EXPORTS += [
+    "KeyboardRuntime.hpp",
     "MaskConfig.hpp",
-    "MouseTrajectories.hpp",
+    "MouseRuntime.hpp",
+    "RuntimeWeights.hpp",
 ]
 
 LOCAL_INCLUDES += [
@@ -17,11 +19,16 @@ LOCAL_INCLUDES += [
     "/rotundacfg/generated/profile/rotundacfg",
 ]
 
+SOURCES += [
+    "KeyboardRuntime.cpp",
+    "MouseRuntime.cpp",
+    "RuntimeWeights.cpp",
+]
+
 UNIFIED_SOURCES += [
     "generated/profile/rotundacfg/AudioContextProfile.cpp",
     "generated/profile/rotundacfg/AudioProfile.cpp",
     "generated/profile/rotundacfg/BatteryProfile.cpp",
-    "generated/profile/rotundacfg/RotundaProfile.cpp",
     "generated/profile/rotundacfg/DocumentBodyProfile.cpp",
     "generated/profile/rotundacfg/DocumentProfile.cpp",
     "generated/profile/rotundacfg/FontsProfile.cpp",
@@ -32,6 +39,7 @@ UNIFIED_SOURCES += [
     "generated/profile/rotundacfg/LocaleProfile.cpp",
     "generated/profile/rotundacfg/MediaDevicesProfile.cpp",
     "generated/profile/rotundacfg/NavigatorProfile.cpp",
+    "generated/profile/rotundacfg/RotundaProfile.cpp",
     "generated/profile/rotundacfg/ScreenProfile.cpp",
     "generated/profile/rotundacfg/SpeechVoice.cpp",
     "generated/profile/rotundacfg/VoicesProfile.cpp",

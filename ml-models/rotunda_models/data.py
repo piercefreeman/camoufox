@@ -71,6 +71,13 @@ def screen_filter_allows(
     screen_size: ScreenSize | None,
 ) -> bool:
     """Return whether a screen filter permits the current event context."""
+    # This screen-size filter is intentionally a pragmatic corpus hack. The
+    # Ergodox EZ setup can emit mouse movement events, and those movements do
+    # not reflect the real cursor dynamics we want the cadence models to learn.
+    # The local training recordings were collected across distinct display
+    # contexts, so we use the laptop/desktop screen envelope as a proxy for
+    # "real mouse or trackpad" input and drop events from contexts likely to
+    # include keyboard-driven pointer motion.
     return True if screen_filter is None else screen_filter.allows(screen_size)
 
 

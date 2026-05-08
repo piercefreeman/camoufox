@@ -21,6 +21,8 @@ const obs = Cc["@mozilla.org/observer-service;1"].getService(
 
 const helper = new Helper();
 const HUMANIZED_TEXT_INTERVAL_MS = 10;
+const KEYBOARD_BACKSPACE = "<BACKSPACE>";
+const KEYBOARD_STOP = "<STOP>";
 
 function isHumanizeEnabled() {
   return ChromeUtils.rotundaGetBool('humanize.enabled', false);
@@ -36,12 +38,68 @@ function textInputUnits(text) {
   return Array.from(text);
 }
 
-async function commitTextInput(tip, text, keyEvent = undefined) {
+function activeEditableText(frame) {
+  const domWindow = frame.domWindow();
+  const document = domWindow ? domWindow.document : null;
+  const element = document ? document.activeElement : null;
+  if (!element)
+    return "";
+  if (typeof element.value === "string")
+    return element.value;
+  if (element.isContentEditable)
+    return element.textContent || "";
+  return "";
+}
+
+function keyboardTrajectoryPlan(initialText, finalText) {
+  const flatPlan = ChromeUtils.rotundaGetKeyboardTrajectory(initialText, finalText);
+  if (!flatPlan || flatPlan.length < 2)
+    return null;
+
+  const plan = [];
+  for (let i = 0; i + 1 < flatPlan.length; i += 2) {
+    const dtMs = Math.max(0, Number(flatPlan[i]) || 0);
+    const action = flatPlan[i + 1];
+    if (!action || action === KEYBOARD_STOP)
+      continue;
+    plan.push({dtMs, action});
+  }
+  return plan.length ? plan : null;
+}
+
+async function applyKeyboardAction(frame, tip, action) {
+  if (action === KEYBOARD_BACKSPACE) {
+    const event = new (frame.domWindow().KeyboardEvent)("", {
+      key: "Backspace",
+      code: "Backspace",
+      keyCode: 8
+    });
+    const flags = 0;
+    tip.keydown(event, flags);
+    tip.keyup(event, flags);
+    return;
+  }
+  tip.commitCompositionWith(action);
+}
+
+async function commitTextInput(frame, text, keyEvent = undefined) {
+  const tip = frame.textInputProcessor();
   if (!isHumanizeEnabled() || !text) {
     if (keyEvent)
       tip.commitCompositionWith(text, keyEvent);
     else
       tip.commitCompositionWith(text);
+    return;
+  }
+
+  const initialText = activeEditableText(frame);
+  const plan = keyboardTrajectoryPlan(initialText, initialText + text);
+  if (plan) {
+    for (const step of plan) {
+      if (step.dtMs > 0)
+        await new Promise(resolve => setTimeout(resolve, step.dtMs));
+      await applyKeyboardAction(frame, tip, step.action);
+    }
     return;
   }
 
@@ -508,7 +566,7 @@ export class PageAgent {
     });
     if (type === 'keydown') {
       if (text && text !== key) {
-        await commitTextInput(tip, text, keyEvent);
+        await commitTextInput(frame, text, keyEvent);
       } else {
         const flags = 0;
         tip.keydown(keyEvent, flags);
@@ -601,7 +659,7 @@ export class PageAgent {
 
   async _insertText({text}) {
     const frame = this._frameTree.mainFrame();
-    await commitTextInput(frame.textInputProcessor(), text);
+    await commitTextInput(frame, text);
   }
 
   async _crash() {

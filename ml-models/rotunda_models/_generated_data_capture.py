@@ -21,6 +21,12 @@ class SessionStartedEvent(BaseModel):
     offset_ms: int | None = Field(None, alias='offsetMs', ge=0)
     screen_width: int | None = Field(None, alias='screenWidth', ge=0)
     screen_height: int | None = Field(None, alias='screenHeight', ge=0)
+    keyboard_geometry: str | None = Field(None, alias='keyboardGeometry')
+    mouse_coordinates: str | None = Field(None, alias='mouseCoordinates')
+    privacy_model: str | None = Field(None, alias='privacyModel')
+    schema_version: int | None = Field(None, alias='schemaVersion', ge=0)
+    session_id: str | None = Field(None, alias='sessionID')
+    started_at_utc: str | None = Field(None, alias='startedAtUTC')
 
 
 class Type1(Enum):
@@ -35,6 +41,7 @@ class SessionStoppedEvent(BaseModel):
     offset_ms: int | None = Field(None, alias='offsetMs', ge=0)
     screen_width: int | None = Field(None, alias='screenWidth', ge=0)
     screen_height: int | None = Field(None, alias='screenHeight', ge=0)
+    reason: str | None = None
 
 
 class Type2(Enum):
@@ -53,19 +60,14 @@ class Type5(Enum):
     focused_element = 'focused_element'
 
 
-class FocusedElement(BaseModel):
+class ElementFrame(BaseModel):
     model_config = ConfigDict(
         extra='forbid',
     )
-    bundle_id: str | None = Field(None, alias='bundleID')
-    process_id: int | None = Field(None, alias='processID')
-    accessibility_id: str | None = Field(None, alias='accessibilityID')
-    dom_id: str | None = Field(None, alias='domID')
-    role: str | None = None
-    subrole: str | None = None
-    is_password: bool | None = Field(None, alias='isPassword')
-    value_redacted: bool | None = Field(None, alias='valueRedacted')
-    value: str | None = None
+    x: float | None = None
+    y: float | None = None
+    width: float | None = None
+    height: float | None = None
 
 
 class MouseButton(Enum):
@@ -122,6 +124,22 @@ class MouseClickEvent(BaseModel):
     click_count: int | None = Field(None, alias='clickCount', ge=1)
 
 
+class FocusedElement(BaseModel):
+    model_config = ConfigDict(
+        extra='forbid',
+    )
+    bundle_id: str | None = Field(None, alias='bundleID')
+    process_id: int | None = Field(None, alias='processID')
+    accessibility_id: str | None = Field(None, alias='accessibilityID')
+    dom_id: str | None = Field(None, alias='domID')
+    role: str | None = None
+    subrole: str | None = None
+    is_password: bool | None = Field(None, alias='isPassword')
+    value_redacted: bool | None = Field(None, alias='valueRedacted')
+    value: str | None = None
+    frame: ElementFrame | None = None
+
+
 class KeyboardEvent(BaseModel):
     model_config = ConfigDict(
         extra='forbid',
@@ -131,7 +149,12 @@ class KeyboardEvent(BaseModel):
     trigger_offset_ms: int | None = Field(None, alias='triggerOffsetMs', ge=0)
     screen_width: int | None = Field(None, alias='screenWidth', ge=0)
     screen_height: int | None = Field(None, alias='screenHeight', ge=0)
-    focused_element: FocusedElement = Field(..., alias='focusedElement')
+    key_class: str | None = Field(None, alias='keyClass')
+    key_delta_x: float | None = Field(None, alias='keyDeltaX')
+    key_delta_y: float | None = Field(None, alias='keyDeltaY')
+    key_distance: float | None = Field(None, alias='keyDistance')
+    is_repeat: bool | None = Field(None, alias='isRepeat')
+    focused_element: FocusedElement | None = Field(None, alias='focusedElement')
 
 
 class FocusedElementEvent(BaseModel):

@@ -162,6 +162,7 @@ package-linux:
 	python3 scripts/package.py linux \
 		--includes \
 			settings/chrome.css \
+			bundle/runtime-models \
 			bundle/fontconfig \
 		--version $(version) \
 		--release $(release) \
@@ -172,6 +173,7 @@ package-macos:
 	python3 scripts/package.py macos \
 		--includes \
 			settings/chrome.css \
+			bundle/runtime-models \
 		--version $(version) \
 		--release $(release) \
 		--arch $(arch) \
@@ -181,6 +183,7 @@ package-windows:
 	python3 scripts/package.py windows \
 		--includes \
 			settings/chrome.css \
+			bundle/runtime-models \
 			~/.mozbuild/vs/VC/Redist/MSVC/14.38.33135/$(vcredist_arch)/Microsoft.VC143.CRT/*.dll \
 		--version $(version) \
 		--release $(release) \

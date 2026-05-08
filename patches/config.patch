@@ -43,4 +43,4 @@ index 4d0f3d6ba9..0f07f37e92 100644
  
  include("build/templates.mozbuild")
 +
-+DIRS += ["lw"]
++DIRS += ["lw", "rotundacfg"]
