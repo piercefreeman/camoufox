@@ -59,12 +59,12 @@ class KeyboardRuntimeModel {
   std::vector<KeyboardRuntimeRow> decode(
       const std::string& initialString, const std::string& finalString,
       int maxSteps = 256, const std::string& decodeMode = "constrained",
-      int structuredExtraSteps = 6, double canonicalBias = 1.5,
+      int structuredExtraSteps = 6, double canonicalBias = 3.0,
       double learnedTypoThreshold = 0.2, int maxLearnedTypos = 2) const;
   KeyboardRuntimeTrace traceDecode(
       const std::string& initialString, const std::string& finalString,
       int maxSteps = 256, const std::string& decodeMode = "constrained",
-      int structuredExtraSteps = 6, double canonicalBias = 1.5,
+      int structuredExtraSteps = 6, double canonicalBias = 3.0,
       double learnedTypoThreshold = 0.2, int maxLearnedTypos = 2) const;
 
   const nlohmann::json& metadata() const { return m_metadata; }
@@ -96,7 +96,8 @@ class KeyboardRuntimeModel {
   std::vector<int> structuredActionIds(
       const std::string& finalString, const std::string& text,
       int remainingStepsAfterAction) const;
-  bool targetSupported(const std::string& finalString) const;
+  bool targetSupported(const std::string& initialString,
+                       const std::string& finalString) const;
   int minimumTerminalEditSteps(const std::string& finalString,
                                const std::string& text) const;
   std::string applyActionCopy(const std::string& text,

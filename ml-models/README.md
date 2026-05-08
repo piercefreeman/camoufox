@@ -235,18 +235,20 @@ uv run --package rotunda-models rotunda-models export-runtime \
 into the browser bundle when present.
 
 The command writes compact SafeTensors-compatible binary weight files plus a
-`runtime-models.json` manifest. Point the Rotunda profile at the exported mouse
-model to enable native full-path mouse planning:
+`runtime-models.json` manifest. Browser builds that include
+`bundle/runtime-models/` resolve these shipped artifacts automatically, so
+profiles only need to enable humanization:
 
 ```json
 {
   "humanize": {
-    "enabled": true,
-    "mouseModelPath": "/absolute/path/to/Training/runtime/mouse.safetensors",
-    "keyboardModelPath": "/absolute/path/to/Training/runtime/keyboard.safetensors"
+    "enabled": true
   }
 }
 ```
+
+The `mouseModelPath` and `keyboardModelPath` profile fields remain optional
+developer overrides for testing non-bundled artifacts.
 
 ## Debug Videos
 

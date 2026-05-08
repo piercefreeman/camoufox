@@ -79,6 +79,13 @@ def runtime_metadata(checkpoint: dict[str, Any]) -> dict[str, Any]:
                 or {token: int(index) for index, token in checkpoint["id_to_action"].items()},
                 "sequenceMode": checkpoint.get("keyboard_sequence_mode", checkpoint.get("sequence_mode", "raw")),
                 "learnedTypoHead": bool(checkpoint["model_config"].get("learned_typo_head", False)),
+                "decodeDefaults": {
+                    "mode": "constrained",
+                    "structuredExtraSteps": 6,
+                    "canonicalBias": 3.0,
+                    "learnedTypoThreshold": 0.2,
+                    "maxTypos": 2,
+                },
             }
         )
     else:

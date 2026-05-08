@@ -94,6 +94,7 @@ def test_exports_keyboard_checkpoint_as_safetensors(tmp_path: Path) -> None:
     assert metadata["charToId"]["h"] == 4
     assert metadata["idToAction"]["2"] == "<STOP>"
     assert metadata["learnedTypoHead"] is False
+    assert metadata["decodeDefaults"]["canonicalBias"] == 3.0
     assert "decoder.weight_ih_l0" in header
 
 

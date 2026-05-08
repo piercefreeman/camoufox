@@ -121,6 +121,15 @@ std::vector<KeyboardRuntimeRow> KeyboardRuntimeModel::GenerateFromConfig(
   if (auto configured = MaskConfig::GetInt32("humanize.keyboardMaxSteps")) {
     maxSteps = std::max(1, *configured);
   }
+  int structuredExtraSteps = 6;
+  if (auto configured =
+          MaskConfig::GetInt32("humanize.keyboardStructuredExtraSteps")) {
+    structuredExtraSteps = std::max(0, *configured);
+  }
+  double canonicalBias = 3.0;
+  if (auto configured = MaskConfig::GetDouble("humanize.keyboardCanonicalBias")) {
+    canonicalBias = std::max(0.0, *configured);
+  }
   double learnedTypoThreshold = 0.2;
   if (auto configured =
           MaskConfig::GetDouble("humanize.keyboardLearnedTypoThreshold")) {
@@ -130,8 +139,9 @@ std::vector<KeyboardRuntimeRow> KeyboardRuntimeModel::GenerateFromConfig(
   if (auto configured = MaskConfig::GetInt32("humanize.keyboardMaxTypos")) {
     maxLearnedTypos = std::max(0, *configured);
   }
-  return model->decode(initialString, finalString, maxSteps, "constrained", 6,
-                       1.5, learnedTypoThreshold, maxLearnedTypos);
+  return model->decode(initialString, finalString, maxSteps, "constrained",
+                       structuredExtraSteps, canonicalBias,
+                       learnedTypoThreshold, maxLearnedTypos);
 }
 
 int KeyboardRuntimeModel::charId(const std::string& token) const {
@@ -326,9 +336,14 @@ std::vector<int> KeyboardRuntimeModel::structuredActionIds(
   return {valid.begin(), valid.end()};
 }
 
-bool KeyboardRuntimeModel::targetSupported(const std::string& finalString) const {
-  for (const auto& token : byteTokens(finalString)) {
-    if (m_actionToId.find(token) == m_actionToId.end()) return false;
+bool KeyboardRuntimeModel::targetSupported(
+    const std::string& initialString, const std::string& finalString) const {
+  size_t prefix = commonPrefixLength(initialString, finalString);
+  if (initialString.size() > prefix && actionId(kBackspace) < 0) return false;
+  for (size_t i = prefix; i < finalString.size(); ++i) {
+    if (m_actionToId.find(finalString.substr(i, 1)) == m_actionToId.end()) {
+      return false;
+    }
   }
   return true;
 }
@@ -362,7 +377,8 @@ KeyboardRuntimeTrace KeyboardRuntimeModel::decodeInternal(
   KeyboardRuntimeTrace trace;
   if (!m_loaded || maxSteps <= 0) return {};
   if (decodeMode != "constrained" && decodeMode != "canonical") return {};
-  if (!targetSupported(finalString)) return {};
+  if (!targetSupported(initialString, finalString)) return {};
+  structuredExtraSteps = std::max(0, structuredExtraSteps);
   learnedTypoThreshold = std::max(0.0, std::min(1.0, learnedTypoThreshold));
   maxLearnedTypos = std::max(0, maxLearnedTypos);
 
@@ -389,7 +405,7 @@ KeyboardRuntimeTrace KeyboardRuntimeModel::decodeInternal(
   int learnedTyposUsed = 0;
   std::set<std::string> learnedTypoPrefixes;
 
-  for (int step = 0; step < maxSteps; ++step) {
+  for (int step = 0; step < effectiveMaxSteps; ++step) {
     std::string next = nextChar(finalString, text);
     std::vector<double> actionEmbedding =
         embeddingRow("action_embed.weight", previousActionId);

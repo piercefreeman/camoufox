@@ -595,7 +595,7 @@ def render_debug_videos(args: Any) -> int:
 @click.option("--keyboard-sample", is_flag=True, default=False)
 @click.option("--keyboard-temperature", type=float, default=1.0, show_default=True)
 @click.option("--keyboard-structured-extra-steps", type=int, default=6, show_default=True)
-@click.option("--keyboard-canonical-bias", type=float, default=1.5, show_default=True)
+@click.option("--keyboard-canonical-bias", type=float, default=3.0, show_default=True)
 @click.option("--keyboard-max-typos", type=int, default=2, show_default=True, help="Maximum learned typo events allowed.")
 @click.option("--keyboard-typo-seed", type=int, default=13, show_default=True, help="Random seed for learned typo sampling.")
 @click.option("--max-keyboard-example-ms", type=float, default=3500.0, show_default=True)
