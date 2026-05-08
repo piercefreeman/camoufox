@@ -13,7 +13,12 @@ from torch.utils.data import Dataset
 from ..constants import MOUSE_ACTIONS
 from ..types import MouseEpisode
 from ..utils import dt_to_log, goal_relative_position
-from .common import is_timing_distribution, masked_smooth_l1, masked_timing_loss, timing_log_mu
+from .common import (
+    is_timing_distribution,
+    masked_smooth_l1,
+    masked_timing_loss,
+    timing_log_mu,
+)
 
 
 class MouseSample(TypedDict):

@@ -6,7 +6,6 @@ from types import SimpleNamespace
 
 import pytest
 import yaml
-
 from rotunda_models.random_sweep import (
     parameter_aliases_for,
     prepare_trial_settings,

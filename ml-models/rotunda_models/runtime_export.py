@@ -10,8 +10,8 @@ from typing import Any
 
 import torch
 
-from .generation import load_checkpoint
 from .constants import KEY_BACKSPACE
+from .generation import load_checkpoint
 from .keyboard_logic import minimum_terminal_edit_steps
 
 RUNTIME_FORMAT = "rotunda-runtime-v1"

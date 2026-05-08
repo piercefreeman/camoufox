@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import pytest
 from rotunda_models.training_utils import (
     filter_keyboard_training_episodes,
     keyboard_sweep_score_metrics,
@@ -93,6 +94,7 @@ def test_keyboard_sweep_score_metrics_blends_behavior_terms() -> None:
     assert scores["score/keyboard_press_budget_error"] == 1.0 / 5.0
     assert scores["score/keyboard_action_error"] == 0.2
     assert scores["score/keyboard_typo_behavior_error"] == (0.1 + 0.25 + 0.5) / 3.0
-    assert scores["score/composite"] == (
+    expected_composite = (
         (10.0 / 60.0) + (50.0 / 250.0) + (1.0 / 5.0) + 0.2 + ((0.1 + 0.25 + 0.5) / 3.0)
     ) / 5.0
+    assert scores["score/composite"] == pytest.approx(expected_composite)

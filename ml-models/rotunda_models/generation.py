@@ -23,8 +23,8 @@ from .keyboard_logic import (
     minimum_terminal_edit_steps,
     terminal_edit_actions,
 )
-from .models.keyboard import KeyboardActionGRU, decode_press_count_logits
 from .models.common import sample_timing_log
+from .models.keyboard import KeyboardActionGRU, decode_press_count_logits
 from .models.mouse import MouseTrajectoryGRU
 from .types import MouseEpisode
 from .utils import log_to_dt, screen_position_from_goal_relative
@@ -65,7 +65,7 @@ class MouseDecoder:
             blended_budget = (small_move_budget * (1.0 - alpha)) + (learned_budget * alpha)
         else:
             blended_budget = learned_budget
-        budget = int(round(blended_budget))
+        budget = round(blended_budget)
         return max(4, min(max_steps, budget))
 
     def decode(
