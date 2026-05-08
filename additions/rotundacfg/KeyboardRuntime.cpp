@@ -76,6 +76,11 @@ double sampledKeyboardDt(double dtMs, double timingJitterSigma,
   return std::min(kMaxSampledDtMs, std::max(kMinSampledDtMs, sampled));
 }
 
+int derivedExtraStepBudget(int minSteps, double rate) {
+  if (minSteps <= 0 || rate <= 0.0) return 0;
+  return std::max(0, static_cast<int>(std::ceil(static_cast<double>(minSteps) * rate)));
+}
+
 int sampledLogitId(const std::vector<int>& candidateIds,
                    const std::vector<double>& logits, double temperature,
                    std::mt19937& rng, int preferredId = -1,
@@ -105,6 +110,41 @@ int sampledLogitId(const std::vector<int>& candidateIds,
   }
   std::discrete_distribution<size_t> distribution(weights.begin(), weights.end());
   return candidateIds[distribution(rng)];
+}
+
+std::optional<double> metadataDecodeDouble(const nlohmann::json& metadata,
+                                           const std::string& key) {
+  if (!metadata.contains("decodeDefaults") ||
+      !metadata["decodeDefaults"].is_object()) {
+    return std::nullopt;
+  }
+  const auto& defaults = metadata["decodeDefaults"];
+  if (!defaults.contains(key) || !defaults[key].is_number()) {
+    return std::nullopt;
+  }
+  return defaults[key].get<double>();
+}
+
+std::optional<int> metadataDecodeInt(const nlohmann::json& metadata,
+                                     const std::string& key) {
+  if (!metadata.contains("decodeDefaults") ||
+      !metadata["decodeDefaults"].is_object()) {
+    return std::nullopt;
+  }
+  const auto& defaults = metadata["decodeDefaults"];
+  if (!defaults.contains(key) || !defaults[key].is_number_integer()) {
+    return std::nullopt;
+  }
+  return defaults[key].get<int>();
+}
+
+int metadataStructuredExtraSteps(const nlohmann::json& metadata, int minSteps) {
+  int structuredExtraSteps =
+      metadataDecodeInt(metadata, "structuredExtraSteps").value_or(6);
+  if (auto rate = metadataDecodeDouble(metadata, "structuredExtraStepRate")) {
+    structuredExtraSteps = derivedExtraStepBudget(minSteps, *rate);
+  }
+  return std::max(0, structuredExtraSteps);
 }
 
 bool startsWith(const std::string& value, const std::string& prefix) {
@@ -205,23 +245,32 @@ std::vector<KeyboardRuntimeRow> KeyboardRuntimeModel::GenerateFromConfig(
   if (auto configured = MaskConfig::GetInt32("humanize.keyboardMaxSteps")) {
     maxSteps = std::max(1, *configured);
   }
-  int structuredExtraSteps = 6;
+  size_t prefix = commonPrefixLength(initialString, finalString);
+  int minSteps = static_cast<int>(
+      (initialString.size() - prefix) + (finalString.size() - prefix));
+
+  int structuredExtraSteps =
+      metadataStructuredExtraSteps(model->m_metadata, minSteps);
   if (auto configured =
           MaskConfig::GetInt32("humanize.keyboardStructuredExtraSteps")) {
     structuredExtraSteps = std::max(0, *configured);
   }
-  double canonicalBias = 1.5;
+  double canonicalBias =
+      metadataDecodeDouble(model->m_metadata, "canonicalBias").value_or(1.5);
   if (auto configured = MaskConfig::GetDouble("humanize.keyboardCanonicalBias")) {
     canonicalBias = std::max(0.0, *configured);
   }
-  double learnedTypoThreshold = 0.05;
+  double learnedTypoThreshold =
+      metadataDecodeDouble(model->m_metadata, "learnedTypoThreshold")
+          .value_or(0.05);
   if (auto configured =
           MaskConfig::GetDouble("humanize.keyboardLearnedTypoThreshold")) {
     learnedTypoThreshold = std::max(0.0, std::min(1.0, *configured));
   }
-  int maxLearnedTypos = 3;
+  int maxLearnedTypos =
+      metadataDecodeInt(model->m_metadata, "maxTypos").value_or(-1);
   if (auto configured = MaskConfig::GetInt32("humanize.keyboardMaxTypos")) {
-    maxLearnedTypos = std::max(0, *configured);
+    maxLearnedTypos = std::max(-1, *configured);
   }
   bool sampleLearnedTypos = true;
   if (auto configured = MaskConfig::GetBool("humanize.keyboardSampleTypos")) {
@@ -239,7 +288,8 @@ std::vector<KeyboardRuntimeRow> KeyboardRuntimeModel::GenerateFromConfig(
           MaskConfig::GetDouble("humanize.keyboardTimingTemperature")) {
     timingTemperature = std::max(0.0, *configured);
   }
-  double actionTemperature = 0.6;
+  double actionTemperature =
+      metadataDecodeDouble(model->m_metadata, "actionTemperature").value_or(0.6);
   if (auto configured =
           MaskConfig::GetDouble("humanize.keyboardActionTemperature")) {
     actionTemperature = std::max(0.0, *configured);
@@ -520,12 +570,14 @@ KeyboardRuntimeTrace KeyboardRuntimeModel::decodeInternal(
   if (!m_loaded || maxSteps <= 0) return {};
   if (decodeMode != "constrained" && decodeMode != "canonical") return {};
   if (!targetSupported(initialString, finalString)) return {};
-  structuredExtraSteps = std::max(0, structuredExtraSteps);
   learnedTypoThreshold = std::max(0.0, std::min(1.0, learnedTypoThreshold));
-  maxLearnedTypos = std::max(0, maxLearnedTypos);
+  maxLearnedTypos = std::max(-1, maxLearnedTypos);
 
   int minSteps = minimumTerminalEditSteps(finalString, initialString);
   if (maxSteps < minSteps) return {};
+  structuredExtraSteps = structuredExtraSteps < 0
+                             ? metadataStructuredExtraSteps(m_metadata, minSteps)
+                             : std::max(0, structuredExtraSteps);
 
   if (collectTrace) {
     trace.minimumSteps = minSteps;
@@ -562,6 +614,10 @@ KeyboardRuntimeTrace KeyboardRuntimeModel::decodeInternal(
   std::string text = initialString;
   std::vector<KeyboardRuntimeRow> rows;
   int learnedTyposUsed = 0;
+  int learnedTypoLimit = maxLearnedTypos;
+  if (learnedTypoLimit < 0) {
+    learnedTypoLimit = std::max(0, (effectiveMaxSteps - minSteps) / 2);
+  }
   std::set<std::string> nonCanonicalPrefixes;
   bool sampleLearnedTiming =
       m_timingDistribution == "lognormal" && timingTemperature > 0.0;
@@ -644,12 +700,13 @@ KeyboardRuntimeTrace KeyboardRuntimeModel::decodeInternal(
       std::string preferred = constrainedAction(finalString, text);
       preferredId = actionId(preferred);
       if (collectTrace) traceStep.validActionIds = valid;
-      if (m_hasLearnedTypoHead && learnedTyposUsed < maxLearnedTypos &&
+      if (m_hasLearnedTypoHead && learnedTyposUsed < learnedTypoLimit &&
           nonCanonicalPrefixes.find(text) == nonCanonicalPrefixes.end() &&
           startsWith(finalString, text) && text != finalString &&
           !typoHead.empty() && !typoActionHead.empty()) {
         double typoProbability = sigmoid(typoHead[0]);
-        bool shouldTryTypo = typoProbability >= learnedTypoThreshold;
+        bool shouldTryTypo =
+            sampleLearnedTypos ? true : typoProbability >= learnedTypoThreshold;
         if (shouldTryTypo && sampleLearnedTypos && randomSampler.has_value()) {
           std::uniform_real_distribution<double> uniform(0.0, 1.0);
           shouldTryTypo = uniform(*randomSampler) < typoProbability;

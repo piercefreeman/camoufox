@@ -30,10 +30,10 @@ struct Options {
   double mousePathCurveSigma = 0.04;
   std::uint32_t mouseRandomSeed = 13;
   int keyboardMaxSteps = 256;
-  int keyboardStructuredExtraSteps = 6;
+  int keyboardStructuredExtraSteps = -1;
   double keyboardCanonicalBias = 1.5;
   double keyboardLearnedTypoThreshold = 0.05;
-  int keyboardMaxTypos = 3;
+  int keyboardMaxTypos = -1;
   bool keyboardSampleTypos = true;
   double keyboardTimingJitterSigma = 0.0;
   double keyboardTimingTemperature = 0.25;
@@ -81,10 +81,10 @@ int usage(const char* binary) {
       << "  --mouse-path-curve-sigma <float>        default 0.04\n"
       << "  --mouse-random-seed <int>               default 13\n"
       << "  --keyboard-max-steps <int>              default 256\n"
-      << "  --keyboard-structured-extra-steps <int> default 6\n"
+      << "  --keyboard-structured-extra-steps <int> default -1 (derive from metadata)\n"
       << "  --keyboard-canonical-bias <float>       default 1.5\n"
       << "  --keyboard-learned-typo-threshold <float> default 0.05\n"
-      << "  --keyboard-max-typos <int>              default 3\n"
+      << "  --keyboard-max-typos <int>              default -1 (derive from budget)\n"
       << "  --no-keyboard-sample-typos              disable typo sampling\n"
       << "  --keyboard-timing-jitter-sigma <float>  default 0.0\n"
       << "  --keyboard-timing-temperature <float>   default 0.25\n"
@@ -776,8 +776,8 @@ nlohmann::json diagnosticRun(const Options& options) {
       {"keyboardTypo",
        options.keyboardSampleTypos
            ? (options.keyboardActionTemperature > 0.0
-                  ? "sample sigmoid(typo_head) after threshold, then sample typo_action_head"
-                  : "sample sigmoid(typo_head) after threshold, then argmax(typo_action_head)")
+                  ? "sample sigmoid(typo_head), then sample typo_action_head"
+                  : "sample sigmoid(typo_head), then argmax(typo_action_head)")
            : "sigmoid(typo_head) >= threshold, then argmax(typo_action_head); "
              "no probabilistic typo sampling"},
       {"keyboardTiming",

@@ -32,7 +32,7 @@ from .common import CONTEXT_SETTINGS, PATH_TYPE
 @click.option("--temperature", type=float, default=1.0, show_default=True, help="Sampling temperature for unconstrained mode.")
 @click.option("--keyboard-structured-extra-steps", type=int, default=6, show_default=True, help="Minimum guard-band steps beyond target length in constrained mode; the decoder takes the larger of this floor and the learned press budget.")
 @click.option("--keyboard-canonical-bias", type=float, default=1.5, show_default=True, help="Logit bias toward the shortest valid edit in constrained mode; higher is more structured, lower is more learned.")
-@click.option("--keyboard-max-typos", type=int, default=3, show_default=True, help="Maximum learned typo events allowed during constrained keyboard generation.")
+@click.option("--keyboard-max-typos", type=int, default=-1, show_default=True, help="Maximum learned typo events allowed during constrained keyboard generation. -1 derives the limit from the learned/edit budget.")
 @click.option("--keyboard-typo-seed", type=int, default=13, show_default=True, help="Random seed for learned typo sampling.")
 @click.option("--keyboard-learned-typo-threshold", type=float, default=0.05, show_default=True, help="Deterministic threshold for learned wrong-character emission in constrained mode.")
 @click.option("--keyboard-timing-temperature", type=float, default=0.0, show_default=True, help="Sampling temperature for lognormal timing heads.")

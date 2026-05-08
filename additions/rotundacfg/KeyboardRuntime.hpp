@@ -64,8 +64,8 @@ class KeyboardRuntimeModel {
   std::vector<KeyboardRuntimeRow> decode(
       const std::string& initialString, const std::string& finalString,
       int maxSteps = 256, const std::string& decodeMode = "constrained",
-      int structuredExtraSteps = 6, double canonicalBias = 1.5,
-      double learnedTypoThreshold = 0.05, int maxLearnedTypos = 3,
+      int structuredExtraSteps = -1, double canonicalBias = 1.5,
+      double learnedTypoThreshold = 0.05, int maxLearnedTypos = -1,
       bool sampleLearnedTypos = false, double timingJitterSigma = 0.0,
       double pauseProbability = 0.0, double pauseMeanMs = 35.0,
       std::uint32_t randomSeed = 0, double timingTemperature = 0.0,
@@ -73,8 +73,8 @@ class KeyboardRuntimeModel {
   KeyboardRuntimeTrace traceDecode(
       const std::string& initialString, const std::string& finalString,
       int maxSteps = 256, const std::string& decodeMode = "constrained",
-      int structuredExtraSteps = 6, double canonicalBias = 1.5,
-      double learnedTypoThreshold = 0.05, int maxLearnedTypos = 3,
+      int structuredExtraSteps = -1, double canonicalBias = 1.5,
+      double learnedTypoThreshold = 0.05, int maxLearnedTypos = -1,
       bool sampleLearnedTypos = false, double timingJitterSigma = 0.0,
       double pauseProbability = 0.0, double pauseMeanMs = 35.0,
       std::uint32_t randomSeed = 0, double timingTemperature = 0.0,

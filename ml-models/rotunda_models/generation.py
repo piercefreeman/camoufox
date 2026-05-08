@@ -410,7 +410,7 @@ class KeyboardDecoder:
         initial_string: str = "",
         structured_extra_steps: int = 6,
         canonical_bias: float = 1.5,
-        max_typos: int = 3,
+        max_typos: int = -1,
         typo_seed: int | None = 13,
         learned_typo_threshold: float = 0.05,
         timing_temperature: float = 0.0,
@@ -475,7 +475,7 @@ def _decode_keyboard_rows_impl(
     initial_string: str = "",
     structured_extra_steps: int = 6,
     canonical_bias: float = 1.5,
-    max_typos: int = 3,
+    max_typos: int = -1,
     typo_seed: int | None = 13,
     learned_typo_threshold: float = 0.05,
     timing_temperature: float = 0.0,
@@ -502,12 +502,13 @@ def _decode_keyboard_rows_impl(
     if action_to_id is None:
         action_to_id = {token: index for index, token in id_to_action.items()}
     action_count = len(id_to_action)
-    if max_typos < 0:
-        raise ValueError(f"max_typos must be non-negative, got {max_typos}.")
+    if max_typos < -1:
+        raise ValueError(f"max_typos must be -1 or non-negative, got {max_typos}.")
     if not 0.0 <= learned_typo_threshold <= 1.0:
         raise ValueError(f"learned_typo_threshold must be between 0 and 1, got {learned_typo_threshold}.")
     final_ids, final_lengths = encode_keyboard_condition(initial_string, final_string, char_to_id, device)
     predicted_press_count: float | None = None
+    min_steps = minimum_terminal_edit_steps(final_string, list(initial_string))
 
     # Establish the decode contract up front. Constrained mode uses the learned
     # press budget with a small floor based on target length; canonical mode
@@ -515,7 +516,6 @@ def _decode_keyboard_rows_impl(
     # the target.
     if decode_mode == "constrained":
         require_keyboard_target_supported(initial_string, final_string, action_to_id)
-        min_steps = minimum_terminal_edit_steps(final_string, list(initial_string))
         if max_steps < min_steps:
             raise SystemExit(
                 f"Constrained keyboard decode needs at least {min_steps} steps for this target; "
@@ -532,7 +532,6 @@ def _decode_keyboard_rows_impl(
         )
     elif decode_mode == "canonical":
         require_keyboard_target_supported(initial_string, final_string, action_to_id)
-        min_steps = minimum_terminal_edit_steps(final_string, list(initial_string))
         effective_max_steps = max_steps
         if max_steps < min_steps:
             raise SystemExit(
@@ -543,6 +542,8 @@ def _decode_keyboard_rows_impl(
         raise ValueError(f"Unknown keyboard decode mode: {decode_mode!r}")
     else:
         effective_max_steps = max_steps
+    if max_typos < 0 and decode_mode in {"constrained", "canonical"}:
+        max_typos = max(0, (effective_max_steps - min_steps) // 2)
 
     offset = 0.0
     text: list[str] = list(initial_string)
@@ -739,7 +740,7 @@ def decode_keyboard_rows(
     initial_string: str = "",
     structured_extra_steps: int = 6,
     canonical_bias: float = 1.5,
-    max_typos: int = 3,
+    max_typos: int = -1,
     typo_seed: int | None = 13,
     learned_typo_threshold: float = 0.05,
     timing_temperature: float = 0.0,
