@@ -56,7 +56,16 @@ class MouseDecoder:
     def endpoint_step_budget(distance: float, max_steps: int) -> int:
         """Return a realistic endpoint-guidance budget for a point-to-click path."""
         capped_distance = min(max(0.0, float(distance)), 400.0)
-        budget = int(round(8.0 + (2.0 * math.sqrt(capped_distance))))
+        learned_budget = 8.0 + (2.0 * math.sqrt(capped_distance))
+        small_move_budget = 2.0 + (0.5 * math.sqrt(capped_distance))
+        if capped_distance < 80.0:
+            blended_budget = small_move_budget
+        elif capped_distance < 160.0:
+            alpha = (capped_distance - 80.0) / 80.0
+            blended_budget = (small_move_budget * (1.0 - alpha)) + (learned_budget * alpha)
+        else:
+            blended_budget = learned_budget
+        budget = int(round(blended_budget))
         return max(4, min(max_steps, budget))
 
     def decode(

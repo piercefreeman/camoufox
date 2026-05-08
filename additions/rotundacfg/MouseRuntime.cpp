@@ -27,7 +27,16 @@ double logToDt(double value) {
 
 int endpointStepBudget(double distance, int maxSteps) {
   double cappedDistance = std::min(std::max(0.0, distance), 400.0);
-  int budget = static_cast<int>(std::round(8.0 + (2.0 * std::sqrt(cappedDistance))));
+  double learnedBudget = 8.0 + (2.0 * std::sqrt(cappedDistance));
+  double smallMoveBudget = 2.0 + (0.5 * std::sqrt(cappedDistance));
+  double blendedBudget = learnedBudget;
+  if (cappedDistance < 80.0) {
+    blendedBudget = smallMoveBudget;
+  } else if (cappedDistance < 160.0) {
+    double alpha = (cappedDistance - 80.0) / 80.0;
+    blendedBudget = (smallMoveBudget * (1.0 - alpha)) + (learnedBudget * alpha);
+  }
+  int budget = static_cast<int>(std::round(blendedBudget));
   return std::max(4, std::min(maxSteps, budget));
 }
 
