@@ -97,7 +97,6 @@ class KeyboardSettings(BaseModel):
 
     gap_ms: int = 1000
     keyboard_accessibility_id: str | None = "auto"
-    keyboard_max_snapshot_edit_actions: int = 12
     keyboard_min_final_length: int = 1
     keyboard_min_duration_ms: float = 0.0
     keyboard_max_condition_length: int | None = 1024

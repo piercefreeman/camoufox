@@ -24,7 +24,7 @@ from ._generated_data_capture import (
     FocusedElement as CapturedFocusedElement,
 )
 from .constants import KEY_BACKSPACE, MOUSE_ACTIONS
-from .keyboard_logic import apply_keyboard_action, terminal_edit_actions
+from .keyboard_logic import apply_keyboard_action
 from .types import (
     FocusedTextSnapshot,
     KeyboardEpisode,
@@ -102,11 +102,6 @@ def apply_keyboard_action_to_string(value: str, action: str) -> str:
     chars = list(value)
     apply_keyboard_action(chars, action)
     return "".join(chars)
-
-
-def inferred_backspace_count(actions: list[str]) -> int:
-    """Count inferred deletions in a terminal edit action list."""
-    return sum(1 for action in actions if action == KEY_BACKSPACE)
 
 
 def extract_mouse_episodes(
@@ -374,356 +369,120 @@ def collect_focused_text_snapshot_segments(
     return segments
 
 
-def _append_keyboard_episode(
-    episodes: list[KeyboardEpisode],
-    source: str,
-    identity: str,
-    initial_string: str,
-    final_string: str,
-    steps: list[KeyStep],
-) -> None:
-    if steps and final_string != initial_string:
-        episodes.append(
-            KeyboardEpisode(
-                source=f"{source}#{identity}",
-                initial_string=initial_string,
-                final_string=final_string,
-                steps=tuple(steps),
-            )
-        )
-
-
-def _build_focused_text_diff_episodes(
+def build_focused_text_episodes(
     snapshots: list[FocusedTextSnapshot],
     gap_ms: int,
-    max_snapshot_edit_actions: int,
     stats: dict[str, int] | None = None,
 ) -> list[KeyboardEpisode]:
-    if len(snapshots) < 2:
-        return []
-
-    ordered = sorted(snapshots, key=lambda item: (item.effective_offset_ms, item.offset_ms))
-    episodes: list[KeyboardEpisode] = []
-    initial_value = ordered[0].value
-    current_value = initial_value
-    last_seen_offset = ordered[0].effective_offset_ms
-    last_change_offset = ordered[0].effective_offset_ms
-    current_source = ordered[0].source
-    steps: list[KeyStep] = []
-
-    def flush() -> None:
-        nonlocal steps, initial_value, current_value
-        if steps and current_value != initial_value:
-            episodes.append(
-                KeyboardEpisode(
-                    source=f"{current_source}#{ordered[0].identity}",
-                    initial_string=initial_value,
-                    final_string=current_value,
-                    steps=tuple(steps),
-                )
-            )
-        steps = []
-
-    for snapshot in ordered[1:]:
-        effective_offset = snapshot.effective_offset_ms
-        if effective_offset - last_seen_offset >= gap_ms:
-            flush()
-            initial_value = snapshot.value
-            current_value = snapshot.value
-            current_source = snapshot.source
-            last_seen_offset = effective_offset
-            last_change_offset = effective_offset
-            continue
-
-        actions = terminal_edit_actions(current_value, snapshot.value)
-        if not actions:
-            last_seen_offset = effective_offset
-            continue
-
-        if snapshot.key_action is not None:
-            raw_next_value = apply_keyboard_action_to_string(current_value, snapshot.key_action)
-            if raw_next_value == snapshot.value:
-                actions = [snapshot.key_action]
-                if stats is not None:
-                    stats["key_level_transition_count"] = stats.get("key_level_transition_count", 0) + 1
-                    stats["key_level_action_count"] = stats.get("key_level_action_count", 0) + 1
-            else:
-                if stats is not None:
-                    stats["key_level_mismatch_count"] = stats.get("key_level_mismatch_count", 0) + 1
-                flush()
-                initial_value = snapshot.value
-                current_value = snapshot.value
-                current_source = snapshot.source
-                last_seen_offset = effective_offset
-                last_change_offset = effective_offset
-                continue
-        elif snapshot.key_code is not None:
-            if stats is not None:
-                stats["unsupported_key_transition_count"] = stats.get("unsupported_key_transition_count", 0) + 1
-            flush()
-            initial_value = snapshot.value
-            current_value = snapshot.value
-            current_source = snapshot.source
-            last_seen_offset = effective_offset
-            last_change_offset = effective_offset
-            continue
-        elif stats is not None:
-            stats["diff_fallback_transition_count"] = stats.get("diff_fallback_transition_count", 0) + 1
-            stats["diff_fallback_action_count"] = stats.get("diff_fallback_action_count", 0) + len(actions)
-
-        if len(actions) > max_snapshot_edit_actions:
-            flush()
-            initial_value = snapshot.value
-            current_value = snapshot.value
-            current_source = snapshot.source
-            last_seen_offset = effective_offset
-            last_change_offset = effective_offset
-            continue
-
-        total_dt_ms = max(0.0, float(effective_offset - last_change_offset))
-        dt_ms = total_dt_ms / len(actions)
-        steps.extend(KeyStep(dt_ms=dt_ms, action=action) for action in actions)
-        current_value = snapshot.value
-        current_source = snapshot.source
-        last_seen_offset = effective_offset
-        last_change_offset = effective_offset
-
-    flush()
-    return episodes
+    """Build keyboard episodes from physical key events only."""
+    return build_raw_key_stream_keyboard_episodes(
+        snapshots,
+        gap_ms=gap_ms,
+        stats=stats,
+    )
 
 
-def _build_focused_text_key_stream_episodes(
+def build_raw_key_stream_keyboard_episodes(
     snapshots: list[FocusedTextSnapshot],
     gap_ms: int,
-    max_snapshot_edit_actions: int,
     stats: dict[str, int] | None = None,
 ) -> list[KeyboardEpisode]:
+    """Build episodes directly from physical key actions in one focused field.
+
+    Accessibility text snapshots are useful for stateful field edits, but some
+    apps report stale values around selection replacement, cursor navigation, or
+    delayed text updates. This raw stream keeps the physical press sequence and
+    timing as the training target whenever the key is a modelable text action.
+    """
     if not snapshots:
         return []
 
-    # Keyboard events carry the immediate text observation around that physical
-    # key, while delayed focused_element snapshots can arrive after later keys
-    # and therefore may represent multiple effects.
     ordered = sorted(snapshots, key=lambda item: (item.offset_ms, 0 if item.is_keyboard_event else 1))
-    episodes: list[KeyboardEpisode] = []
-
-    initial_value = ordered[0].value
-    confirmed_value = initial_value
-    current_value = initial_value
-    current_source = ordered[0].source
+    source = ordered[0].source
     identity = ordered[0].identity
-    committed_steps: list[KeyStep] = []
-    pending_steps: list[KeyStep] = []
-    last_seen_offset = ordered[0].offset_ms
-    last_action_offset = ordered[0].offset_ms
+    anchor_value = ordered[0].value
+    last_observed_value = ordered[0].value
+    current_value = ""
+    steps: list[KeyStep] = []
+    episodes: list[KeyboardEpisode] = []
+    last_offset = ordered[0].offset_ms
 
     def increment(name: str, amount: int = 1) -> None:
         if stats is not None:
             stats[name] = stats.get(name, 0) + amount
 
-    def commit_pending() -> None:
-        nonlocal confirmed_value, pending_steps
-        if not pending_steps:
-            return
-        committed_steps.extend(pending_steps)
-        increment("key_level_transition_count", len(pending_steps))
-        increment("key_level_action_count", len(pending_steps))
-        pending_steps = []
-        confirmed_value = current_value
+    def flush() -> None:
+        nonlocal current_value, steps
+        if steps and current_value:
+            episodes.append(
+                KeyboardEpisode(
+                    source=f"{source}#{identity}#raw-key-stream",
+                    initial_string="",
+                    final_string=current_value,
+                    steps=tuple(steps),
+                )
+            )
+            increment("raw_key_run_episode_count")
+            increment("raw_key_run_action_count", len(steps))
+        steps = []
+        current_value = ""
 
-    def drop_pending() -> None:
-        nonlocal current_value, pending_steps
-        if pending_steps:
-            increment("key_level_dropped_action_count", len(pending_steps))
-        pending_steps = []
-        current_value = confirmed_value
-
-    def flush_committed() -> None:
-        nonlocal committed_steps
-        _append_keyboard_episode(
-            episodes=episodes,
-            source=current_source,
-            identity=identity,
-            initial_string=initial_value,
-            final_string=confirmed_value,
-            steps=committed_steps,
-        )
-        committed_steps = []
-
-    def reset_to(snapshot: FocusedTextSnapshot) -> None:
-        nonlocal initial_value, confirmed_value, current_value, current_source, identity, last_action_offset
-        flush_committed()
-        drop_pending()
-        initial_value = snapshot.value
-        confirmed_value = snapshot.value
-        current_value = snapshot.value
-        current_source = snapshot.source
+    def reset_run(snapshot: FocusedTextSnapshot) -> None:
+        nonlocal anchor_value, current_value, identity, last_observed_value, last_offset, source, steps
+        flush()
+        source = snapshot.source
         identity = snapshot.identity
-        last_action_offset = snapshot.offset_ms
+        anchor_value = snapshot.value
+        last_observed_value = snapshot.value
+        current_value = ""
+        steps = []
+        last_offset = snapshot.offset_ms
 
-    def commit_bridge_actions(snapshot: FocusedTextSnapshot, actions: list[str]) -> None:
-        nonlocal confirmed_value, current_value, last_action_offset
-        if not actions:
-            return
-        total_dt_ms = max(0.0, float(snapshot.offset_ms - last_action_offset))
-        dt_ms = total_dt_ms / len(actions)
-        committed_steps.extend(KeyStep(dt_ms=dt_ms, action=action) for action in actions)
-        confirmed_value = snapshot.value
-        current_value = snapshot.value
-        last_action_offset = snapshot.offset_ms
-        increment("key_level_bridge_transition_count")
-        increment("key_level_bridge_action_count", len(actions))
-        increment("key_level_action_count", len(actions))
-
-    def bridge_to_observed(snapshot: FocusedTextSnapshot) -> bool:
-        nonlocal pending_steps, current_value
-        candidates: list[tuple[int, bool, list[str]]] = []
-        current_actions = terminal_edit_actions(current_value, snapshot.value)
-        if (
-            len(current_actions) <= max_snapshot_edit_actions
-            and inferred_backspace_count(current_actions) <= 3
-        ):
-            candidates.append((len(current_actions), True, current_actions))
-        confirmed_actions = terminal_edit_actions(confirmed_value, snapshot.value)
-        if (
-            len(confirmed_actions) <= max_snapshot_edit_actions
-            and inferred_backspace_count(confirmed_actions) <= 3
-        ):
-            candidates.append((len(confirmed_actions), False, confirmed_actions))
-        if not candidates:
+    def incompatible_observed_value(value: str) -> bool:
+        if not steps:
             return False
+        if value in {anchor_value, last_observed_value}:
+            return False
+        if current_value and current_value in value:
+            return False
+        return bool(current_value)
 
-        _, keep_pending, actions = min(candidates, key=lambda item: (item[0], not item[1]))
-        if keep_pending:
-            commit_pending()
-        else:
-            drop_pending()
-        commit_bridge_actions(snapshot, actions)
-        return True
-
-    def observe(snapshot: FocusedTextSnapshot) -> None:
-        nonlocal current_value, confirmed_value
-        observed_value = snapshot.value
-        if observed_value == current_value:
-            commit_pending()
-            return
-        if observed_value == confirmed_value:
-            # A key candidate was observed but the accessible text did not
-            # change. Treat it as a shortcut/no-op for text modeling.
-            drop_pending()
-            return
-        if bridge_to_observed(snapshot):
-            return
-        increment("key_level_mismatch_count")
-        reset_to(snapshot)
-
-    def append_pending_key(snapshot: FocusedTextSnapshot) -> None:
-        nonlocal current_value, last_action_offset
-        if snapshot.key_action is None:
-            return
-        dt_ms = max(0.0, float(snapshot.offset_ms - last_action_offset))
-        pending_steps.append(KeyStep(dt_ms=dt_ms, action=snapshot.key_action))
-        current_value = apply_keyboard_action_to_string(current_value, snapshot.key_action)
-        last_action_offset = snapshot.offset_ms
-        increment("key_level_candidate_action_count")
-
-    def process_keyboard_action(snapshot: FocusedTextSnapshot) -> None:
-        nonlocal current_value
-        if snapshot.key_action is None:
-            return
-
-        observed_value = snapshot.value
-        post_from_current = apply_keyboard_action_to_string(current_value, snapshot.key_action)
-        post_from_confirmed = apply_keyboard_action_to_string(confirmed_value, snapshot.key_action)
-
-        if observed_value == current_value:
-            # The event carries a pre-key text snapshot.
-            commit_pending()
-            append_pending_key(snapshot)
-            return
-        if observed_value == post_from_current:
-            # The event already reflects this key and confirms any pending keys.
-            append_pending_key(snapshot)
-            current_value = observed_value
-            commit_pending()
-            return
-        if observed_value == confirmed_value:
-            # Pending candidate actions were not visible in the text stream.
-            drop_pending()
-            append_pending_key(snapshot)
-            return
-        if observed_value == post_from_confirmed:
-            # Drop stale candidates, but keep the current physical key because
-            # the observed value is exactly its terminal effect.
-            drop_pending()
-            append_pending_key(snapshot)
-            current_value = observed_value
-            commit_pending()
-            return
-
-        if bridge_to_observed(snapshot):
-            return
-
-        increment("key_level_mismatch_count")
-        increment("key_level_unmodeled_action_count")
-        reset_to(snapshot)
-
-    def process_keyboard_without_text_action(snapshot: FocusedTextSnapshot) -> None:
-        observe(snapshot)
-        increment("unsupported_key_transition_count")
-        reset_to(snapshot)
-
-    started = False
     for snapshot in ordered:
-        if started and snapshot.offset_ms - last_seen_offset >= gap_ms:
-            reset_to(snapshot)
+        if snapshot.offset_ms - last_offset >= gap_ms:
+            reset_run(snapshot)
 
-        if not started:
-            started = True
-        elif not snapshot.is_keyboard_event:
-            observe(snapshot)
+        if not (snapshot.is_keyboard_event and snapshot.key_action == KEY_BACKSPACE) and incompatible_observed_value(snapshot.value):
+            increment("raw_key_run_reset_count")
+            reset_run(snapshot)
 
-        if snapshot.is_keyboard_event and snapshot.key_action is not None:
-            process_keyboard_action(snapshot)
-        elif snapshot.is_keyboard_event and snapshot.key_code is not None:
-            process_keyboard_without_text_action(snapshot)
+        if not snapshot.is_keyboard_event:
+            last_observed_value = snapshot.value
+            if not steps:
+                anchor_value = snapshot.value
+                last_offset = snapshot.offset_ms
+            continue
 
-        last_seen_offset = snapshot.offset_ms
+        if snapshot.key_action is None:
+            flush()
+            anchor_value = snapshot.value
+            last_observed_value = snapshot.value
+            last_offset = snapshot.offset_ms
+            continue
 
-    if pending_steps:
-        # The final key in a segment normally has a delayed focused snapshot.
-        # Without a confirming observation, keep the corpus conservative.
-        drop_pending()
-    flush_committed()
+        dt_ms = max(0.0, float(snapshot.offset_ms - last_offset))
+        steps.append(KeyStep(dt_ms=dt_ms, action=snapshot.key_action))
+        current_value = apply_keyboard_action_to_string(current_value, snapshot.key_action)
+        last_observed_value = snapshot.value
+        last_offset = snapshot.offset_ms
+
+    flush()
     return episodes
 
 
-def build_focused_text_episodes(
-    snapshots: list[FocusedTextSnapshot],
-    gap_ms: int,
-    max_snapshot_edit_actions: int,
-    stats: dict[str, int] | None = None,
-) -> list[KeyboardEpisode]:
-    if any(snapshot.is_keyboard_event for snapshot in snapshots):
-        return _build_focused_text_key_stream_episodes(
-            snapshots,
-            gap_ms=gap_ms,
-            max_snapshot_edit_actions=max_snapshot_edit_actions,
-            stats=stats,
-        )
-    return _build_focused_text_diff_episodes(
-        snapshots,
-        gap_ms=gap_ms,
-        max_snapshot_edit_actions=max_snapshot_edit_actions,
-        stats=stats,
-    )
-
-
-def extract_focused_text_keyboard_episodes(
+def extract_keyboard_episodes(
     paths: list[Path],
     gap_ms: int,
     accessibility_id: str | None,
-    max_snapshot_edit_actions: int,
     screen_filter: ScreenSizeFilter | None = None,
 ) -> tuple[list[KeyboardEpisode], dict[str, Any]]:
     """Build keyboard episodes from contiguous focused accessibility text."""
@@ -774,7 +533,6 @@ def extract_focused_text_keyboard_episodes(
         segment_episodes = build_focused_text_episodes(
             segment,
             gap_ms=gap_ms,
-            max_snapshot_edit_actions=max_snapshot_edit_actions,
             stats=selected_key_stream_stats,
         )
         episodes.extend(segment_episodes)

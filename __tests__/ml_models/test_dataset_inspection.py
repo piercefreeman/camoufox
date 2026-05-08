@@ -45,11 +45,9 @@ def test_keyboard_episode_report_filters_and_summarizes() -> None:
         [typo_episode()],
         metadata={
             "selected_key_stream": {
-                "key_level_action_count": 9,
-                "key_level_candidate_action_count": 9,
-                "key_level_bridge_action_count": 0,
-                "key_level_dropped_action_count": 0,
-                "key_level_mismatch_count": 0,
+                "raw_key_run_episode_count": 1,
+                "raw_key_run_action_count": 9,
+                "raw_key_run_reset_count": 0,
             }
         },
         limit=10,
@@ -57,7 +55,7 @@ def test_keyboard_episode_report_filters_and_summarizes() -> None:
     )
 
     assert "keyboard episodes: 1 total, 1 matched, showing 1" in report
-    assert "bridged=0" in report
+    assert "raw_actions=9" in report
     assert "initial:  't'" in report
     assert "final:    'thanks'" in report
     assert "actions:  +h +a +n +s +k -k -s +k +s" in report

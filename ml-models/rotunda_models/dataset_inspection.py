@@ -115,11 +115,9 @@ def format_keyboard_episode_report(
         f"keyboard episodes: {len(episodes)} total, {len(filtered)} matched, showing {len(selected)}",
         (
             "key stream: "
-            f"confirmed_actions={key_stream.get('key_level_action_count', 0)} "
-            f"candidates={key_stream.get('key_level_candidate_action_count', 0)} "
-            f"bridged={key_stream.get('key_level_bridge_action_count', 0)} "
-            f"dropped={key_stream.get('key_level_dropped_action_count', 0)} "
-            f"mismatches={key_stream.get('key_level_mismatch_count', 0)}"
+            f"raw_episodes={key_stream.get('raw_key_run_episode_count', 0)} "
+            f"raw_actions={key_stream.get('raw_key_run_action_count', 0)} "
+            f"resets={key_stream.get('raw_key_run_reset_count', 0)}"
         ),
     ]
     if query:

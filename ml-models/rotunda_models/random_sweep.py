@@ -46,7 +46,6 @@ DEFAULT_SPACES: dict[str, dict[str, Any]] = {
         "backspace_action_weight": {"type": "uniform", "min": 2.0, "max": 10.0},
         "stop_action_weight": {"type": "uniform", "min": 4.0, "max": 18.0},
         "gap_ms": {"values": [500, 750, 1000, 1500]},
-        "keyboard_max_snapshot_edit_actions": {"values": [8, 12, 16, 24]},
         "keyboard_max_condition_length": {"values": [512, 768, 1024, 1536]},
         "keyboard_max_steps": {"values": [128, 256, 384]},
         "char_embed_size": {"values": [16, 32, 48]},

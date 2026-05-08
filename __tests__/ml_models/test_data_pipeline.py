@@ -5,7 +5,7 @@ from pathlib import Path
 
 from rotunda_models.constants import KEY_BACKSPACE
 from rotunda_models.data import (
-    extract_focused_text_keyboard_episodes,
+    extract_keyboard_episodes,
     extract_mouse_episodes,
 )
 from rotunda_models.types import ScreenSizeFilter
@@ -44,7 +44,7 @@ def test_mouse_episodes_are_filtered_to_laptop_screen_sizes(tmp_path: Path) -> N
     assert (episodes[0].dst_x, episodes[0].dst_y) == (50, 50)
 
 
-def test_focused_text_revisits_are_separate_keyboard_episodes(tmp_path: Path) -> None:
+def test_keyboard_extractor_requires_key_level_events(tmp_path: Path) -> None:
     field_a = {
         "bundleID": "com.example",
         "processID": 1,
@@ -74,19 +74,19 @@ def test_focused_text_revisits_are_separate_keyboard_episodes(tmp_path: Path) ->
             {"type": "focused_element", "offsetMs": 60, "focusedElement": {**field_a, "value": "hit"}},
         ],
     )
-    episodes, metadata = extract_focused_text_keyboard_episodes(
+    episodes, metadata = extract_keyboard_episodes(
         [path],
         gap_ms=1000,
         accessibility_id="field-a",
-        max_snapshot_edit_actions=12,
         screen_filter=ScreenSizeFilter(),
     )
 
     assert metadata["selected_focused_text_segment_count"] == 2
-    assert [(episode.initial_string, episode.final_string) for episode in episodes] == [("", "hi"), ("hi", "hit")]
+    assert episodes == []
+    assert metadata["focused_text_episode_identity_count"] == 0
 
 
-def test_auto_focused_text_uses_all_accessibility_fields(tmp_path: Path) -> None:
+def test_auto_keyboard_selection_still_reports_accessibility_fields(tmp_path: Path) -> None:
     field_a = {
         "bundleID": "com.example",
         "processID": 1,
@@ -114,17 +114,16 @@ def test_auto_focused_text_uses_all_accessibility_fields(tmp_path: Path) -> None
             {"type": "focused_element", "offsetMs": 40, "focusedElement": {**field_b, "value": "b"}},
         ],
     )
-    episodes, metadata = extract_focused_text_keyboard_episodes(
+    episodes, metadata = extract_keyboard_episodes(
         [path],
         gap_ms=1000,
         accessibility_id="auto",
-        max_snapshot_edit_actions=12,
         screen_filter=ScreenSizeFilter(),
     )
 
     assert metadata["selected_focused_text_identity"] == "all"
-    assert metadata["focused_text_episode_identity_count"] == 2
-    assert sorted(episode.final_string for episode in episodes) == ["a", "b"]
+    assert metadata["selected_focused_text_segment_count"] == 2
+    assert episodes == []
 
 
 def test_keyboard_episodes_prefer_recorded_key_stream(tmp_path: Path) -> None:
@@ -151,11 +150,10 @@ def test_keyboard_episodes_prefer_recorded_key_stream(tmp_path: Path) -> None:
         ],
     )
 
-    episodes, metadata = extract_focused_text_keyboard_episodes(
+    episodes, metadata = extract_keyboard_episodes(
         [path],
         gap_ms=1000,
         accessibility_id="field-a",
-        max_snapshot_edit_actions=12,
         screen_filter=ScreenSizeFilter(),
     )
 
@@ -163,7 +161,7 @@ def test_keyboard_episodes_prefer_recorded_key_stream(tmp_path: Path) -> None:
     assert episodes[0].initial_string == ""
     assert episodes[0].final_string == "f"
     assert [step.action for step in episodes[0].steps] == ["w", KEY_BACKSPACE, "f"]
-    assert metadata["selected_key_stream"]["key_level_action_count"] == 3
+    assert metadata["selected_key_stream"]["raw_key_run_action_count"] == 3
 
 
 def test_keyboard_episodes_confirm_rapid_keys_with_delayed_snapshot(tmp_path: Path) -> None:
@@ -186,21 +184,56 @@ def test_keyboard_episodes_confirm_rapid_keys_with_delayed_snapshot(tmp_path: Pa
         ],
     )
 
-    episodes, metadata = extract_focused_text_keyboard_episodes(
+    episodes, metadata = extract_keyboard_episodes(
         [path],
         gap_ms=1000,
         accessibility_id="field-a",
-        max_snapshot_edit_actions=12,
         screen_filter=ScreenSizeFilter(),
     )
 
     assert len(episodes) == 1
     assert episodes[0].final_string == "hi"
     assert [step.action for step in episodes[0].steps] == ["h", "i"]
-    assert metadata["selected_key_stream"]["key_level_action_count"] == 2
+    assert metadata["selected_key_stream"]["raw_key_run_action_count"] == 2
 
 
-def test_keyboard_episodes_bridge_small_coalesced_value_jumps(tmp_path: Path) -> None:
+def test_keyboard_episodes_use_raw_key_runs(tmp_path: Path) -> None:
+    field = {
+        "bundleID": "com.example",
+        "processID": 1,
+        "accessibilityID": "field-a",
+        "role": "AXTextArea",
+        "isPassword": False,
+        "valueRedacted": False,
+    }
+    path = write_events(
+        tmp_path,
+        [
+            {"type": "session_started"},
+            {"type": "mouse_move", "offsetMs": 0, "x": 1, "y": 1, "deltaX": 0, "deltaY": 0, "dragButton": "none", "screenWidth": 1512, "screenHeight": 982},
+            {"type": "focused_element", "offsetMs": 10, "focusedElement": {**field, "value": "selected text"}},
+            {"type": "keyboard", "offsetMs": 40, "key": "h", "keyCode": 4, "keyClass": "regular", "isRepeat": False, "focusedElement": {**field, "value": "selected text"}},
+            {"type": "keyboard", "offsetMs": 90, "key": "i", "keyCode": 34, "keyClass": "regular", "isRepeat": False, "focusedElement": {**field, "value": "selected text"}},
+        ],
+    )
+
+    episodes, metadata = extract_keyboard_episodes(
+        [path],
+        gap_ms=1000,
+        accessibility_id="field-a",
+        screen_filter=ScreenSizeFilter(),
+    )
+
+    raw_episodes = [episode for episode in episodes if episode.source.endswith("#raw-key-stream")]
+    assert len(raw_episodes) == 1
+    assert raw_episodes[0].initial_string == ""
+    assert raw_episodes[0].final_string == "hi"
+    assert [step.dt_ms for step in raw_episodes[0].steps] == [30.0, 50.0]
+    assert [step.action for step in raw_episodes[0].steps] == ["h", "i"]
+    assert metadata["selected_key_stream"]["raw_key_run_action_count"] == 2
+
+
+def test_keyboard_episodes_do_not_infer_bridge_actions(tmp_path: Path) -> None:
     field = {
         "bundleID": "com.example",
         "processID": 1,
@@ -227,17 +260,16 @@ def test_keyboard_episodes_bridge_small_coalesced_value_jumps(tmp_path: Path) ->
         ],
     )
 
-    episodes, metadata = extract_focused_text_keyboard_episodes(
+    episodes, metadata = extract_keyboard_episodes(
         [path],
         gap_ms=1000,
         accessibility_id="field-a",
-        max_snapshot_edit_actions=12,
         screen_filter=ScreenSizeFilter(),
     )
 
     assert len(episodes) == 1
-    assert episodes[0].initial_string == "stor"
-    assert episodes[0].final_string == "story "
+    assert episodes[0].initial_string == ""
+    assert episodes[0].final_string == "y "
     assert [step.action for step in episodes[0].steps] == [
         "t",
         "y",
@@ -248,10 +280,10 @@ def test_keyboard_episodes_bridge_small_coalesced_value_jumps(tmp_path: Path) ->
         "y",
         " ",
     ]
-    assert metadata["selected_key_stream"]["key_level_bridge_action_count"] == 3
+    assert metadata["selected_key_stream"]["raw_key_run_action_count"] == 8
 
 
-def test_keyboard_episodes_do_not_bridge_large_field_resets(tmp_path: Path) -> None:
+def test_keyboard_episodes_split_on_observed_field_resets(tmp_path: Path) -> None:
     field = {
         "bundleID": "com.example",
         "processID": 1,
@@ -277,16 +309,15 @@ def test_keyboard_episodes_do_not_bridge_large_field_resets(tmp_path: Path) -> N
         ],
     )
 
-    episodes, metadata = extract_focused_text_keyboard_episodes(
+    episodes, metadata = extract_keyboard_episodes(
         [path],
         gap_ms=1000,
         accessibility_id="field-a",
-        max_snapshot_edit_actions=12,
         screen_filter=ScreenSizeFilter(),
     )
 
     assert [(episode.initial_string, episode.final_string) for episode in episodes] == [
-        ("p", "phone"),
-        ("w", "we"),
+        ("", "hone"),
+        ("", "we"),
     ]
-    assert metadata["selected_key_stream"].get("key_level_bridge_action_count", 0) == 0
+    assert metadata["selected_key_stream"]["raw_key_run_reset_count"] == 1

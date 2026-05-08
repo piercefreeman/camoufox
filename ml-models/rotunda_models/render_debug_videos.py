@@ -369,12 +369,20 @@ def simulate_keyboard_rows(
 def load_keyboard_val(checkpoint: dict) -> list[train.KeyboardEpisode]:
     config = checkpoint["training_config"]
     paths = train.discover_recording_paths(config["inputs"])
-    episodes, _ = train.extract_focused_text_keyboard_episodes(
+    episodes, _ = train.extract_keyboard_episodes(
         paths,
         gap_ms=int(config.get("gap_ms", 1000)),
         accessibility_id=str(config.get("keyboard_accessibility_id", "auto")),
-        max_snapshot_edit_actions=int(config.get("keyboard_max_snapshot_edit_actions", 12)),
         screen_filter=screen_filter_from_config(config),
+    )
+    sequence_mode = str(checkpoint.get("keyboard_sequence_mode", config.get("resolved_keyboard_sequence_mode", "raw")))
+    episodes = train.filter_keyboard_training_episodes(
+        episodes,
+        sequence_mode=sequence_mode,
+        min_final_length=int(config.get("keyboard_min_final_length", 1)),
+        min_duration_ms=float(config.get("keyboard_min_duration_ms", 0.0)),
+        max_condition_length=config.get("keyboard_max_condition_length", 1024),
+        max_steps=config.get("keyboard_max_steps", 256),
     )
     _, val = train.split_items(episodes, float(config.get("val_fraction", 0.15)), int(config.get("seed", 13)))
     return val

@@ -41,7 +41,6 @@ clicks:
 keyboard:
   gap_ms: 1000
   keyboard_accessibility_id: auto
-  keyboard_max_snapshot_edit_actions: 12
   keyboard_min_final_length: 1
   keyboard_min_duration_ms: 0.0
   keyboard_max_condition_length: 1024

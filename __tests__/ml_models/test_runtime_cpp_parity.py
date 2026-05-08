@@ -143,6 +143,37 @@ def test_runtime_weights_resolves_bundled_model_from_resources_layout(
     assert Path(result.stdout.strip()).resolve() == model_path.resolve()
 
 
+def test_runtime_weights_resolves_bundled_model_from_nested_macos_helper(
+    runtime_probe: Path,
+    tmp_path: Path,
+) -> None:
+    helper_dir = (
+        tmp_path
+        / "Rotunda.app"
+        / "Contents"
+        / "MacOS"
+        / "plugin-container.app"
+        / "Contents"
+        / "MacOS"
+    )
+    resources_dir = tmp_path / "Rotunda.app" / "Contents" / "Resources" / "runtime-models"
+    helper_dir.mkdir(parents=True)
+    resources_dir.mkdir(parents=True)
+    helper_probe = helper_dir / runtime_probe.name
+    shutil.copy2(runtime_probe, helper_probe)
+    model_path = resources_dir / "keyboard-test.safetensors"
+    model_path.write_bytes(b"not a real model")
+
+    result = subprocess.run(
+        [helper_probe, "resolve-model", model_path.name],
+        check=True,
+        text=True,
+        capture_output=True,
+    )
+
+    assert Path(result.stdout.strip()).resolve() == model_path.resolve()
+
+
 def _export_keyboard_checkpoint(tmp_path: Path) -> tuple[Path, KeyboardActionGRU, dict[str, int], dict[str, int]]:
     char_to_id = {
         CHAR_PAD: 0,

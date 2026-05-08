@@ -11,7 +11,6 @@ from typing import Any
 import click
 from playwright.sync_api import sync_playwright
 
-
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE_DIR = ROOT / "rotunda-150.0.1-beta.25"
 DEFAULT_MOUSE_MODEL = ROOT / "bundle" / "runtime-models" / "mouse.safetensors"
@@ -19,7 +18,7 @@ DEFAULT_KEYBOARD_MODEL = ROOT / "bundle" / "runtime-models" / "keyboard.safetens
 DEFAULT_OUTPUT_ROOT = ROOT / "Training" / "debug_media"
 DEFAULT_TEXT = "rotunda models ship"
 DEFAULT_PARAGRAPH = (
-    "Rotunda runtime models should make browser input look continuous: "
+    "Rotunda runtime models should make browser input look continuous. "
     "the pointer plans a path to each target, then the keyboard model types "
     "this longer paragraph as a sequence of timed edits."
 )
@@ -535,6 +534,16 @@ def main(
         raise click.ClickException("Mouse demo did not emit enough mousemove events")
     if no_interactive and summary["keyboard"]["value_change_input_count"] < 1:
         raise click.ClickException("Keyboard demo did not emit value-changing input events")
+    if (
+        no_interactive
+        and use_bundled_models
+        and summary["keyboard"]["input_interval_median_ms"] is not None
+        and summary["keyboard"]["input_interval_median_ms"] < 25.0
+    ):
+        raise click.ClickException(
+            "Keyboard cadence looks like the fixed fallback path, not the runtime model "
+            f"(median interval {summary['keyboard']['input_interval_median_ms']} ms)."
+        )
 
     click.echo(json.dumps({"summary": summary, "report": str(report_path)}, indent=2))
 

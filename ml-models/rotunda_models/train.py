@@ -17,7 +17,7 @@ from ._generated_data_capture import SessionStartedEvent, SessionStoppedEvent
 from .constants import MOUSE_ACTIONS
 from .data import (
     event_screen_size,
-    extract_focused_text_keyboard_episodes,
+    extract_keyboard_episodes,
     extract_mouse_episodes,
     iter_capture_events,
     screen_filter_allows,
@@ -360,14 +360,13 @@ def train_keyboard(args: Any | TrainingExperimentSettings) -> None:
         raise SystemExit("No .ndjson or .jsonl recordings found.")
     log_info(f"recording_files={len(paths)}")
 
-    # Current recordings carry the focused accessibility value, so keyboard
-    # training is a direct text-diff problem rather than key-geometry recovery.
+    # Keyboard training uses the recorded physical key stream. Focused element
+    # snapshots only provide field identity and reset boundaries.
     log_stage("building keyboard episodes")
-    episodes, focused_text_meta = extract_focused_text_keyboard_episodes(
+    episodes, focused_text_meta = extract_keyboard_episodes(
         paths,
         gap_ms=args.gap_ms,
         accessibility_id=args.keyboard_accessibility_id,
-        max_snapshot_edit_actions=args.keyboard_max_snapshot_edit_actions,
         screen_filter=args.screen_filter,
     )
     if not episodes:
@@ -603,11 +602,10 @@ def inspect_recordings(args: Any) -> None:
         min_distance=args.min_distance,
         screen_filter=args.screen_filter,
     )
-    keyboard_episodes, focused_meta = extract_focused_text_keyboard_episodes(
+    keyboard_episodes, focused_meta = extract_keyboard_episodes(
         paths,
         gap_ms=args.gap_ms,
         accessibility_id=args.keyboard_accessibility_id,
-        max_snapshot_edit_actions=args.keyboard_max_snapshot_edit_actions,
         screen_filter=args.screen_filter,
     )
     keyboard_sequence_mode = "raw"
