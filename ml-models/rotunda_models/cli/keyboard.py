@@ -7,7 +7,6 @@ import json
 import click
 import torch
 
-from ..constants import DEFAULT_KEYBOARD_TYPO_MODE_WEIGHTS
 from ..generation import decode_keyboard_rows, load_checkpoint
 from ..models.keyboard import KeyboardActionGRU
 from .common import CONTEXT_SETTINGS, PATH_TYPE
@@ -31,15 +30,10 @@ from .common import CONTEXT_SETTINGS, PATH_TYPE
 )
 @click.option("--sample", is_flag=True, default=False)
 @click.option("--temperature", type=float, default=1.0, show_default=True, help="Sampling temperature for unconstrained mode.")
-@click.option("--keyboard-typo-rate", type=float, default=0.0, show_default=True, help="Per-character probability of injecting a bounded correction event in constrained mode.")
 @click.option("--keyboard-structured-extra-steps", type=int, default=6, show_default=True, help="Extra learned edit steps allowed beyond the shortest path in constrained mode.")
 @click.option("--keyboard-canonical-bias", type=float, default=1.5, show_default=True, help="Logit bias toward the shortest valid edit in constrained mode; higher is more structured, lower is more learned.")
-@click.option("--keyboard-max-typos", type=int, default=2, show_default=True, help="Maximum correction events to inject during constrained keyboard generation.")
-@click.option("--keyboard-typo-seed", type=int, default=13, show_default=True, help="Random seed for constrained keyboard typo injection.")
-@click.option("--keyboard-typo-mode-weights", default=DEFAULT_KEYBOARD_TYPO_MODE_WEIGHTS, show_default=True, help="Comma-separated correction event weights, e.g. replace=0.55,forward=0.30,backtrack=0.15.")
-@click.option("--keyboard-max-typo-chars", type=int, default=3, show_default=True, help="Maximum wrong characters in one forward typo event.")
-@click.option("--keyboard-max-backtrack-chars", type=int, default=2, show_default=True, help="Maximum already-correct characters to backspace in one backtrack event.")
-@click.option("--keyboard-typo-min-dt-ms", type=float, default=20.0, show_default=True, help="Minimum delay for injected correction-event actions.")
+@click.option("--keyboard-max-typos", type=int, default=2, show_default=True, help="Maximum learned typo events allowed during constrained keyboard generation.")
+@click.option("--keyboard-typo-seed", type=int, default=13, show_default=True, help="Random seed for learned typo sampling.")
 @click.option("--keyboard-learned-typo-threshold", type=float, default=0.2, show_default=True, help="Deterministic threshold for learned wrong-character emission in constrained mode.")
 @click.option("--device", default=None)
 def generate_keyboard_command(
@@ -50,15 +44,10 @@ def generate_keyboard_command(
     decode_mode: str,
     sample: bool,
     temperature: float,
-    keyboard_typo_rate: float,
     keyboard_structured_extra_steps: int,
     keyboard_canonical_bias: float,
     keyboard_max_typos: int,
     keyboard_typo_seed: int,
-    keyboard_typo_mode_weights: str,
-    keyboard_max_typo_chars: int,
-    keyboard_max_backtrack_chars: int,
-    keyboard_typo_min_dt_ms: float,
     keyboard_learned_typo_threshold: float,
     device: str | None,
 ) -> None:
@@ -84,13 +73,8 @@ def generate_keyboard_command(
         temperature=temperature,
         structured_extra_steps=keyboard_structured_extra_steps,
         canonical_bias=keyboard_canonical_bias,
-        typo_rate=keyboard_typo_rate,
         max_typos=keyboard_max_typos,
         typo_seed=keyboard_typo_seed,
-        typo_mode_weights=keyboard_typo_mode_weights,
-        max_typo_chars=keyboard_max_typo_chars,
-        max_backtrack_chars=keyboard_max_backtrack_chars,
-        typo_min_dt_ms=keyboard_typo_min_dt_ms,
         learned_typo_threshold=keyboard_learned_typo_threshold,
     )
     for row in rows:

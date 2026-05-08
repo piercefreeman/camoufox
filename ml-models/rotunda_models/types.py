@@ -76,14 +76,6 @@ class KeyStep:
 
 
 @dataclass(frozen=True)
-class KeyboardEditStep:
-    """Planned keyboard action plus its role in constrained generation."""
-
-    action: str
-    step_kind: str
-
-
-@dataclass(frozen=True)
 class KeyboardEpisode:
     """A text edit episode that turns an initial string into a final string."""
 

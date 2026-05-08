@@ -13,18 +13,6 @@ CHAR_PAD = "<PAD>"
 CHAR_UNK = "<UNK>"
 CHAR_EOS = "<EOS>"
 CHAR_SEP = "<SEP>"
-DEFAULT_KEYBOARD_TYPO_MODE_WEIGHTS = "replace=0.55,forward=0.30,backtrack=0.15"
-KEYBOARD_TYPO_MODE_ALIASES = {
-    "replace": "replace",
-    "replacement": "replace",
-    "forward": "forward",
-    "insert": "forward",
-    "insertion": "forward",
-    "burst": "forward",
-    "backtrack": "backtrack",
-    "backward": "backtrack",
-    "backwards": "backtrack",
-}
 
 
 KEY_LAYOUT = [

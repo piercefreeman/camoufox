@@ -17,7 +17,6 @@ from . import train
 from .cli.common import CONTEXT_SETTINGS, PATH_TYPE
 from .constants import (
     BACKSPACE_POS,
-    DEFAULT_KEYBOARD_TYPO_MODE_WEIGHTS,
     KEY_BACKSPACE,
     KEY_LAYOUT,
     KEY_STOP,
@@ -347,13 +346,8 @@ def simulate_keyboard_rows(
     temperature: float,
     structured_extra_steps: int,
     canonical_bias: float,
-    typo_rate: float,
     max_typos: int,
     typo_seed: int,
-    typo_mode_weights: str,
-    max_typo_chars: int,
-    max_backtrack_chars: int,
-    typo_min_dt_ms: float,
 ) -> list[dict]:
     return decode_keyboard_rows(
         checkpoint=checkpoint,
@@ -367,13 +361,8 @@ def simulate_keyboard_rows(
         temperature=temperature,
         structured_extra_steps=structured_extra_steps,
         canonical_bias=canonical_bias,
-        typo_rate=typo_rate,
         max_typos=max_typos,
         typo_seed=typo_seed,
-        typo_mode_weights=typo_mode_weights,
-        max_typo_chars=max_typo_chars,
-        max_backtrack_chars=max_backtrack_chars,
-        typo_min_dt_ms=typo_min_dt_ms,
     )
 
 
@@ -553,22 +542,15 @@ def render_keyboard_video(args: Any) -> Path:
                 max_steps=max(
                     args.keyboard_max_steps,
                     len(episode.steps) + 4,
-                    len(terminal_edit_actions(episode.initial_string, episode.final_string))
-                    + args.keyboard_structured_extra_steps
-                    + (2 * args.keyboard_max_typos * max(1, args.keyboard_max_typo_chars, args.keyboard_max_backtrack_chars)),
+                    len(terminal_edit_actions(episode.initial_string, episode.final_string)) + args.keyboard_structured_extra_steps,
                 ),
                 decode_mode=args.keyboard_decode_mode,
                 sample=args.keyboard_sample,
                 temperature=args.keyboard_temperature,
                 structured_extra_steps=args.keyboard_structured_extra_steps,
                 canonical_bias=args.keyboard_canonical_bias,
-                typo_rate=args.keyboard_typo_rate,
                 max_typos=args.keyboard_max_typos,
                 typo_seed=args.keyboard_typo_seed + index - 1,
-                typo_mode_weights=args.keyboard_typo_mode_weights,
-                max_typo_chars=args.keyboard_max_typo_chars,
-                max_backtrack_chars=args.keyboard_max_backtrack_chars,
-                typo_min_dt_ms=args.keyboard_typo_min_dt_ms,
             )
             annotate_keyboard_row_numbers(sim)
             duration_ms = max(real[-1]["offsetMs"], sim[-1]["offsetMs"] if sim else 0.0, 500.0) + args.end_hold_ms
@@ -614,13 +596,8 @@ def render_debug_videos(args: Any) -> int:
 @click.option("--keyboard-temperature", type=float, default=1.0, show_default=True)
 @click.option("--keyboard-structured-extra-steps", type=int, default=6, show_default=True)
 @click.option("--keyboard-canonical-bias", type=float, default=1.5, show_default=True)
-@click.option("--keyboard-typo-rate", type=float, default=0.0, show_default=True)
-@click.option("--keyboard-max-typos", type=int, default=2, show_default=True)
-@click.option("--keyboard-typo-seed", type=int, default=13, show_default=True)
-@click.option("--keyboard-typo-mode-weights", default=DEFAULT_KEYBOARD_TYPO_MODE_WEIGHTS, show_default=True)
-@click.option("--keyboard-max-typo-chars", type=int, default=3, show_default=True)
-@click.option("--keyboard-max-backtrack-chars", type=int, default=2, show_default=True)
-@click.option("--keyboard-typo-min-dt-ms", type=float, default=20.0, show_default=True)
+@click.option("--keyboard-max-typos", type=int, default=2, show_default=True, help="Maximum learned typo events allowed.")
+@click.option("--keyboard-typo-seed", type=int, default=13, show_default=True, help="Random seed for learned typo sampling.")
 @click.option("--max-keyboard-example-ms", type=float, default=3500.0, show_default=True)
 @click.option("--only", type=click.Choice(["all", "mouse", "keyboard"]), default="all", show_default=True)
 def render_debug_videos_command(**kwargs: Any) -> None:

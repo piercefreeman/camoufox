@@ -197,15 +197,7 @@ rotunda-models generate-keyboard \
 New keyboard checkpoints learn wrong-character likelihood and wrong-character
 choice from raw focused-text edits. Constrained decoding can emit those learned
 wrong keys when the resulting text is still repairable, then returns to normal
-structured decoding for the correction. For older checkpoints, the legacy forced
-typo planner remains available:
-
-```bash
-rotunda-models generate-keyboard \
-  --checkpoint Training/runs/keyboard-YYYYMMDD-HHMMSS/model.pt \
-  --final-string "hello" \
-  --keyboard-typo-rate 0.08 --keyboard-max-typos 2
-```
+structured decoding for the correction.
 
 Inspect unconstrained model output:
 
