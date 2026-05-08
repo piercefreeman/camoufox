@@ -666,8 +666,8 @@ KeyboardRuntimeTrace KeyboardRuntimeModel::decodeInternal(
 
     if (selectedActionId < 0) return {};
     double dtLog = dtHead[0];
-    if (m_timingDistribution == "lognormal" && timingTemperature > 0.0 &&
-        randomSampler.has_value()) {
+    bool sampleCurrentLearnedTiming = sampleLearnedTiming && !rows.empty();
+    if (sampleCurrentLearnedTiming && randomSampler.has_value()) {
       dtLog = sampledTimingLog(dtHead, m_timingDistribution, timingTemperature,
                                *randomSampler);
     }

@@ -662,9 +662,10 @@ def _decode_keyboard_rows_impl(
                 action = id_to_action[action_id]
                 step_kind = "model"
 
+            current_timing_temperature = timing_temperature if rows else 0.0
             dt_log = sample_timing_log(
                 dt_pred[0, 0],
-                timing_temperature,
+                current_timing_temperature,
                 generator=timing_generator,
             )
             dt_ms = log_to_dt(float(dt_log.cpu()))
