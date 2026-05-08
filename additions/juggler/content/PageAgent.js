@@ -82,9 +82,9 @@ async function applyKeyboardAction(frame, tip, action) {
   tip.commitCompositionWith(action);
 }
 
-async function commitTextInput(frame, text, keyEvent = undefined) {
+async function commitTextInput(frame, text, keyEvent = undefined, humanizeEnabled = isHumanizeEnabled()) {
   const tip = frame.textInputProcessor();
-  if (!isHumanizeEnabled() || !text) {
+  if (!humanizeEnabled || !text) {
     if (keyEvent)
       tip.commitCompositionWith(text, keyEvent);
     else
@@ -657,9 +657,10 @@ export class PageAgent {
     }
   }
 
-  async _insertText({text}) {
+  async _insertText({text, humanizeEnabled}) {
     const frame = this._frameTree.mainFrame();
-    await commitTextInput(frame, text);
+    const shouldHumanize = typeof humanizeEnabled === "boolean" ? humanizeEnabled : isHumanizeEnabled();
+    await commitTextInput(frame, text, undefined, shouldHumanize);
   }
 
   async _crash() {

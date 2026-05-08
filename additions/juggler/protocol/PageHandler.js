@@ -770,7 +770,10 @@ export class PageHandler {
   }
 
   async ['Page.insertText'](options) {
-    return await this._contentPage.send('insertText', options);
+    return await this._contentPage.send('insertText', {
+      ...options,
+      humanizeEnabled: isHumanizeEnabled(),
+    });
   }
 
   async ['Page.crash'](options) {
