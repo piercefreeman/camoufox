@@ -27,15 +27,15 @@ struct Options {
   int mouseMaxSteps = 128;
   double mouseClickThreshold = 0.98;
   double mouseMinDtMs = 4.0;
-  double mousePathCurveSigma = 0.0;
+  double mousePathCurveSigma = 0.04;
   std::uint32_t mouseRandomSeed = 13;
   int keyboardMaxSteps = 256;
   int keyboardStructuredExtraSteps = 6;
   double keyboardCanonicalBias = 3.0;
   double keyboardLearnedTypoThreshold = 0.2;
   int keyboardMaxTypos = 2;
-  bool keyboardSampleTypos = false;
-  double keyboardTimingJitterSigma = 0.0;
+  bool keyboardSampleTypos = true;
+  double keyboardTimingJitterSigma = 0.22;
   double keyboardPauseProbability = 0.0;
   double keyboardPauseMeanMs = 35.0;
   std::uint32_t keyboardRandomSeed = 13;
@@ -76,15 +76,15 @@ int usage(const char* binary) {
       << "  --mouse-max-steps <int>                 default 128\n"
       << "  --mouse-click-threshold <float>         default 0.98\n"
       << "  --mouse-min-dt-ms <float>               default 4.0\n"
-      << "  --mouse-path-curve-sigma <float>        default 0.0\n"
+      << "  --mouse-path-curve-sigma <float>        default 0.04\n"
       << "  --mouse-random-seed <int>               default 13\n"
       << "  --keyboard-max-steps <int>              default 256\n"
       << "  --keyboard-structured-extra-steps <int> default 6\n"
       << "  --keyboard-canonical-bias <float>       default 3.0\n"
       << "  --keyboard-learned-typo-threshold <float> default 0.2\n"
       << "  --keyboard-max-typos <int>              default 2\n"
-      << "  --keyboard-sample-typos                 sample typo opportunities\n"
-      << "  --keyboard-timing-jitter-sigma <float>  default 0.0\n"
+      << "  --no-keyboard-sample-typos              disable typo sampling\n"
+      << "  --keyboard-timing-jitter-sigma <float>  default 0.22\n"
       << "  --keyboard-pause-probability <float>    default 0.0\n"
       << "  --keyboard-pause-mean-ms <float>        default 35.0\n"
       << "  --keyboard-random-seed <int>            default 13\n"
@@ -151,6 +151,8 @@ std::optional<Options> parseOptions(int argc, char** argv) {
       options.keyboardMaxTypos = std::stoi(*next);
     } else if (isOption(arg, "--keyboard-sample-typos")) {
       options.keyboardSampleTypos = true;
+    } else if (isOption(arg, "--no-keyboard-sample-typos")) {
+      options.keyboardSampleTypos = false;
     } else if (isOption(arg, "--keyboard-timing-jitter-sigma")) {
       auto next = value();
       if (!next) return std::nullopt;
