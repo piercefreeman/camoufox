@@ -51,7 +51,7 @@ index 1cfa4b8497..bdf8d7202e 100644
      // If we are given a tab to swap in, take care of it before first paint to
      // avoid an about:blank flash.
      let tabToAdopt = this.getTabToAdopt();
-@@ -345,6 +371,67 @@ var gBrowserInit = {
+@@ -345,6 +371,109 @@ var gBrowserInit = {
        }
      }
  
@@ -60,13 +60,13 @@ index 1cfa4b8497..bdf8d7202e 100644
 +      cursorFollower.id = "cursor-highlighter";
 +      cursorFollower.style.cssText = `
 +      position: fixed;
-+      width: 20px;
-+      height: 20px;
++      width: 32px;
++      height: 32px;
 +      pointer-events: none;
 +      z-index: 2147483647;
++      opacity: 0;
 +      transform: translate(-50%, -50%);
-+      transition: left 45ms linear, top 45ms linear;
-+      will-change: left, top;
++      will-change: transform;
 +      `;
 +      let cursorGlyph = document.createElement("div");
 +      cursorGlyph.style.cssText = `
@@ -75,36 +75,78 @@ index 1cfa4b8497..bdf8d7202e 100644
 +      background: url("chrome://juggler/content/cursor-indicator.svg") center / contain no-repeat;
 +      opacity: 0.96;
 +      transform-origin: 50% 50%;
-+      transition: transform 90ms cubic-bezier(.2, .8, .2, 1), opacity 90ms ease;
 +      will-change: transform;
 +      `;
 +      cursorFollower.appendChild(cursorGlyph);
 +      document.documentElement.appendChild(cursorFollower);
 +      
-+      let lastX = null;
-+      let lastY = null;
-+      let lastAngle = 0;
++      let currentX = 0;
++      let currentY = 0;
++      let startX = 0;
++      let startY = 0;
++      let targetX = 0;
++      let targetY = 0;
++      let moveStartTime = 0;
++      let moveDuration = 0;
++      let animationFrame = 0;
++      let lastMoveTime = 0;
++      let visible = false;
++      let cursorAngle = 0;
 +      let cursorPressed = false;
++      const renderCursor = () => {
++        cursorFollower.style.transform = `translate(${currentX}px, ${currentY}px) translate(-50%, -50%)`;
++        cursorFollower.style.opacity = "1";
++      };
 +      const renderCursorGlyph = () => {
 +        const clickScale = cursorPressed ? 0.88 : 1;
-+        cursorGlyph.style.transform = `rotate(${lastAngle}deg) scale(${clickScale})`;
++        cursorGlyph.style.transform = `rotate(${cursorAngle}deg) scale(${clickScale})`;
 +        cursorGlyph.style.opacity = cursorPressed ? "1" : "0.96";
 +      };
-+      window.addEventListener('mousemove', e => {
-+        if (lastX !== null && lastY !== null) {
-+          const dx = e.clientX - lastX;
-+          const dy = e.clientY - lastY;
-+          if (Math.hypot(dx, dy) > 0.5) {
-+            lastAngle = Math.atan2(dy, dx) * 180 / Math.PI + 90;
-+            renderCursorGlyph();
-+          }
++      const animateCursor = timestamp => {
++        if (moveDuration <= 0) {
++          currentX = targetX;
++          currentY = targetY;
 +        } else {
++          const progress = Math.min(1, (timestamp - moveStartTime) / moveDuration);
++          currentX = startX + (targetX - startX) * progress;
++          currentY = startY + (targetY - startY) * progress;
++        }
++        renderCursor();
++        if (currentX !== targetX || currentY !== targetY) {
++          animationFrame = requestAnimationFrame(animateCursor);
++        } else {
++          animationFrame = 0;
++        }
++      };
++      window.addEventListener('mousemove', e => {
++        const now = performance.now();
++        if (!visible) {
++          currentX = e.clientX;
++          currentY = e.clientY;
++          targetX = currentX;
++          targetY = currentY;
++          visible = true;
++          renderCursor();
++          renderCursorGlyph();
++          lastMoveTime = now;
++          return;
++        }
++        const dx = e.clientX - targetX;
++        const dy = e.clientY - targetY;
++        if (Math.hypot(dx, dy) > 0.5) {
++          cursorAngle = Math.atan2(dy, dx) * 180 / Math.PI + 90;
 +          renderCursorGlyph();
 +        }
-+        lastX = e.clientX;
-+        lastY = e.clientY;
-+        cursorFollower.style.left = `${e.clientX}px`;
-+        cursorFollower.style.top = `${e.clientY}px`;
++        startX = currentX;
++        startY = currentY;
++        targetX = e.clientX;
++        targetY = e.clientY;
++        moveStartTime = now;
++        moveDuration = Math.max(16, Math.min(80, now - lastMoveTime));
++        lastMoveTime = now;
++        if (!animationFrame) {
++          animationFrame = requestAnimationFrame(animateCursor);
++        }
 +      });
 +      window.addEventListener('mousedown', () => {
 +        cursorPressed = true;
@@ -119,7 +161,7 @@ index 1cfa4b8497..bdf8d7202e 100644
      // Wait until chrome is painted before executing code not critical to making the window visible
      this._boundDelayedStartup = this._delayedStartup.bind(this);
      window.addEventListener("MozAfterPaint", this._boundDelayedStartup);
-@@ -366,9 +453,152 @@ var gBrowserInit = {
+@@ -366,9 +495,152 @@ var gBrowserInit = {
        )?.removeAttribute("key");
      }
  
