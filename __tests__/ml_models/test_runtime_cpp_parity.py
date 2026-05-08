@@ -365,6 +365,7 @@ def _mouse_python_trace(
     dx = to_x - from_x
     dy = to_y - from_y
     distance = math.hypot(dx, dy)
+    endpoint_budget = max(4, min(max_steps, round(8.0 + (2.0 * math.sqrt(min(max(0.0, distance), 400.0))))))
     condition_values = [
         from_x / scale,
         from_y / scale,
@@ -401,9 +402,11 @@ def _mouse_python_trace(
                 dt_ms = max(dt_ms, min_dt_ms)
             offset += dt_ms
 
-            remaining_steps = max(1, max_steps - step_index)
+            remaining_steps = max(1, endpoint_budget - step_index)
             min_delta = (1.0 - state_along) / remaining_steps
-            state_along = min(1.0, state_along + max(float(pos_head[0]), min_delta, 0.0))
+            max_delta = max(min_delta, min_delta * 2.0)
+            guided_delta = max(min(float(pos_head[0]), max_delta), min_delta, 0.0)
+            state_along = min(1.0, state_along + guided_delta)
             guided_perp = state_perp + float(pos_head[1])
             envelope = max(0.0, 0.35 * math.sin(math.pi * max(0.0, min(1.0, state_along))))
             state_perp = max(

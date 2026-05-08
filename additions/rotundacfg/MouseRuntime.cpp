@@ -22,6 +22,12 @@ double logToDt(double value) {
   return std::expm1(std::max(0.0, std::min(value, std::log1p(5000.0))));
 }
 
+int endpointStepBudget(double distance, int maxSteps) {
+  double cappedDistance = std::min(std::max(0.0, distance), 400.0);
+  int budget = static_cast<int>(std::round(8.0 + (2.0 * std::sqrt(cappedDistance))));
+  return std::max(4, std::min(maxSteps, budget));
+}
+
 int argmax(const std::vector<double>& values) {
   if (values.empty()) return 0;
   return static_cast<int>(
@@ -242,6 +248,7 @@ MouseRuntimeTrace MouseRuntimeModel::decodeInternal(
 
   double stateAlong = 0.0;
   double statePerp = 0.0;
+  int endpointBudget = endpointStepBudget(distance, maxSteps);
   std::vector<MouseTrajectoryPoint> rows;
 
   for (int step = 0; step < maxSteps; ++step) {
@@ -275,9 +282,11 @@ MouseRuntimeTrace MouseRuntimeModel::decodeInternal(
     double dtMs = logToDt(dtHead[0]);
     if (!rows.empty()) dtMs = std::max(dtMs, minDtMs);
 
-    double remainingSteps = std::max(1, maxSteps - step);
+    double remainingSteps = std::max(1, endpointBudget - step);
     double minDelta = (1.0 - stateAlong) / remainingSteps;
-    stateAlong = std::min(1.0, stateAlong + std::max({posHead[0], minDelta, 0.0}));
+    double maxDelta = std::max(minDelta, minDelta * 2.0);
+    double guidedDelta = std::max({std::min(posHead[0], maxDelta), minDelta, 0.0});
+    stateAlong = std::min(1.0, stateAlong + guidedDelta);
     double guidedPerp = statePerp + posHead[1];
     double envelope = std::max(0.0, 0.35 * std::sin(kPi * std::max(0.0, std::min(1.0, stateAlong))));
     statePerp = std::max(-envelope, std::min(envelope, guidedPerp * (1.0 - 0.25 * stateAlong)));

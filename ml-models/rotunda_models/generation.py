@@ -51,6 +51,13 @@ class MouseDecoder:
         self.actions = actions
         self.device = device
 
+    @staticmethod
+    def endpoint_step_budget(distance: float, max_steps: int) -> int:
+        """Return a realistic endpoint-guidance budget for a point-to-click path."""
+        capped_distance = min(max(0.0, float(distance)), 400.0)
+        budget = int(round(8.0 + (2.0 * math.sqrt(capped_distance))))
+        return max(4, min(max_steps, budget))
+
     def decode(
         self,
         episode: MouseEpisode,
@@ -76,6 +83,7 @@ class MouseDecoder:
         dx = dst_x - start_x
         dy = dst_y - start_y
         distance = math.hypot(dx, dy)
+        endpoint_budget = self.endpoint_step_budget(distance, max_steps)
         scale = max(1.0, float(self.coordinate_scale))
         condition = torch.tensor(
             [[start_x / scale, start_y / scale, dst_x / scale, dst_y / scale, dx / scale, dy / scale, distance / scale]],
@@ -111,9 +119,11 @@ class MouseDecoder:
                 rel_y = float(pos_pred[0, 0, 1].cpu())
                 if self.position_frame == "goal_relative_delta":
                     if endpoint_guidance:
-                        remaining_steps = max(1, max_steps - step_index)
+                        remaining_steps = max(1, endpoint_budget - step_index)
                         min_delta = (1.0 - state_along) / remaining_steps
-                        state_along = min(1.0, state_along + max(rel_x, min_delta, 0.0))
+                        max_delta = max(min_delta, min_delta * 2.0)
+                        guided_delta = max(min(rel_x, max_delta), min_delta, 0.0)
+                        state_along = min(1.0, state_along + guided_delta)
                         guided_perp = state_perp + rel_y
                         envelope = max(0.0, 0.35 * math.sin(math.pi * max(0.0, min(1.0, state_along))))
                         state_perp = max(-envelope, min(envelope, guided_perp * (1.0 - 0.25 * state_along)))

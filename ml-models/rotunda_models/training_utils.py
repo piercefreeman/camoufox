@@ -164,14 +164,18 @@ def split_items(items: list, val_fraction: float, seed: int) -> tuple[list, list
 
 def coordinate_scale_for(episodes: list[MouseEpisode]) -> float:
     """Find a stable coordinate normalization scale for mouse episodes."""
-    max_coord = 1.0
+    magnitudes: list[float] = []
     for episode in episodes:
         # Include starts, destinations, and all observed positions so both the
         # model condition and decoder targets share the same normalization.
-        max_coord = max(max_coord, abs(episode.start_x), abs(episode.start_y), abs(episode.dst_x), abs(episode.dst_y))
+        magnitudes.extend([abs(episode.start_x), abs(episode.start_y), abs(episode.dst_x), abs(episode.dst_y)])
         for step in episode.steps:
-            max_coord = max(max_coord, abs(step.x), abs(step.y))
-    return max_coord
+            magnitudes.extend([abs(step.x), abs(step.y)])
+    if not magnitudes:
+        return 1.0
+    magnitudes.sort()
+    index = min(len(magnitudes) - 1, max(0, round((len(magnitudes) - 1) * 0.95)))
+    return max(1.0, magnitudes[index])
 
 
 def build_keyboard_vocabs(episodes: list[KeyboardEpisode]) -> tuple[dict[str, int], dict[str, int]]:
