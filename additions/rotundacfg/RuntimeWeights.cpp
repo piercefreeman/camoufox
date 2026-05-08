@@ -7,6 +7,17 @@
 #include <fstream>
 #include <iterator>
 
+#ifdef _WIN32
+#  include <windows.h>
+#elif defined(__APPLE__)
+#  include <mach-o/dyld.h>
+#  include <limits.h>
+#  include <unistd.h>
+#else
+#  include <limits.h>
+#  include <unistd.h>
+#endif
+
 namespace rotundacfg {
 
 namespace {
@@ -25,6 +36,72 @@ std::vector<uint8_t> readFile(const std::string& path) {
   if (!file) return {};
   return std::vector<uint8_t>(std::istreambuf_iterator<char>(file),
                               std::istreambuf_iterator<char>());
+}
+
+bool fileExists(const std::string& path) {
+  std::ifstream file(path, std::ios::binary);
+  return file.good();
+}
+
+std::string directoryName(const std::string& path) {
+  size_t index = path.find_last_of("/\\");
+  if (index == std::string::npos) return ".";
+  if (index == 0) return path.substr(0, 1);
+  return path.substr(0, index);
+}
+
+std::string joinPath(const std::string& base, const std::string& child) {
+  if (base.empty()) return child;
+  char last = base.back();
+  if (last == '/' || last == '\\') return base + child;
+#ifdef _WIN32
+  return base + "\\" + child;
+#else
+  return base + "/" + child;
+#endif
+}
+
+std::optional<std::string> executablePath() {
+#ifdef _WIN32
+  std::wstring buffer(MAX_PATH, L'\0');
+  DWORD size = GetModuleFileNameW(nullptr, buffer.data(),
+                                  static_cast<DWORD>(buffer.size()));
+  if (size == 0) return std::nullopt;
+  while (size == buffer.size() && GetLastError() == ERROR_INSUFFICIENT_BUFFER) {
+    buffer.resize(buffer.size() * 2);
+    size = GetModuleFileNameW(nullptr, buffer.data(),
+                              static_cast<DWORD>(buffer.size()));
+    if (size == 0) return std::nullopt;
+  }
+  int utf8Size = WideCharToMultiByte(CP_UTF8, 0, buffer.data(),
+                                     static_cast<int>(size), nullptr, 0,
+                                     nullptr, nullptr);
+  if (utf8Size <= 0) return std::nullopt;
+  std::string utf8(static_cast<size_t>(utf8Size), '\0');
+  WideCharToMultiByte(CP_UTF8, 0, buffer.data(), static_cast<int>(size),
+                      utf8.data(), utf8Size, nullptr, nullptr);
+  return utf8;
+#elif defined(__APPLE__)
+  char buffer[PATH_MAX];
+  uint32_t size = sizeof(buffer);
+  if (_NSGetExecutablePath(buffer, &size) == 0) {
+    char resolved[PATH_MAX];
+    if (realpath(buffer, resolved)) return std::string(resolved);
+    return std::string(buffer);
+  }
+  std::string dynamicBuffer(size, '\0');
+  if (_NSGetExecutablePath(dynamicBuffer.data(), &size) != 0) {
+    return std::nullopt;
+  }
+  dynamicBuffer.resize(std::strlen(dynamicBuffer.c_str()));
+  return dynamicBuffer;
+#else
+  char buffer[PATH_MAX];
+  ssize_t size = readlink("/proc/self/exe", buffer, sizeof(buffer) - 1);
+  if (size <= 0) return std::nullopt;
+  buffer[size] = '\0';
+  return std::string(buffer);
+#endif
 }
 
 }  // namespace
@@ -101,6 +178,28 @@ std::optional<RuntimeWeights> RuntimeWeights::Load(const std::string& path) {
   }
 
   return weights;
+}
+
+std::optional<std::string> RuntimeWeights::ResolveBundledModelPath(
+    const std::string& fileName) {
+  auto executable = executablePath();
+  if (!executable || executable->empty()) return std::nullopt;
+
+  std::string executableDir = directoryName(*executable);
+  std::vector<std::string> candidates = {
+      joinPath(joinPath(executableDir, "runtime-models"), fileName),
+      joinPath(joinPath(joinPath(joinPath(executableDir, ".."), "Resources"),
+                        "runtime-models"),
+               fileName),
+      joinPath(joinPath(joinPath(joinPath(executableDir, ".."), ".."),
+                        "runtime-models"),
+               fileName),
+  };
+
+  for (const auto& candidate : candidates) {
+    if (fileExists(candidate)) return candidate;
+  }
+  return std::nullopt;
 }
 
 const RuntimeTensor* RuntimeWeights::get(const std::string& name) const {

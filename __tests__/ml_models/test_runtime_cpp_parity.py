@@ -109,6 +109,40 @@ def _export_mouse_checkpoint(tmp_path: Path) -> tuple[Path, MouseTrajectoryGRU]:
     return runtime_path, model
 
 
+def test_runtime_weights_resolves_bundled_model_next_to_executable(runtime_probe: Path) -> None:
+    model_dir = runtime_probe.parent / "runtime-models"
+    model_dir.mkdir(parents=True, exist_ok=True)
+    model_path = model_dir / "mouse-test.safetensors"
+    model_path.write_bytes(b"not a real model")
+
+    result = subprocess.run(
+        [runtime_probe, "resolve-model", model_path.name],
+        check=True,
+        text=True,
+        capture_output=True,
+    )
+
+    assert Path(result.stdout.strip()).resolve() == model_path.resolve()
+
+
+def test_runtime_weights_resolves_bundled_model_from_resources_layout(
+    runtime_probe: Path,
+) -> None:
+    model_dir = runtime_probe.parent.parent / "Resources" / "runtime-models"
+    model_dir.mkdir(parents=True, exist_ok=True)
+    model_path = model_dir / "keyboard-test.safetensors"
+    model_path.write_bytes(b"not a real model")
+
+    result = subprocess.run(
+        [runtime_probe, "resolve-model", model_path.name],
+        check=True,
+        text=True,
+        capture_output=True,
+    )
+
+    assert Path(result.stdout.strip()).resolve() == model_path.resolve()
+
+
 def _export_keyboard_checkpoint(tmp_path: Path) -> tuple[Path, KeyboardActionGRU, dict[str, int], dict[str, int]]:
     char_to_id = {
         CHAR_PAD: 0,

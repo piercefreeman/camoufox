@@ -101,6 +101,9 @@ std::vector<KeyboardRuntimeRow> KeyboardRuntimeModel::GenerateFromConfig(
   static std::unique_ptr<KeyboardRuntimeModel> model;
   std::call_once(initFlag, []() {
     auto path = MaskConfig::GetString("humanize.keyboardModelPath");
+    if (!path || path->empty()) {
+      path = RuntimeWeights::ResolveBundledModelPath("keyboard.safetensors");
+    }
     if (!path || path->empty()) return;
     auto loaded = KeyboardRuntimeModel::Load(*path);
     if (loaded) {

@@ -83,7 +83,8 @@ int usage(const char* binary) {
       << " <maxSteps> <clickThreshold> <minDtMs>\n"
       << "  " << binary
       << " keyboard <weights> <initial> <final> <maxSteps> <decodeMode>"
-      << " <structuredExtraSteps> <canonicalBias>\n";
+      << " <structuredExtraSteps> <canonicalBias>\n"
+      << "  " << binary << " resolve-model <fileName>\n";
   return 2;
 }
 
@@ -146,6 +147,14 @@ int main(int argc, char** argv) {
       output["rows"].push_back(keyboardRowJson(row));
     }
     std::cout << output.dump() << "\n";
+    return 0;
+  }
+
+  if (mode == "resolve-model") {
+    if (argc != 3) return usage(argv[0]);
+    auto path = rotundacfg::RuntimeWeights::ResolveBundledModelPath(argv[2]);
+    if (!path) return 1;
+    std::cout << *path << "\n";
     return 0;
   }
 

@@ -21,6 +21,8 @@ struct RuntimeTensor {
 class RuntimeWeights {
  public:
   static std::optional<RuntimeWeights> Load(const std::string& path);
+  static std::optional<std::string> ResolveBundledModelPath(
+      const std::string& fileName);
 
   const RuntimeTensor* get(const std::string& name) const;
   std::optional<std::string> metadata(const std::string& key) const;

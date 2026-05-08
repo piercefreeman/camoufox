@@ -337,6 +337,9 @@ std::vector<MouseTrajectoryPoint> MouseRuntimeModel::GenerateFromConfig(
   static std::unique_ptr<MouseRuntimeModel> model;
   std::call_once(initFlag, []() {
     auto path = MaskConfig::GetString("humanize.mouseModelPath");
+    if (!path || path->empty()) {
+      path = RuntimeWeights::ResolveBundledModelPath("mouse.safetensors");
+    }
     if (!path || path->empty()) return;
     auto loaded = MouseRuntimeModel::Load(*path);
     if (loaded) model = std::make_unique<MouseRuntimeModel>(std::move(*loaded));
