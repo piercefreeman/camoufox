@@ -464,9 +464,12 @@ def keyboard_loss(
         batch["next_char_ids"],
     )
     mask = batch["mask"]
+    timing_mask = mask.clone()
+    if timing_mask.shape[1] > 0:
+        timing_mask[:, 0] = False
 
     # Timing is trained over valid decoder positions while padding is ignored.
-    dt_loss = masked_timing_loss(dt_pred, batch["dt"], mask)
+    dt_loss = masked_timing_loss(dt_pred, batch["dt"], timing_mask)
 
     # Backspace and stop are rare but behaviorally important, so expose their
     # weights as training knobs instead of hiding them in the dataset.
@@ -493,8 +496,9 @@ def keyboard_loss(
         # avoid plausible-looking sequences that are globally too fast or slow.
         pred_dt_ms = torch.expm1(torch.clamp(dt_log_mu, min=0.0, max=math.log1p(5000.0)))
         target_dt_ms = torch.expm1(torch.clamp(batch["dt"], min=0.0, max=math.log1p(5000.0)))
-        pred_duration = (pred_dt_ms * mask.float()).sum(dim=1)
-        target_duration = (target_dt_ms * mask.float()).sum(dim=1)
+        timing_mask_float = timing_mask.float()
+        pred_duration = (pred_dt_ms * timing_mask_float).sum(dim=1)
+        target_duration = (target_dt_ms * timing_mask_float).sum(dim=1)
         duration_loss = F.smooth_l1_loss(torch.log1p(pred_duration), torch.log1p(target_duration))
 
     if press_count_logits is not None:
