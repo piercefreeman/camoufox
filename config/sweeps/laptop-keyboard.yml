@@ -1,0 +1,65 @@
+name: laptop-keyboard-typo
+root_config: ../laptop-keyboard.yml
+trials: 8
+method: random
+output_dir: Training/sweeps
+snapshot_inputs: true
+
+metric:
+  name: score/loss
+  goal: minimize
+
+overrides:
+  training.epochs: 20
+  training.early_stopping_patience: 5
+  training.early_stopping_min_delta: 0.0
+
+parameters:
+  training.batch_size:
+    values: [16, 32, 64]
+  training.hidden_size:
+    values: [96, 128, 192]
+  training.layers:
+    values: [1, 2]
+  training.dropout:
+    values: [0.0, 0.05, 0.1, 0.2]
+  training.lr:
+    type: loguniform
+    min: 0.0003
+    max: 0.003
+  training.weight_decay:
+    type: loguniform
+    min: 0.000001
+    max: 0.001
+  keyboard.dt_loss_weight:
+    type: loguniform
+    min: 1.0
+    max: 16.0
+  keyboard.keyboard_action_loss_weight:
+    values: [0.5, 1.0, 2.0]
+  keyboard.keyboard_duration_loss_weight:
+    type: loguniform
+    min: 0.5
+    max: 8.0
+  keyboard.keyboard_typo_loss_weight:
+    values: [0.5, 1.0, 2.0]
+  keyboard.keyboard_typo_action_loss_weight:
+    values: [0.5, 1.0, 2.0]
+  keyboard.keyboard_typo_positive_weight:
+    values: [4.0, 8.0, 12.0]
+  keyboard.backspace_action_weight:
+    type: uniform
+    min: 2.0
+    max: 10.0
+  keyboard.stop_action_weight:
+    type: uniform
+    min: 4.0
+    max: 18.0
+  keyboard.keyboard_max_condition_length:
+    values: [512, 768, 1024, 1536]
+  keyboard.keyboard_max_steps:
+    values: [128, 256, 384]
+  keyboard.char_embed_size:
+    values: [16, 32, 48]
+  keyboard.action_embed_size:
+    values: [16, 32, 48]

@@ -260,33 +260,46 @@ Outputs:
 
 ## W&B Sweeps
 
-Run a W&B random sweep over architecture, learning rate, filtering, and
-loss-weight parameters:
+Sweeps are defined in YAML and point at a normal training config through
+`root_config`. Fixed changes live under `overrides`, and sampled ranges use
+dotted config paths under `parameters`.
 
-```bash
-rotunda-models-sweep recordings \
-  --task all --trials 8 --epochs 20 --wandb-project cadence-models
+Example sweep spec:
+
+```yaml
+root_config: ../laptop-keyboard.yml
+trials: 8
+overrides:
+  training.epochs: 20
+parameters:
+  training.lr:
+    type: loguniform
+    min: 0.0003
+    max: 0.003
+  keyboard.keyboard_typo_positive_weight:
+    values: [4.0, 8.0, 12.0]
 ```
 
-Run just one model family:
+Run a keyboard sweep from the repository root:
 
 ```bash
-rotunda-models-sweep recordings \
-  --task keyboard --trials 12 --epochs 25 --wandb-project cadence-models
-rotunda-models-sweep recordings \
-  --task clicks --trials 12 --epochs 40 --wandb-project cadence-models
+uv run --package rotunda-models rotunda-models-sweep \
+  config/sweeps/laptop-keyboard.yml
 ```
+
+The repository includes [config/sweeps/laptop-keyboard.yml](../config/sweeps/laptop-keyboard.yml)
+as a starting point for typo-focused keyboard tuning.
 
 Create the sweep in W&B without launching a local agent:
 
 ```bash
-rotunda-models-sweep recordings \
-  --task keyboard --trials 12 --epochs 25 \
-  --wandb-project cadence-models --create-only
+uv run --package rotunda-models rotunda-models-sweep \
+  config/sweeps/laptop-keyboard.yml --create-only
 ```
 
-Preview W&B sweep configs without contacting W&B:
+Preview the generated W&B sweep config without contacting W&B:
 
 ```bash
-rotunda-models-sweep recordings --task keyboard --trials 3 --dry-run
+uv run --package rotunda-models rotunda-models-sweep \
+  config/sweeps/laptop-keyboard.yml --dry-run
 ```

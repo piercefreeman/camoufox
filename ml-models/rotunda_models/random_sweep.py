@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Create and run Weights & Biases sweeps for cadence models."""
+"""Create and run W&B sweeps from YAML-defined cadence experiments."""
 
 from __future__ import annotations
 
@@ -14,44 +14,17 @@ import click
 
 from . import train as training
 from .cli.common import CONTEXT_SETTINGS, PATH_TYPE
-from .settings import TrainingExperimentSettings
+from .settings import (
+    TrainingExperimentSettings,
+    apply_settings_overrides,
+    load_sweep_settings,
+)
 from .utils import log_labeled
 from .wandb import import_wandb, parse_wandb_tags
 
-DEFAULT_SPACES: dict[str, dict[str, Any]] = {
-    "clicks": {
-        "batch_size": {"values": [16, 32, 64]},
-        "hidden_size": {"values": [64, 96, 128, 192]},
-        "layers": {"values": [1, 2]},
-        "dropout": {"values": [0.0, 0.05, 0.1, 0.2]},
-        "lr": {"type": "loguniform", "min": 3e-4, "max": 3e-3},
-        "weight_decay": {"type": "loguniform", "min": 1e-6, "max": 1e-3},
-        "dt_loss_weight": {"type": "loguniform", "min": 0.5, "max": 8.0},
-        "pos_loss_weight": {"type": "loguniform", "min": 0.5, "max": 4.0},
-        "click_duration_loss_weight": {"type": "loguniform", "min": 0.5, "max": 8.0},
-        "click_action_weight": {"type": "uniform", "min": 4.0, "max": 18.0},
-        "rest_ms": {"values": [100, 150, 200, 250]},
-        "min_distance": {"values": [6.0, 8.0, 12.0, 18.0]},
-    },
-    "keyboard": {
-        "batch_size": {"values": [32, 64, 96]},
-        "hidden_size": {"values": [64, 96, 128, 192]},
-        "layers": {"values": [1, 2]},
-        "dropout": {"values": [0.0, 0.05, 0.1, 0.2]},
-        "lr": {"type": "loguniform", "min": 3e-4, "max": 3e-3},
-        "weight_decay": {"type": "loguniform", "min": 1e-6, "max": 1e-3},
-        "dt_loss_weight": {"type": "loguniform", "min": 1.0, "max": 16.0},
-        "keyboard_action_loss_weight": {"values": [0.1, 0.3, 1.0]},
-        "keyboard_duration_loss_weight": {"type": "loguniform", "min": 0.5, "max": 8.0},
-        "backspace_action_weight": {"type": "uniform", "min": 2.0, "max": 10.0},
-        "stop_action_weight": {"type": "uniform", "min": 4.0, "max": 18.0},
-        "gap_ms": {"values": [500, 750, 1000, 1500]},
-        "keyboard_max_condition_length": {"values": [512, 768, 1024, 1536]},
-        "keyboard_max_steps": {"values": [128, 256, 384]},
-        "char_embed_size": {"values": [16, 32, 48]},
-        "action_embed_size": {"values": [16, 32, 48]},
-    },
-}
+RESERVED_SWEEP_PATHS = {"task", "data.inputs", "training.output_dir"}
+RESERVED_SWEEP_PREFIXES = ("wandb.",)
+COMMON_SWEEP_SECTIONS = {"name", "task", "data", "training", "wandb"}
 
 
 def log(message: str) -> None:
@@ -95,22 +68,11 @@ def snapshot_inputs(inputs: list[str], sweep_dir: Path) -> list[str]:
     return [str(snapshot_root)]
 
 
-def load_space(path: Path | None) -> dict[str, dict[str, Any]]:
-    if path is None:
-        return DEFAULT_SPACES
-    with path.open("r", encoding="utf-8") as handle:
-        override = json.load(handle)
-    space = json.loads(json.dumps(DEFAULT_SPACES))
-    for task, task_space in override.items():
-        if task not in space:
-            space[task] = {}
-        space[task].update(task_space)
-    return space
-
-
 def to_wandb_parameter(spec: Any) -> dict[str, Any]:
     if not isinstance(spec, dict):
         return {"value": spec}
+    if "value" in spec:
+        return {"value": spec["value"]}
     if "values" in spec:
         return {"values": spec["values"]}
 
@@ -124,18 +86,91 @@ def to_wandb_parameter(spec: Any) -> dict[str, Any]:
     raise ValueError(f"Unknown sweep spec type: {spec_type!r}")
 
 
-def sweep_name(base_name: str | None, task: str, stamp: str, multiple_tasks: bool) -> str:
-    if base_name and multiple_tasks:
-        return f"{base_name}-{task}"
+def parameter_alias(path: str) -> str:
+    """Map a dotted config path to a stable W&B sweep parameter key."""
+    return path.replace(".", "__")
+
+
+def sweep_name(base_name: str | None, task: str, stamp: str) -> str:
     if base_name:
         return base_name
     return f"cadence-{task}-{stamp}"
 
 
+def _value_at_path(target: dict[str, Any], dotted_path: str) -> Any:
+    current: Any = target
+    parts = dotted_path.split(".")
+    if not parts or any(not part for part in parts):
+        raise ValueError(f"Invalid sweep path: {dotted_path!r}")
+    for part in parts:
+        if not isinstance(current, dict) or part not in current:
+            raise ValueError(f"Unknown sweep path: {dotted_path!r}")
+        current = current[part]
+    return current
+
+
+def validate_override_paths(
+    settings: TrainingExperimentSettings,
+    overrides: dict[str, Any],
+    *,
+    allow_reserved: bool,
+    enforce_task_sections: bool,
+) -> None:
+    """Fail fast when dotted sweep paths do not map to the active config."""
+    raw = settings.model_dump(mode="python")
+    allowed_sections = COMMON_SWEEP_SECTIONS | {settings.task}
+    for dotted_path in sorted(overrides):
+        top_level = dotted_path.split(".", 1)[0]
+        if enforce_task_sections and top_level not in allowed_sections:
+            raise SystemExit(
+                f"Sweep path {dotted_path!r} does not apply to task {settings.task!r}. "
+                f"Allowed sections: {', '.join(sorted(allowed_sections))}."
+            )
+        _value_at_path(raw, dotted_path)
+        if allow_reserved:
+            continue
+        if dotted_path in RESERVED_SWEEP_PATHS or dotted_path.startswith(RESERVED_SWEEP_PREFIXES):
+            raise SystemExit(
+                f"Sweep parameter path {dotted_path!r} is reserved for sweep orchestration. "
+                "Put fixed run-level changes under 'overrides' instead."
+            )
+
+
+def parameter_aliases_for(
+    settings: TrainingExperimentSettings,
+    overrides: dict[str, Any],
+    parameters: dict[str, Any],
+) -> dict[str, str]:
+    """Validate parameter paths and return W&B alias-to-config-path mapping."""
+    if not parameters:
+        raise SystemExit("Sweep config must define at least one sampled entry under 'parameters'.")
+    validate_override_paths(
+        settings,
+        parameters,
+        allow_reserved=False,
+        enforce_task_sections=True,
+    )
+
+    aliases: dict[str, str] = {}
+    for dotted_path in sorted(parameters):
+        if dotted_path in overrides:
+            raise SystemExit(
+                f"Sweep path {dotted_path!r} is defined in both 'overrides' and 'parameters'."
+            )
+        alias = parameter_alias(dotted_path)
+        other = aliases.get(alias)
+        if other is not None and other != dotted_path:
+            raise SystemExit(
+                f"Sweep parameter alias collision: {dotted_path!r} and {other!r} both map to {alias!r}."
+            )
+        aliases[alias] = dotted_path
+    return aliases
+
+
 def sweep_config_for(
-    task: str,
     name: str,
-    space: dict[str, Any],
+    parameters: dict[str, Any],
+    aliases: dict[str, str],
     method: str,
     metric_name: str,
     metric_goal: str,
@@ -144,233 +179,223 @@ def sweep_config_for(
         "name": name,
         "method": method,
         "metric": {"name": metric_name, "goal": metric_goal},
-        "parameters": {key: to_wandb_parameter(value) for key, value in sorted(space.items())},
+        "parameters": {
+            alias: to_wandb_parameter(parameters[path])
+            for alias, path in sorted(aliases.items())
+        },
     }
 
 
-def coerce_value(value: Any, default: Any) -> Any:
-    if isinstance(default, bool):
-        if isinstance(value, str):
-            return value.lower() in {"1", "true", "yes", "on"}
-        return bool(value)
-    if isinstance(default, int) and not isinstance(default, bool):
-        return int(value)
-    if isinstance(default, float):
-        return float(value)
-    return value
+def selected_sweep_params(
+    aliases: dict[str, str],
+    wandb_config: Any,
+) -> dict[str, Any]:
+    config = dict(wandb_config)
+    return {
+        dotted_path: config[alias]
+        for alias, dotted_path in sorted(aliases.items())
+        if alias in config
+    }
 
 
-def make_training_args(
-    task: str,
-    sweep_args: Any,
-    inputs: list[str],
-    params: dict[str, Any],
+def prepare_trial_settings(
+    base_settings: TrainingExperimentSettings,
+    sampled_overrides: dict[str, Any],
+    training_inputs: list[str],
     run_output_dir: Path,
     group: str,
-    base_settings: TrainingExperimentSettings | None = None,
-) -> Any:
-    task_name = "clicks" if task == "clicks" else "keyboard"
-    settings = base_settings or TrainingExperimentSettings(task=task_name)
-    args = settings.to_namespace(task_name)
-    args.inputs = inputs
-    args.output_dir = run_output_dir
-    args.epochs = sweep_args.epochs
-    args.early_stopping_patience = sweep_args.early_stopping_patience
-    args.early_stopping_min_delta = sweep_args.early_stopping_min_delta
-    args.seed = sweep_args.seed
-    args.device = sweep_args.device
-    args.wandb = True
-    args.wandb_project = sweep_args.wandb_project
-    args.wandb_entity = sweep_args.wandb_entity
-    args.wandb_run_name = None
-    args.wandb_group = sweep_args.wandb_group or group
-    args.wandb_tags = sweep_args.wandb_tags
-    args.wandb_mode = sweep_args.wandb_mode
-    args.wandb_watch = sweep_args.wandb_watch
-    args.wandb_log_artifacts = sweep_args.wandb_log_artifacts
-
-    for name, value in sorted(params.items()):
-        default = getattr(args, name, None)
-        setattr(args, name, coerce_value(value, default))
-    return args
-
-
-def selected_sweep_params(task: str, space: dict[str, Any], wandb_config: Any) -> dict[str, Any]:
-    config = dict(wandb_config)
-    return {name: config[name] for name in sorted(space) if name in config}
+) -> TrainingExperimentSettings:
+    """Resolve one sampled trial into a concrete training experiment config."""
+    settings = apply_settings_overrides(base_settings, sampled_overrides)
+    runtime_overrides: dict[str, Any] = {
+        "data.inputs": training_inputs,
+        "training.output_dir": run_output_dir,
+        "wandb.enabled": True,
+        "wandb.mode": "online",
+        "wandb.run_name": None,
+    }
+    if settings.wandb.group is None:
+        runtime_overrides["wandb.group"] = group
+    return apply_settings_overrides(settings, runtime_overrides)
 
 
 def run_training_trial(
-    task: str,
-    space: dict[str, Any],
-    sweep_args: Any,
-    training_inputs: list[str],
+    base_settings: TrainingExperimentSettings,
+    parameter_aliases: dict[str, str],
     sweep_dir: Path,
+    training_inputs: list[str],
+    root_config: Path,
+    fixed_overrides: dict[str, Any],
     group: str,
-    base_settings: TrainingExperimentSettings | None = None,
 ) -> None:
     wandb = import_wandb()
     run = wandb.init(
-        project=sweep_args.wandb_project,
-        entity=sweep_args.wandb_entity,
-        group=sweep_args.wandb_group or group,
-        tags=parse_wandb_tags(sweep_args.wandb_tags) or None,
-        mode=sweep_args.wandb_mode,
+        project=base_settings.wandb.project,
+        entity=base_settings.wandb.entity,
+        group=base_settings.wandb.group or group,
+        tags=parse_wandb_tags(base_settings.wandb.tags) or None,
+        mode="online",
         config={
-            "task": task,
-            "epochs": sweep_args.epochs,
+            "task": base_settings.task,
+            "root_config": str(root_config),
+            "fixed_overrides": fixed_overrides,
+            "sampled_parameter_aliases": parameter_aliases,
             "training_inputs": training_inputs,
-            "snapshot_inputs": sweep_args.snapshot_inputs,
             "local_sweep_dir": str(sweep_dir),
         },
     )
     try:
-        params = selected_sweep_params(task, space, wandb.config)
-        run_output_dir = sweep_dir / task / "runs" / str(run.id)
-        train_args = make_training_args(
-            task=task,
-            sweep_args=sweep_args,
-            inputs=training_inputs,
-            params=params,
+        sampled_overrides = selected_sweep_params(parameter_aliases, wandb.config)
+        run_output_dir = sweep_dir / base_settings.task / "runs" / str(run.id)
+        trial_settings = prepare_trial_settings(
+            base_settings=base_settings,
+            sampled_overrides=sampled_overrides,
+            training_inputs=training_inputs,
             run_output_dir=run_output_dir,
             group=group,
-            base_settings=base_settings,
         )
-        log(f"[sweep] task={task} wandb_run={run.name} params={json.dumps(params, sort_keys=True)}")
-        if task == "clicks":
-            training.train_clicks(train_args)
+        log(
+            "[sweep] "
+            f"task={trial_settings.task} wandb_run={run.name} "
+            f"overrides={json.dumps(sampled_overrides, sort_keys=True)}"
+        )
+        if trial_settings.task == "clicks":
+            training.train_clicks(trial_settings)
         else:
-            training.train_keyboard(train_args)
+            training.train_keyboard(trial_settings)
     finally:
         wandb.finish()
 
 
+def resolve_base_settings(config_path: Path, fixed_overrides: dict[str, Any]) -> TrainingExperimentSettings:
+    """Load the root config, apply fixed overrides, and enforce a single task."""
+    root_settings = TrainingExperimentSettings.from_yaml(config_path)
+    if fixed_overrides:
+        validate_override_paths(
+            root_settings,
+            fixed_overrides,
+            allow_reserved=True,
+            enforce_task_sections=False,
+        )
+        root_settings = apply_settings_overrides(root_settings, fixed_overrides)
+    if root_settings.task not in {"clicks", "keyboard"}:
+        raise SystemExit(
+            "Sweep root config must resolve to a single task. "
+            "Set task to 'clicks' or 'keyboard' in the root config or under 'overrides'."
+        )
+    validate_override_paths(
+        root_settings,
+        fixed_overrides,
+        allow_reserved=True,
+        enforce_task_sections=True,
+    )
+    if not root_settings.wandb.project:
+        raise SystemExit(
+            "Sweep root config must define wandb.project. "
+            "Set it in the root config or under sweep 'overrides'."
+        )
+    return root_settings
+
+
 def run_sweep(args: Any) -> int:
-    """Create W&B sweep configs and optionally launch local sweep agents."""
-    base_settings = TrainingExperimentSettings.from_yaml(args.config) if args.config is not None else None
-    spaces = load_space(args.space)
-    selected_tasks = ["clicks", "keyboard"] if args.task == "all" else [args.task]
+    """Create a W&B sweep from a YAML sweep spec and optionally launch an agent."""
+    sweep_settings = load_sweep_settings(args.config)
+    base_settings = resolve_base_settings(sweep_settings.root_config, sweep_settings.overrides)
+    aliases = parameter_aliases_for(base_settings, sweep_settings.overrides, sweep_settings.parameters)
+
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S-%f")
-    sweep_dir = args.output_dir / f"wandb-sweep-{stamp}"
+    sweep_dir = sweep_settings.output_dir / f"wandb-sweep-{stamp}"
     sweep_dir.mkdir(parents=True, exist_ok=True)
-    raw_inputs = args.inputs or (list(base_settings.data.inputs) if base_settings is not None else ["recordings"])
+    raw_inputs = list(base_settings.data.inputs)
     training_inputs = raw_inputs
-    if args.snapshot_inputs and not args.dry_run:
+    if sweep_settings.snapshot_inputs and not args.dry_run:
         # Sweeps should train against immutable inputs so long-running agents do
         # not observe different corpora if recordings continue to be added.
         training_inputs = snapshot_inputs(raw_inputs, sweep_dir)
     log(f"[sweep] local_dir={sweep_dir}")
 
-    configs: dict[str, dict[str, Any]] = {}
-    for task in selected_tasks:
-        # Persist one sweep config per task so dry runs and created W&B sweeps
-        # are reproducible from local artifacts.
-        name = sweep_name(args.sweep_name, task, stamp, multiple_tasks=len(selected_tasks) > 1)
-        config = sweep_config_for(
-            task=task,
-            name=name,
-            space=spaces[task],
-            method=args.method,
-            metric_name=args.metric_name,
-            metric_goal=args.metric_goal,
-        )
-        configs[task] = config
-        write_json(sweep_dir / f"{task}-sweep.json", config)
-        log(f"[sweep] config={sweep_dir / f'{task}-sweep.json'}")
+    name = sweep_name(sweep_settings.name, base_settings.task, stamp)
+    config = sweep_config_for(
+        name=name,
+        parameters=sweep_settings.parameters,
+        aliases=aliases,
+        method=sweep_settings.method,
+        metric_name=sweep_settings.metric.name,
+        metric_goal=sweep_settings.metric.goal,
+    )
+    write_json(sweep_dir / "sweep.json", config)
+    log(f"[sweep] config={sweep_dir / 'sweep.json'}")
 
     write_json(
         sweep_dir / "meta.json",
         {
-            "tasks": selected_tasks,
-            "trials_per_task": args.trials,
-            "epochs": args.epochs,
-            "config": str(args.config) if args.config is not None else None,
+            "task": base_settings.task,
+            "trials": sweep_settings.trials,
+            "method": sweep_settings.method,
+            "metric": sweep_settings.metric.model_dump(),
+            "root_config": str(sweep_settings.root_config),
+            "root_config_name": base_settings.name,
+            "wandb_project": base_settings.wandb.project,
+            "wandb_entity": base_settings.wandb.entity,
             "inputs": raw_inputs,
             "training_inputs": training_inputs,
-            "snapshot_inputs": args.snapshot_inputs and not args.dry_run,
-            "wandb_project": args.wandb_project,
-            "wandb_entity": args.wandb_entity,
+            "snapshot_inputs": sweep_settings.snapshot_inputs and not args.dry_run,
+            "overrides": sweep_settings.overrides,
+            "parameters": sweep_settings.parameters,
+            "parameter_aliases": aliases,
         },
     )
 
     if args.dry_run:
-        print(json.dumps(configs, indent=2, sort_keys=True))
+        print(json.dumps(config, indent=2, sort_keys=True))
         return 0
 
     wandb = import_wandb()
-    for task in selected_tasks:
-        group = sweep_name(args.sweep_name, task, stamp, multiple_tasks=len(selected_tasks) > 1)
-        sweep_id = wandb.sweep(configs[task], project=args.wandb_project, entity=args.wandb_entity)
-        log(f"[sweep] task={task} wandb_sweep_id={sweep_id}")
-        if args.create_only or args.trials <= 0:
-            continue
+    sweep_id = wandb.sweep(
+        config,
+        project=base_settings.wandb.project,
+        entity=base_settings.wandb.entity,
+    )
+    log(f"[sweep] task={base_settings.task} wandb_sweep_id={sweep_id}")
+    if args.create_only or sweep_settings.trials <= 0:
+        return 0
 
-        def train_one(
-            task: str = task,
-            space: dict[str, Any] = spaces[task],
-            group: str = group,
-        ) -> None:
-            # W&B agents call a zero-argument function, so bind task-specific
-            # values here before handing control to wandb.agent.
-            run_training_trial(
-                task=task,
-                space=space,
-                sweep_args=args,
-                training_inputs=training_inputs,
-                sweep_dir=sweep_dir,
-                group=group,
-                base_settings=base_settings,
-            )
-
-        wandb.agent(
-            sweep_id,
-            function=train_one,
-            count=args.trials,
-            project=args.wandb_project,
-            entity=args.wandb_entity,
+    def train_one() -> None:
+        # W&B agents call a zero-argument function, so bind the sweep context
+        # before handing control to the SDK.
+        run_training_trial(
+            base_settings=base_settings,
+            parameter_aliases=aliases,
+            sweep_dir=sweep_dir,
+            training_inputs=training_inputs,
+            root_config=sweep_settings.root_config,
+            fixed_overrides=sweep_settings.overrides,
+            group=name,
         )
 
+    wandb.agent(
+        sweep_id,
+        function=train_one,
+        count=sweep_settings.trials,
+        project=base_settings.wandb.project,
+        entity=base_settings.wandb.entity,
+    )
     return 0
 
 
 @click.command(context_settings=CONTEXT_SETTINGS, help=__doc__)
-@click.argument("inputs", nargs=-1)
-@click.option("--config", type=PATH_TYPE, default=None, help="Base training YAML to inherit filters and defaults from.")
-@click.option("--task", type=click.Choice(["all", "clicks", "keyboard"]), default="all", show_default=True)
-@click.option("--trials", type=int, default=8, show_default=True, help="W&B agent runs per selected task.")
-@click.option("--epochs", type=int, default=20, show_default=True)
-@click.option("--early-stopping-patience", type=int, default=5, show_default=True)
-@click.option("--early-stopping-min-delta", type=float, default=0.0, show_default=True)
-@click.option("--seed", type=int, default=17, show_default=True)
-@click.option("--device", default=None)
-@click.option("--output-dir", type=PATH_TYPE, default=Path("Training/sweeps"), show_default=True)
-@click.option("--space", type=PATH_TYPE, default=None, help="Optional JSON file overriding default search spaces.")
-@click.option("--snapshot-inputs/--no-snapshot-inputs", default=True, show_default=True)
-@click.option("--wandb-project", default="cadence-models", show_default=True)
-@click.option("--wandb-entity", default=None)
-@click.option("--wandb-group", default=None)
-@click.option("--wandb-tags", default="", help="Comma-separated W&B tags for all runs.")
-@click.option("--wandb-mode", type=click.Choice(["online"]), default="online", show_default=True, help="W&B sweeps require online mode.")
-@click.option("--wandb-watch/--no-wandb-watch", default=False, show_default=True)
-@click.option("--wandb-log-artifacts/--no-wandb-log-artifacts", default=True, show_default=True)
-@click.option("--method", type=click.Choice(["random", "bayes", "grid"]), default="random", show_default=True)
-@click.option("--metric-name", default="score/loss", show_default=True)
-@click.option("--metric-goal", type=click.Choice(["minimize", "maximize"]), default="minimize", show_default=True)
-@click.option("--sweep-name", default=None)
+@click.argument("config", type=PATH_TYPE)
 @click.option("--create-only", is_flag=True, default=False, help="Create the W&B sweep and do not launch an agent.")
-@click.option("--dry-run", is_flag=True, default=False, help="Write/print sweep configs without contacting W&B.")
-def sweep_command(**kwargs: Any) -> None:
-    """Create W&B sweep configs and optionally launch local sweep agents."""
-    kwargs["inputs"] = list(kwargs["inputs"])
-    if not kwargs["inputs"] and kwargs["config"] is None:
-        kwargs["inputs"] = ["recordings"]
-    code = run_sweep(SimpleNamespace(**kwargs))
+@click.option("--dry-run", is_flag=True, default=False, help="Write/print the generated sweep config without contacting W&B.")
+def sweep_command(config: Path, create_only: bool, dry_run: bool) -> None:
+    """Create a W&B sweep from a YAML sweep spec and optionally launch an agent."""
+    code = run_sweep(SimpleNamespace(config=config, create_only=create_only, dry_run=dry_run))
     if code:
         raise click.exceptions.Exit(code)
 
 
 def main(argv: list[str] | None = None) -> int:
-    """Dispatch the Click sweep command."""
+    """Dispatch the sweep command."""
     try:
         sweep_command.main(args=argv, prog_name="rotunda-models-sweep", standalone_mode=False)
     except click.ClickException as exc:
