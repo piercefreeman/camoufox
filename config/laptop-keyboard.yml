@@ -48,5 +48,6 @@ keyboard:
   stop_action_weight: 10.0
 
 wandb:
-  enabled: false
+  enabled: true
+  project: cadence-models
   log_artifacts: true

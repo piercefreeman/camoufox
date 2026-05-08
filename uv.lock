@@ -2639,10 +2639,6 @@ dependencies = [
     { name = "pyyaml" },
     { name = "rich" },
     { name = "torch" },
-]
-
-[package.optional-dependencies]
-wandb = [
     { name = "wandb" },
 ]
 
@@ -2656,7 +2652,7 @@ requires-dist = [
     { name = "pyyaml", specifier = ">=6.0" },
     { name = "rich", specifier = ">=13" },
     { name = "torch", specifier = ">=2.2" },
-    { name = "wandb", marker = "extra == 'wandb'", specifier = ">=0.16" },
+    { name = "wandb", specifier = ">=0.16" },
 ]
 provides-extras = ["wandb"]
 

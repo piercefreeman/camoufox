@@ -113,6 +113,7 @@ class KeyboardSettings(BaseModel):
     stop_action_weight: float = 8.0
     wandb_keyboard_rollout_examples: int = 128
     wandb_keyboard_rollout_max_steps: int = 256
+    wandb_keyboard_inspect_examples: int = 100
 
     @field_validator("keyboard_max_condition_length", "keyboard_max_steps")
     @classmethod

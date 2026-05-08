@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import random
+from collections.abc import Callable
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -23,7 +24,11 @@ from .data import (
     screen_filter_allows,
 )
 from .dataset_inspection import format_keyboard_episode_report
-from .diagnostics import log_click_rollout_diagnostics, log_keyboard_rollout_diagnostics
+from .diagnostics import (
+    log_click_rollout_diagnostics,
+    log_keyboard_epoch_inspection_table,
+    log_keyboard_rollout_diagnostics,
+)
 from .models.keyboard import (
     KeyboardActionGRU,
     KeyboardTrajectoryDataset,
@@ -108,6 +113,7 @@ def train_loop(
     wandb_state: WandbState | None = None,
     wandb_task: str | None = None,
     wandb_log_model_artifacts: bool = True,
+    wandb_epoch_table_logger: Callable[[int, dict], None] | None = None,
 ) -> None:
     """Train a model, persist epoch checkpoints, and emit optional W&B logs."""
     metrics_path = run_dir / "metrics.jsonl"
@@ -179,6 +185,8 @@ def train_loop(
             best_epoch=best_epoch,
             lr=float(lr) if lr is not None else None,
         )
+        if wandb_state is not None and wandb_epoch_table_logger is not None:
+            wandb_epoch_table_logger(epoch, checkpoint)
 
         if early_stopping_patience > 0 and epochs_without_improvement >= early_stopping_patience:
             stop_record = {
@@ -552,6 +560,16 @@ def train_keyboard(args: Any | TrainingExperimentSettings) -> None:
             wandb_state=wandb_state,
             wandb_task="keyboard",
             wandb_log_model_artifacts=args.wandb_log_artifacts,
+            wandb_epoch_table_logger=lambda epoch, checkpoint: log_keyboard_epoch_inspection_table(
+                checkpoint=checkpoint,
+                model=model,
+                episodes=val_episodes or train_episodes,
+                epoch=epoch,
+                device=device,
+                wandb_state=wandb_state,
+                max_examples=args.wandb_keyboard_inspect_examples,
+                max_steps=args.wandb_keyboard_rollout_max_steps,
+            ),
         )
         log_keyboard_rollout_diagnostics(
             checkpoint=checkpoint_payload(),

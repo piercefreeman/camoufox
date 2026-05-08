@@ -2,10 +2,12 @@ from __future__ import annotations
 
 from rotunda_models.constants import KEY_BACKSPACE
 from rotunda_models.dataset_inspection import (
+    format_keyboard_episode_block,
     format_keyboard_episode_report,
     keyboard_action_trace,
     keyboard_text_evolution,
 )
+from rotunda_models.diagnostics import KEYBOARD_EPOCH_INSPECTION_TABLE_KEY
 from rotunda_models.types import KeyboardEpisode, KeyStep
 
 
@@ -60,3 +62,16 @@ def test_keyboard_episode_report_filters_and_summarizes() -> None:
     assert "final:    'thanks'" in report
     assert "actions:  +h +a +n +s +k -k -s +k +s" in report
     assert "timeline: than~s~~k~ks" in report
+
+
+def test_keyboard_episode_block_matches_inspect_detail_shape() -> None:
+    block = format_keyboard_episode_block(typo_episode(), index=13)
+
+    assert "[13] session.ndjson#bundle|pid=1|accessibilityID=field" in block
+    assert "steps=9 backspaces=2 duration_ms=450.0 valid=True" in block
+    assert "initial:  't'" in block
+    assert "actions:  +h +a +n +s +k -k -s +k +s" in block
+
+
+def test_keyboard_epoch_inspection_table_key_is_stable_across_epochs() -> None:
+    assert KEYBOARD_EPOCH_INSPECTION_TABLE_KEY == "keyboard_inspect/examples_epoch"

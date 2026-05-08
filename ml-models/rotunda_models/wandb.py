@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import math
 import re
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -41,6 +42,9 @@ def wandb_requested(args: Any) -> bool:
 
 def import_wandb():
     """Import wandb or fail with a CLI-friendly installation message."""
+    def is_sdk(module: Any) -> bool:
+        return callable(getattr(module, "init", None)) and hasattr(module, "Table")
+
     try:
         import wandb  # type: ignore
     except ImportError as exc:
@@ -48,6 +52,35 @@ def import_wandb():
             "W&B tracking requested, but the 'wandb' package is not installed. "
             "Install it with: python3 -m pip install wandb"
         ) from exc
+    if is_sdk(wandb):
+        return wandb
+
+    shadow_path = getattr(wandb, "__file__", None) or getattr(wandb, "__path__", None)
+    repo_root = Path(__file__).resolve().parents[2]
+    original_path = list(sys.path)
+    sys.modules.pop("wandb", None)
+    try:
+        sys.path = [
+            entry
+            for entry in original_path
+            if Path(entry or ".").resolve() != repo_root
+        ]
+        import wandb as sdk_wandb  # type: ignore
+    except ImportError as exc:
+        raise SystemExit(
+            "W&B tracking requested, but the real 'wandb' SDK is not installed. "
+            f"The initial import resolved to {shadow_path!s}. "
+            "Install it with: python3 -m pip install wandb"
+        ) from exc
+    finally:
+        sys.path = original_path
+    if not is_sdk(sdk_wandb):
+        resolved_path = getattr(sdk_wandb, "__file__", None) or getattr(sdk_wandb, "__path__", None)
+        raise SystemExit(
+            "W&B tracking requested, but 'import wandb' did not resolve to the SDK. "
+            f"Resolved module: {resolved_path!s}"
+        )
+    wandb = sdk_wandb
     return wandb
 
 
@@ -94,6 +127,7 @@ def start_wandb_run(
     wandb.define_metric("epoch")
     for prefix in ("train", "val", "score", "best"):
         wandb.define_metric(f"{prefix}/*", step_metric="epoch")
+    wandb.define_metric("keyboard_inspect/*", step_metric="epoch")
 
     run.summary["task"] = task
     run.summary["run_dir"] = str(run_dir)

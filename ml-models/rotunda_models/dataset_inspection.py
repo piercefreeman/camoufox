@@ -148,3 +148,26 @@ def format_keyboard_episode_report(
         lines.append("")
         lines.append(f"... {len(filtered) - len(selected)} more matched episodes hidden by --keyboard-detail-limit")
     return "\n".join(lines)
+
+
+def format_keyboard_episode_block(episode: KeyboardEpisode, index: int | None = None) -> str:
+    """Render one keyboard episode in the same shape as detail inspection."""
+    duration_ms = sum(step.dt_ms for step in episode.steps)
+    backspaces = sum(1 for step in episode.steps if step.action == KEY_BACKSPACE)
+    result = apply_keyboard_steps(episode.initial_string, episode.steps)
+    valid = keyboard_episode_transforms_to_final(episode)
+    header = f"[{index}] {source_label(episode.source)}" if index is not None else source_label(episode.source)
+    return "\n".join(
+        [
+            header,
+            (
+                f"    steps={len(episode.steps)} backspaces={backspaces} "
+                f"duration_ms={duration_ms:.1f} valid={valid}"
+            ),
+            f"    initial:  {display_text(episode.initial_string)!r}",
+            f"    final:    {display_text(episode.final_string)!r}",
+            f"    result:   {display_text(result)!r}",
+            f"    actions:  {keyboard_action_trace(episode)}",
+            f"    timeline: {keyboard_text_evolution(episode)}",
+        ]
+    )

@@ -26,10 +26,6 @@ The exposed console scripts are:
 - `rotunda-models-sweep`
 - `rotunda-models-render-debug-videos`
 
-```bash
-python3 -m pip install -e ".[wandb]"
-```
-
 ## What The Models Learn
 
 Mouse clicks:
@@ -107,10 +103,9 @@ the checkpoint.
 
 ## Weights & Biases Tracking
 
-W&B is an optional dependency. Install and log in before using it:
+W&B tracking is enabled in the laptop training configs. Log in before training:
 
 ```bash
-python3 -m pip install -e ".[wandb]"
 wandb login
 ```
 

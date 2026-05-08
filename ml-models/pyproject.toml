@@ -21,10 +21,11 @@ dependencies = [
     "PyYAML>=6.0",
     "rich>=13",
     "torch>=2.2",
+    "wandb>=0.16",
 ]
 
 [project.optional-dependencies]
-wandb = ["wandb>=0.16"]
+wandb = []
 
 [project.scripts]
 rotunda-models = "rotunda_models.cli.main:main"

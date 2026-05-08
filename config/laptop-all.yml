@@ -54,8 +54,8 @@ keyboard:
   stop_action_weight: 8.0
 
 wandb:
-  enabled: false
-  project: null
+  enabled: true
+  project: cadence-models
   entity: null
   run_name: null
   group: null
