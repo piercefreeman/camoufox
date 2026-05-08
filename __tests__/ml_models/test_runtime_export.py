@@ -93,6 +93,10 @@ def test_exports_keyboard_checkpoint_as_safetensors(tmp_path: Path) -> None:
     assert result["kind"] == "keyboard_action_gru"
     assert metadata["charToId"]["h"] == 4
     assert metadata["idToAction"]["2"] == "<STOP>"
+    assert metadata["learnedTypoHead"] is False
+    assert metadata["decodeDefaults"]["canonicalBias"] == 1.5
+    assert metadata["decodeDefaults"]["maxTypos"] == -1
+    assert metadata["decodeDefaults"]["structuredExtraStepRate"] == 0.03
     assert "decoder.weight_ih_l0" in header
 
 

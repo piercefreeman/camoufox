@@ -39,5 +39,6 @@ clicks:
   click_duration_loss_weight: 4.0
 
 wandb:
-  enabled: false
+  enabled: true
+  project: cadence-models
   log_artifacts: true

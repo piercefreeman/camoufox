@@ -334,6 +334,24 @@ components:
         mouseMinDtMs:
           type: number
           minimum: 0
+        mousePathCurveSigma:
+          type: number
+          minimum: 0
+        keyboardSampleTypos:
+          type: boolean
+        keyboardTimingJitterSigma:
+          type: number
+          minimum: 0
+        keyboardTimingTemperature:
+          type: number
+          minimum: 0
+        keyboardPauseProbability:
+          type: number
+          minimum: 0
+          maximum: 1
+        keyboardPauseMeanMs:
+          type: number
+          minimum: 0
 
     AudioContextProfile:
       type: object

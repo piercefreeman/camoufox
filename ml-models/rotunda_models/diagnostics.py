@@ -10,12 +10,13 @@ from typing import Any
 import torch
 
 from .constants import MOUSE_ACTIONS
+from .dataset_inspection import format_keyboard_episode_block
 from .generation import decode_keyboard_rows, simulate_mouse_click_rows
 from .keyboard_logic import canonical_keyboard_steps, terminal_edit_actions
 from .models.keyboard import KeyboardActionGRU
 from .models.mouse import MouseTrajectoryGRU
 from .training_utils import keyboard_episode_duration_ms
-from .types import KeyboardEpisode, MouseEpisode, WandbState
+from .types import KeyboardEpisode, KeyStep, MouseEpisode, WandbState
 from .utils import log_info, mean, median, write_jsonl
 
 
@@ -260,6 +261,107 @@ def keyboard_rollout_record(
         "sim_steps": len(rows),
         "final_text": final_text,
     }
+
+
+KEYBOARD_EPOCH_INSPECTION_TABLE_KEY = "keyboard_inspect/examples_epoch"
+
+
+def log_keyboard_epoch_inspection_table(
+    checkpoint: dict,
+    model: KeyboardActionGRU,
+    episodes: list[KeyboardEpisode],
+    epoch: int,
+    device: torch.device,
+    wandb_state: WandbState | None,
+    max_examples: int = 100,
+    max_steps: int = 256,
+) -> None:
+    """Log stable side-by-side keyboard examples for W&B epoch inspection."""
+    if wandb_state is None or max_examples <= 0 or not episodes:
+        return
+
+    examples = episodes[:max_examples]
+    was_training = model.training
+    model.eval()
+    rows: list[list[Any]] = []
+    with torch.no_grad():
+        for index, episode in enumerate(examples, start=1):
+            ground_truth = format_keyboard_episode_block(episode, index=index)
+            real_duration_ms = keyboard_episode_duration_ms(episode, "raw")
+            predicted_text = episode.initial_string
+            predicted_duration_ms = 0.0
+            exact_match = False
+            error = None
+            try:
+                decoded = decode_keyboard_rows(
+                    checkpoint=checkpoint,
+                    model=model,
+                    initial_string=episode.initial_string,
+                    final_string=episode.final_string,
+                    device=device,
+                    max_steps=max(
+                        max_steps,
+                        len(terminal_edit_actions(episode.initial_string, episode.final_string)) + 1,
+                    ),
+                    decode_mode="constrained",
+                )
+                predicted_steps = tuple(
+                    KeyStep(dt_ms=float(row["dtMs"]), action=str(row["action"]))
+                    for row in decoded
+                )
+                predicted_text = str(decoded[-1]["textAfter"]) if decoded else episode.initial_string
+                predicted_duration_ms = float(decoded[-1]["offsetMs"]) if decoded else 0.0
+                exact_match = predicted_text == episode.final_string
+                predicted_episode = KeyboardEpisode(
+                    source=episode.source,
+                    initial_string=episode.initial_string,
+                    final_string=episode.final_string,
+                    steps=predicted_steps,
+                )
+                predicted = format_keyboard_episode_block(predicted_episode, index=index)
+            except (SystemExit, RuntimeError, ValueError) as exc:
+                error = str(exc)
+                predicted = f"[{index}] {episode.source}\n    error: {error}"
+
+            duration_ratio = predicted_duration_ms / real_duration_ms if real_duration_ms > 0 else None
+            rows.append(
+                [
+                    epoch,
+                    index,
+                    episode.source,
+                    episode.final_string,
+                    exact_match,
+                    real_duration_ms,
+                    predicted_duration_ms,
+                    duration_ratio,
+                    ground_truth,
+                    predicted,
+                    predicted_text,
+                    error,
+                ]
+            )
+
+    if was_training:
+        model.train()
+
+    table = wandb_state.module.Table(
+        columns=[
+            "epoch",
+            "index",
+            "source",
+            "target",
+            "exact_match",
+            "ground_truth_duration_ms",
+            "predicted_duration_ms",
+            "duration_ratio",
+            "ground_truth",
+            "predicted",
+            "predicted_text",
+            "error",
+        ],
+        data=rows,
+    )
+    wandb_state.run.log({KEYBOARD_EPOCH_INSPECTION_TABLE_KEY: table}, step=epoch)
 
 
 def log_keyboard_rollout_diagnostics(

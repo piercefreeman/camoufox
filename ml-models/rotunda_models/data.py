@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import math
 from collections.abc import Iterable
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -22,8 +23,8 @@ from ._generated_data_capture import (
 from ._generated_data_capture import (
     FocusedElement as CapturedFocusedElement,
 )
-from .constants import MOUSE_ACTIONS
-from .keyboard_logic import terminal_edit_actions
+from .constants import KEY_BACKSPACE, MOUSE_ACTIONS
+from .keyboard_logic import apply_keyboard_action
 from .types import (
     FocusedTextSnapshot,
     KeyboardEpisode,
@@ -79,6 +80,28 @@ def screen_filter_allows(
     # "real mouse or trackpad" input and drop events from contexts likely to
     # include keyboard-driven pointer motion.
     return True if screen_filter is None else screen_filter.allows(screen_size)
+
+
+def keyboard_action_from_event(event: KeyboardEvent) -> str | None:
+    """Normalize a recorded physical key event into a model action token."""
+    key_class = getattr(event.key_class, "value", event.key_class)
+    key = event.key
+    if key_class == "backspace" or key in {"Backspace", "Delete"}:
+        return KEY_BACKSPACE
+    if key in {"Enter", "Return"}:
+        return "\n"
+    if key == "Spacebar":
+        return " "
+    if isinstance(key, str) and len(key) == 1:
+        return key
+    return None
+
+
+def apply_keyboard_action_to_string(value: str, action: str) -> str:
+    """Apply one terminal keyboard action to a string."""
+    chars = list(value)
+    apply_keyboard_action(chars, action)
+    return "".join(chars)
 
 
 def extract_mouse_episodes(
@@ -260,18 +283,23 @@ def focused_text_snapshot_from_event(source: str, event: CapturedEvent) -> Focus
         identity=identity,
         raw_accessibility_id=raw_accessibility_id,
         value=value,
+        key_action=keyboard_action_from_event(event) if isinstance(event, KeyboardEvent) else None,
+        key_code=event.key_code if isinstance(event, KeyboardEvent) else None,
+        is_keyboard_event=isinstance(event, KeyboardEvent),
     )
 
 
 def collect_focused_text_snapshot_segments(
     paths: list[Path],
     screen_filter: ScreenSizeFilter | None = None,
+    stats: dict[str, int] | None = None,
 ) -> list[list[FocusedTextSnapshot]]:
     segments: list[list[FocusedTextSnapshot]] = []
     for path in paths:
         current: list[FocusedTextSnapshot] = []
         current_identity: str | None = None
         current_screen_size: ScreenSize | None = None
+        key_actions_by_offset: dict[int, tuple[str | None, int | None]] = {}
 
         def flush() -> None:
             nonlocal current, current_identity
@@ -284,6 +312,7 @@ def collect_focused_text_snapshot_segments(
             if isinstance(event, SessionStartedEvent | SessionStoppedEvent):
                 flush()
                 current_screen_size = None
+                key_actions_by_offset.clear()
                 continue
 
             explicit_screen_size = event_screen_size(event)
@@ -293,8 +322,35 @@ def collect_focused_text_snapshot_segments(
                 flush()
                 continue
 
+            if isinstance(event, KeyboardEvent):
+                if event.key is not None and stats is not None:
+                    stats["keyboard_events_with_key"] = stats.get("keyboard_events_with_key", 0) + 1
+                if event.key_code is not None and stats is not None:
+                    stats["keyboard_events_with_key_code"] = stats.get("keyboard_events_with_key_code", 0) + 1
+                key_action = keyboard_action_from_event(event)
+                if key_action is not None:
+                    key_actions_by_offset[event.offset_ms] = (key_action, event.key_code)
+                    if stats is not None:
+                        stats["keyboard_events_with_supported_key_action"] = (
+                            stats.get("keyboard_events_with_supported_key_action", 0) + 1
+                        )
+                elif event.key is not None:
+                    key_actions_by_offset[event.offset_ms] = (None, event.key_code)
+                    if stats is not None:
+                        stats["keyboard_events_with_unsupported_key"] = (
+                            stats.get("keyboard_events_with_unsupported_key", 0) + 1
+                        )
+
             snapshot = focused_text_snapshot_from_event(str(path), event)
             if snapshot is not None:
+                if snapshot.key_action is None and snapshot.trigger_offset_ms is not None:
+                    key_info = key_actions_by_offset.get(snapshot.trigger_offset_ms)
+                    if key_info is not None:
+                        snapshot = replace(snapshot, key_action=key_info[0], key_code=key_info[1])
+                if snapshot.key_action is not None and stats is not None:
+                    stats["focused_text_snapshots_with_key_action"] = (
+                        stats.get("focused_text_snapshots_with_key_action", 0) + 1
+                    )
                 if current and current_identity is not None and snapshot.identity != current_identity:
                     flush()
                 current_identity = snapshot.identity
@@ -316,81 +372,124 @@ def collect_focused_text_snapshot_segments(
 def build_focused_text_episodes(
     snapshots: list[FocusedTextSnapshot],
     gap_ms: int,
-    max_snapshot_edit_actions: int,
+    stats: dict[str, int] | None = None,
 ) -> list[KeyboardEpisode]:
-    if len(snapshots) < 2:
+    """Build keyboard episodes from physical key events only."""
+    return build_raw_key_stream_keyboard_episodes(
+        snapshots,
+        gap_ms=gap_ms,
+        stats=stats,
+    )
+
+
+def build_raw_key_stream_keyboard_episodes(
+    snapshots: list[FocusedTextSnapshot],
+    gap_ms: int,
+    stats: dict[str, int] | None = None,
+) -> list[KeyboardEpisode]:
+    """Build episodes directly from physical key actions in one focused field.
+
+    Accessibility text snapshots are useful for stateful field edits, but some
+    apps report stale values around selection replacement, cursor navigation, or
+    delayed text updates. This raw stream keeps the physical press sequence and
+    timing as the training target whenever the key is a modelable text action.
+    """
+    if not snapshots:
         return []
 
-    ordered = sorted(snapshots, key=lambda item: (item.effective_offset_ms, item.offset_ms))
-    episodes: list[KeyboardEpisode] = []
-    initial_value = ordered[0].value
-    current_value = initial_value
-    last_seen_offset = ordered[0].effective_offset_ms
-    last_change_offset = ordered[0].effective_offset_ms
-    current_source = ordered[0].source
+    ordered = sorted(snapshots, key=lambda item: (item.offset_ms, 0 if item.is_keyboard_event else 1))
+    source = ordered[0].source
+    identity = ordered[0].identity
+    anchor_value = ordered[0].value
+    last_observed_value = ordered[0].value
+    current_value = ""
     steps: list[KeyStep] = []
+    episodes: list[KeyboardEpisode] = []
+    last_offset = ordered[0].offset_ms
+
+    def increment(name: str, amount: int = 1) -> None:
+        if stats is not None:
+            stats[name] = stats.get(name, 0) + amount
 
     def flush() -> None:
-        nonlocal steps, initial_value, current_value
-        if steps and current_value != initial_value:
+        nonlocal current_value, steps
+        if steps and current_value:
             episodes.append(
                 KeyboardEpisode(
-                    source=f"{current_source}#{ordered[0].identity}",
-                    initial_string=initial_value,
+                    source=f"{source}#{identity}#raw-key-stream",
+                    initial_string="",
                     final_string=current_value,
                     steps=tuple(steps),
                 )
             )
+            increment("raw_key_run_episode_count")
+            increment("raw_key_run_action_count", len(steps))
         steps = []
+        current_value = ""
 
-    for snapshot in ordered[1:]:
-        effective_offset = snapshot.effective_offset_ms
-        if effective_offset - last_seen_offset >= gap_ms:
+    def reset_run(snapshot: FocusedTextSnapshot) -> None:
+        nonlocal anchor_value, current_value, identity, last_observed_value, last_offset, source, steps
+        flush()
+        source = snapshot.source
+        identity = snapshot.identity
+        anchor_value = snapshot.value
+        last_observed_value = snapshot.value
+        current_value = ""
+        steps = []
+        last_offset = snapshot.offset_ms
+
+    def incompatible_observed_value(value: str) -> bool:
+        if not steps:
+            return False
+        if value in {anchor_value, last_observed_value}:
+            return False
+        if current_value and current_value in value:
+            return False
+        return bool(current_value)
+
+    for snapshot in ordered:
+        if snapshot.offset_ms - last_offset >= gap_ms:
+            reset_run(snapshot)
+
+        if not (snapshot.is_keyboard_event and snapshot.key_action == KEY_BACKSPACE) and incompatible_observed_value(snapshot.value):
+            increment("raw_key_run_reset_count")
+            reset_run(snapshot)
+
+        if not snapshot.is_keyboard_event:
+            last_observed_value = snapshot.value
+            if not steps:
+                anchor_value = snapshot.value
+                last_offset = snapshot.offset_ms
+            continue
+
+        if snapshot.key_action is None:
             flush()
-            initial_value = snapshot.value
-            current_value = snapshot.value
-            current_source = snapshot.source
-            last_seen_offset = effective_offset
-            last_change_offset = effective_offset
+            anchor_value = snapshot.value
+            last_observed_value = snapshot.value
+            last_offset = snapshot.offset_ms
             continue
 
-        actions = terminal_edit_actions(current_value, snapshot.value)
-        if not actions:
-            last_seen_offset = effective_offset
-            continue
-
-        if len(actions) > max_snapshot_edit_actions:
-            flush()
-            initial_value = snapshot.value
-            current_value = snapshot.value
-            current_source = snapshot.source
-            last_seen_offset = effective_offset
-            last_change_offset = effective_offset
-            continue
-
-        total_dt_ms = max(0.0, float(effective_offset - last_change_offset))
-        dt_ms = total_dt_ms / len(actions)
-        steps.extend(KeyStep(dt_ms=dt_ms, action=action) for action in actions)
-        current_value = snapshot.value
-        current_source = snapshot.source
-        last_seen_offset = effective_offset
-        last_change_offset = effective_offset
+        dt_ms = max(0.0, float(snapshot.offset_ms - last_offset))
+        steps.append(KeyStep(dt_ms=dt_ms, action=snapshot.key_action))
+        current_value = apply_keyboard_action_to_string(current_value, snapshot.key_action)
+        last_observed_value = snapshot.value
+        last_offset = snapshot.offset_ms
 
     flush()
     return episodes
 
 
-def extract_focused_text_keyboard_episodes(
+def extract_keyboard_episodes(
     paths: list[Path],
     gap_ms: int,
     accessibility_id: str | None,
-    max_snapshot_edit_actions: int,
     screen_filter: ScreenSizeFilter | None = None,
 ) -> tuple[list[KeyboardEpisode], dict[str, Any]]:
     """Build keyboard episodes from contiguous focused accessibility text."""
     # Segment snapshots by source, screen eligibility, and focused field so a
     # revisit to the same field becomes a separate learnable edit episode.
-    segments = collect_focused_text_snapshot_segments(paths, screen_filter=screen_filter)
+    key_stream_stats: dict[str, int] = {}
+    segments = collect_focused_text_snapshot_segments(paths, screen_filter=screen_filter, stats=key_stream_stats)
     snapshots = [snapshot for segment in segments for snapshot in segment]
     identities = {snapshot.identity for snapshot in snapshots}
 
@@ -400,6 +499,7 @@ def extract_focused_text_keyboard_episodes(
         "focused_text_identity_count": len(identities),
         "focused_text_segment_count": len(segments),
         "requested_accessibility_id": requested,
+        "key_stream": key_stream_stats,
     }
     if not snapshots:
         return [], metadata
@@ -425,13 +525,15 @@ def extract_focused_text_keyboard_episodes(
 
     episodes: list[KeyboardEpisode] = []
     episode_identities: set[str] = set()
+    selected_key_stream_stats: dict[str, int] = {}
     for segment in selected_segments:
         # Each segment is already contiguous in a single field, so value changes
-        # inside it can be converted into terminal edit actions directly.
+        # inside it can be validated against raw key actions when available, or
+        # converted into terminal edit actions for older recordings.
         segment_episodes = build_focused_text_episodes(
             segment,
             gap_ms=gap_ms,
-            max_snapshot_edit_actions=max_snapshot_edit_actions,
+            stats=selected_key_stream_stats,
         )
         episodes.extend(segment_episodes)
         if segment_episodes:
@@ -440,6 +542,7 @@ def extract_focused_text_keyboard_episodes(
     selected_snapshots = [snapshot for segment in selected_segments for snapshot in segment]
     raw_ids = sorted({snapshot.raw_accessibility_id for snapshot in selected_snapshots if snapshot.raw_accessibility_id})
     metadata["selected_accessibility_ids"] = raw_ids
+    metadata["selected_key_stream"] = selected_key_stream_stats
     metadata["focused_text_segment_count"] = len(segments)
     metadata["selected_focused_text_segment_count"] = len(selected_segments)
     metadata["selected_focused_text_snapshots"] = len(selected_snapshots)

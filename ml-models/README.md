@@ -26,10 +26,6 @@ The exposed console scripts are:
 - `rotunda-models-sweep`
 - `rotunda-models-render-debug-videos`
 
-```bash
-python3 -m pip install -e ".[wandb]"
-```
-
 ## What The Models Learn
 
 Mouse clicks:
@@ -107,10 +103,9 @@ the checkpoint.
 
 ## Weights & Biases Tracking
 
-W&B is an optional dependency. Install and log in before using it:
+W&B tracking is enabled in the laptop training configs. Log in before training:
 
 ```bash
-python3 -m pip install -e ".[wandb]"
 wandb login
 ```
 
@@ -194,14 +189,10 @@ rotunda-models generate-keyboard \
   --decode-mode canonical
 ```
 
-Add bounded typo and correction events:
-
-```bash
-rotunda-models generate-keyboard \
-  --checkpoint Training/runs/keyboard-YYYYMMDD-HHMMSS/model.pt \
-  --final-string "hello" \
-  --keyboard-typo-rate 0.08 --keyboard-max-typos 2
-```
+New keyboard checkpoints learn wrong-character likelihood and wrong-character
+choice from raw focused-text edits. Constrained decoding can emit those learned
+wrong keys when the resulting text is still repairable, then returns to normal
+structured decoding for the correction.
 
 Inspect unconstrained model output:
 
@@ -239,18 +230,20 @@ uv run --package rotunda-models rotunda-models export-runtime \
 into the browser bundle when present.
 
 The command writes compact SafeTensors-compatible binary weight files plus a
-`runtime-models.json` manifest. Point the Rotunda profile at the exported mouse
-model to enable native full-path mouse planning:
+`runtime-models.json` manifest. Browser builds that include
+`bundle/runtime-models/` resolve these shipped artifacts automatically, so
+profiles only need to enable humanization:
 
 ```json
 {
   "humanize": {
-    "enabled": true,
-    "mouseModelPath": "/absolute/path/to/Training/runtime/mouse.safetensors",
-    "keyboardModelPath": "/absolute/path/to/Training/runtime/keyboard.safetensors"
+    "enabled": true
   }
 }
 ```
+
+The `mouseModelPath` and `keyboardModelPath` profile fields remain optional
+developer overrides for testing non-bundled artifacts.
 
 ## Debug Videos
 
@@ -267,33 +260,58 @@ Outputs:
 
 ## W&B Sweeps
 
-Run a W&B random sweep over architecture, learning rate, filtering, and
-loss-weight parameters:
+Sweeps are defined in YAML and point at a normal training config through
+`root_config`. Fixed changes live under `overrides`, and sampled ranges use
+dotted config paths under `parameters`.
 
-```bash
-rotunda-models-sweep recordings \
-  --task all --trials 8 --epochs 20 --wandb-project cadence-models
+Example sweep spec:
+
+```yaml
+root_config: ../laptop-keyboard.yml
+trials: 8
+metric:
+  name: best/composite
+  goal: minimize
+overrides:
+  training.epochs: 20
+parameters:
+  training.lr:
+    type: loguniform
+    min: 0.0003
+    max: 0.003
+  keyboard.keyboard_typo_positive_weight:
+    values: [4.0, 8.0, 12.0]
 ```
 
-Run just one model family:
+For keyboard sweeps, `best/composite` is the recommended optimization target.
+It tracks an equal blend of:
+
+- median per-key wait timing error
+- median full-edit duration timing error
+- median key-press budget error
+- key action error rate
+- typo behavior error (rate mismatch plus precision/recall when defined)
+
+Run a keyboard sweep from the repository root:
 
 ```bash
-rotunda-models-sweep recordings \
-  --task keyboard --trials 12 --epochs 25 --wandb-project cadence-models
-rotunda-models-sweep recordings \
-  --task clicks --trials 12 --epochs 40 --wandb-project cadence-models
+uv run --package rotunda-models rotunda-models-sweep \
+  config/sweeps/laptop-keyboard.yml
 ```
+
+The repository includes [config/sweeps/laptop-keyboard.yml](../config/sweeps/laptop-keyboard.yml)
+as a starting point for typo-focused keyboard tuning.
 
 Create the sweep in W&B without launching a local agent:
 
 ```bash
-rotunda-models-sweep recordings \
-  --task keyboard --trials 12 --epochs 25 \
-  --wandb-project cadence-models --create-only
+uv run --package rotunda-models rotunda-models-sweep \
+  config/sweeps/laptop-keyboard.yml --create-only
 ```
 
-Preview W&B sweep configs without contacting W&B:
+Preview the generated W&B sweep config without contacting W&B:
 
 ```bash
-rotunda-models-sweep recordings --task keyboard --trials 3 --dry-run
+uv run --package rotunda-models rotunda-models-sweep \
+  config/sweeps/laptop-keyboard.yml --dry-run
 ```

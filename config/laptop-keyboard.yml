@@ -16,9 +16,9 @@ data:
 
 training:
   output_dir: Training/runs
-  epochs: 25
-  batch_size: 32
-  hidden_size: 96
+  epochs: 120
+  batch_size: 16
+  hidden_size: 128
   layers: 1
   dropout: 0.0
   lr: 0.001
@@ -32,18 +32,23 @@ training:
 keyboard:
   gap_ms: 1000
   keyboard_accessibility_id: auto
-  keyboard_max_snapshot_edit_actions: 12
   keyboard_min_final_length: 1
   keyboard_min_duration_ms: 0.0
   keyboard_max_condition_length: 1024
+  keyboard_max_steps: 256
   char_embed_size: 32
   action_embed_size: 32
-  dt_loss_weight: 1.0
-  keyboard_action_loss_weight: 1.0
-  keyboard_duration_loss_weight: 1.0
-  backspace_action_weight: 4.0
-  stop_action_weight: 8.0
+  dt_loss_weight: 4.0
+  keyboard_action_loss_weight: 2.0
+  keyboard_duration_loss_weight: 6.0
+  keyboard_press_count_loss_weight: 1.0
+  keyboard_typo_loss_weight: 1.0
+  keyboard_typo_action_loss_weight: 1.0
+  keyboard_typo_positive_weight: 4.0
+  backspace_action_weight: 6.0
+  stop_action_weight: 10.0
 
 wandb:
-  enabled: false
+  enabled: true
+  project: cadence-models
   log_artifacts: true

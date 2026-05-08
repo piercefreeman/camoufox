@@ -109,7 +109,13 @@
     "keyboardModelPath": "",
     "mouseMaxSteps": 128,
     "mouseClickThreshold": 0.98,
-    "mouseMinDtMs": 4.0
+    "mouseMinDtMs": 4.0,
+    "mousePathCurveSigma": 0.04,
+    "keyboardSampleTypos": true,
+    "keyboardTimingJitterSigma": 0.22,
+    "keyboardTimingTemperature": 0.25,
+    "keyboardPauseProbability": 0.0,
+    "keyboardPauseMeanMs": 35.0
   },
   "showcursor": false,
   "audioContext": {

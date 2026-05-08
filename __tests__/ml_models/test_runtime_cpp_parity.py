@@ -20,6 +20,7 @@ from rotunda_models.constants import (
 from rotunda_models.keyboard_logic import (
     constrained_keyboard_action,
     keyboard_next_char,
+    minimum_terminal_edit_steps,
 )
 from rotunda_models.models.keyboard import KeyboardActionGRU
 from rotunda_models.models.mouse import MouseTrajectoryGRU
@@ -143,6 +144,37 @@ def test_runtime_weights_resolves_bundled_model_from_resources_layout(
     assert Path(result.stdout.strip()).resolve() == model_path.resolve()
 
 
+def test_runtime_weights_resolves_bundled_model_from_nested_macos_helper(
+    runtime_probe: Path,
+    tmp_path: Path,
+) -> None:
+    helper_dir = (
+        tmp_path
+        / "Rotunda.app"
+        / "Contents"
+        / "MacOS"
+        / "plugin-container.app"
+        / "Contents"
+        / "MacOS"
+    )
+    resources_dir = tmp_path / "Rotunda.app" / "Contents" / "Resources" / "runtime-models"
+    helper_dir.mkdir(parents=True)
+    resources_dir.mkdir(parents=True)
+    helper_probe = helper_dir / runtime_probe.name
+    shutil.copy2(runtime_probe, helper_probe)
+    model_path = resources_dir / "keyboard-test.safetensors"
+    model_path.write_bytes(b"not a real model")
+
+    result = subprocess.run(
+        [helper_probe, "resolve-model", model_path.name],
+        check=True,
+        text=True,
+        capture_output=True,
+    )
+
+    assert Path(result.stdout.strip()).resolve() == model_path.resolve()
+
+
 def _export_keyboard_checkpoint(tmp_path: Path) -> tuple[Path, KeyboardActionGRU, dict[str, int], dict[str, int]]:
     char_to_id = {
         CHAR_PAD: 0,
@@ -185,6 +217,162 @@ def _export_keyboard_checkpoint(tmp_path: Path) -> tuple[Path, KeyboardActionGRU
     return runtime_path, model, char_to_id, action_to_id
 
 
+def _export_keyboard_lognormal_checkpoint(
+    tmp_path: Path,
+) -> tuple[Path, KeyboardActionGRU, dict[str, int], dict[str, int]]:
+    char_to_id = {
+        CHAR_PAD: 0,
+        CHAR_UNK: 1,
+        CHAR_EOS: 2,
+        CHAR_SEP: 3,
+        "a": 4,
+        "b": 5,
+    }
+    action_to_id = {"a": 0, "b": 1, KEY_BACKSPACE: 2, KEY_STOP: 3}
+    id_to_action = {index: action for action, index in action_to_id.items()}
+    model_config = {
+        "char_vocab_size": len(char_to_id),
+        "action_vocab_size": len(action_to_id),
+        "hidden_size": 5,
+        "char_embed_size": 4,
+        "action_embed_size": 3,
+        "layers": 1,
+        "dropout": 0.0,
+        "timing_distribution": "lognormal",
+    }
+    model = KeyboardActionGRU(**model_config)
+    _copy_deterministic_weights(model, seed_offset=0.02)
+    model.eval()
+
+    checkpoint_path = tmp_path / "keyboard-lognormal.pt"
+    runtime_path = tmp_path / "keyboard-lognormal.safetensors"
+    torch.save(
+        {
+            "kind": "keyboard_action_gru",
+            "model_config": model_config,
+            "char_to_id": char_to_id,
+            "action_to_id": action_to_id,
+            "id_to_action": id_to_action,
+            "sequence_mode": "constrained",
+            "model_state": model.state_dict(),
+        },
+        checkpoint_path,
+    )
+    export_runtime_checkpoint(checkpoint_path, runtime_path)
+    return runtime_path, model, char_to_id, action_to_id
+
+
+def _export_keyboard_checkpoint_with_condition_only_chars(tmp_path: Path) -> Path:
+    char_to_id = {
+        CHAR_PAD: 0,
+        CHAR_UNK: 1,
+        CHAR_EOS: 2,
+        CHAR_SEP: 3,
+        "@": 4,
+        "C": 5,
+        "a": 6,
+        "t": 7,
+    }
+    action_to_id = {"a": 0, "t": 1, KEY_BACKSPACE: 2, KEY_STOP: 3}
+    id_to_action = {index: action for action, index in action_to_id.items()}
+    model_config = {
+        "char_vocab_size": len(char_to_id),
+        "action_vocab_size": len(action_to_id),
+        "hidden_size": 5,
+        "char_embed_size": 4,
+        "action_embed_size": 3,
+        "layers": 1,
+        "dropout": 0.0,
+        "learned_typo_head": True,
+        "predict_press_count_head": True,
+    }
+    model = KeyboardActionGRU(**model_config)
+    with torch.no_grad():
+        for parameter in model.parameters():
+            parameter.zero_()
+        model.action_head.bias[action_to_id["a"]] = 3.0
+        model.action_head.bias[action_to_id["t"]] = 2.0
+        model.action_head.bias[action_to_id[KEY_STOP]] = -5.0
+        model.typo_head.bias.fill_(-8.0)
+        model.press_count_head.bias.fill_(math.log(2.0))
+    model.eval()
+
+    checkpoint_path = tmp_path / "keyboard-condition-only-chars.pt"
+    runtime_path = tmp_path / "keyboard-condition-only-chars.safetensors"
+    torch.save(
+        {
+            "kind": "keyboard_action_gru",
+            "model_config": model_config,
+            "char_to_id": char_to_id,
+            "action_to_id": action_to_id,
+            "id_to_action": id_to_action,
+            "sequence_mode": "raw",
+            "model_state": model.state_dict(),
+        },
+        checkpoint_path,
+    )
+    export_runtime_checkpoint(checkpoint_path, runtime_path)
+    return runtime_path
+
+
+def _export_learned_typo_keyboard_checkpoint(
+    tmp_path: Path,
+    *,
+    predict_press_count_head: bool = False,
+    predicted_press_count: float = 3.0,
+) -> Path:
+    char_to_id = {
+        CHAR_PAD: 0,
+        CHAR_UNK: 1,
+        CHAR_EOS: 2,
+        CHAR_SEP: 3,
+        "a": 4,
+        "x": 5,
+    }
+    action_to_id = {"a": 0, "x": 1, KEY_BACKSPACE: 2, KEY_STOP: 3}
+    id_to_action = {index: action for action, index in action_to_id.items()}
+    model_config = {
+        "char_vocab_size": len(char_to_id),
+        "action_vocab_size": len(action_to_id),
+        "hidden_size": 5,
+        "char_embed_size": 4,
+        "action_embed_size": 3,
+        "layers": 1,
+        "dropout": 0.0,
+        "learned_typo_head": True,
+        "predict_press_count_head": predict_press_count_head,
+    }
+    model = KeyboardActionGRU(**model_config)
+    with torch.no_grad():
+        for parameter in model.parameters():
+            parameter.zero_()
+        model.action_head.bias[action_to_id["a"]] = 4.0
+        model.action_head.bias[action_to_id[KEY_BACKSPACE]] = 3.0
+        model.action_head.bias[action_to_id[KEY_STOP]] = -4.0
+        model.typo_head.bias.fill_(8.0)
+        model.typo_action_head.bias[action_to_id["x"]] = 6.0
+        if model.press_count_head is not None:
+            model.press_count_head.bias.fill_(math.log(predicted_press_count))
+    model.eval()
+
+    checkpoint_path = tmp_path / "keyboard-learned-typo.pt"
+    runtime_path = tmp_path / "keyboard-learned-typo.safetensors"
+    torch.save(
+        {
+            "kind": "keyboard_action_gru",
+            "model_config": model_config,
+            "char_to_id": char_to_id,
+            "action_to_id": action_to_id,
+            "id_to_action": id_to_action,
+            "sequence_mode": "raw",
+            "model_state": model.state_dict(),
+        },
+        checkpoint_path,
+    )
+    export_runtime_checkpoint(checkpoint_path, runtime_path)
+    return runtime_path
+
+
 def _run_probe(binary: Path, *args: object) -> dict:
     result = subprocess.run(
         [str(binary), *[str(arg) for arg in args]],
@@ -222,6 +410,7 @@ def _mouse_python_trace(
     dx = to_x - from_x
     dy = to_y - from_y
     distance = math.hypot(dx, dy)
+    endpoint_budget = max(4, min(max_steps, round(8.0 + (2.0 * math.sqrt(min(max(0.0, distance), 400.0))))))
     condition_values = [
         from_x / scale,
         from_y / scale,
@@ -258,9 +447,11 @@ def _mouse_python_trace(
                 dt_ms = max(dt_ms, min_dt_ms)
             offset += dt_ms
 
-            remaining_steps = max(1, max_steps - step_index)
+            remaining_steps = max(1, endpoint_budget - step_index)
             min_delta = (1.0 - state_along) / remaining_steps
-            state_along = min(1.0, state_along + max(float(pos_head[0]), min_delta, 0.0))
+            max_delta = max(min_delta, min_delta * 2.0)
+            guided_delta = max(min(float(pos_head[0]), max_delta), min_delta, 0.0)
+            state_along = min(1.0, state_along + guided_delta)
             guided_perp = state_perp + float(pos_head[1])
             envelope = max(0.0, 0.35 * math.sin(math.pi * max(0.0, min(1.0, state_along))))
             state_perp = max(
@@ -359,6 +550,7 @@ def _keyboard_python_trace(
     action_to_id: dict[str, int],
 ) -> dict:
     del structured_extra_steps, canonical_bias
+    minimum_steps = minimum_terminal_edit_steps(final, list(initial))
     condition_ids = _keyboard_condition_ids(initial, final, char_to_id)
     condition_tensor = torch.tensor([condition_ids], dtype=torch.long)
     condition_lengths = torch.tensor([len(condition_ids)], dtype=torch.long)
@@ -439,6 +631,10 @@ def _keyboard_python_trace(
     if text != final:
         rows = []
     return {
+        "minimumSteps": minimum_steps,
+        "effectiveMaxSteps": max_steps,
+        "predictedPressCount": 0.0,
+        "usedPredictedPressCount": False,
         "conditionIds": condition_ids,
         "condition": _vector(condition),
         "steps": steps,
@@ -520,6 +716,10 @@ def test_keyboard_cpp_runtime_trace_matches_python_rollout(runtime_probe: Path, 
     )
     py = _keyboard_python_trace(model, **args)
 
+    assert cpp["minimumSteps"] == py["minimumSteps"]
+    assert cpp["effectiveMaxSteps"] == py["effectiveMaxSteps"]
+    assert cpp["usedPredictedPressCount"] == py["usedPredictedPressCount"]
+    assert cpp["predictedPressCount"] == pytest.approx(py["predictedPressCount"], **APPROX)
     assert cpp["conditionIds"] == py["conditionIds"]
     _assert_vector(cpp["condition"], py["condition"])
     assert len(cpp["steps"]) == len(py["steps"])
@@ -549,3 +749,112 @@ def test_keyboard_cpp_runtime_trace_matches_python_rollout(runtime_probe: Path, 
             assert actual[key] == pytest.approx(expected[key], **APPROX)
         for key in ["action", "textAfter", "stepKind"]:
             assert actual[key] == expected[key]
+
+
+def test_keyboard_cpp_runtime_reads_lognormal_timing_head(runtime_probe: Path, tmp_path: Path) -> None:
+    runtime_path, model, char_to_id, action_to_id = _export_keyboard_lognormal_checkpoint(tmp_path)
+    args = {
+        "initial": "a",
+        "final": "ab",
+        "max_steps": 4,
+        "decode_mode": "canonical",
+        "structured_extra_steps": 6,
+        "canonical_bias": 1.5,
+        "char_to_id": char_to_id,
+        "action_to_id": action_to_id,
+    }
+
+    cpp = _run_probe(
+        runtime_probe,
+        "keyboard",
+        runtime_path,
+        args["initial"],
+        args["final"],
+        args["max_steps"],
+        args["decode_mode"],
+        args["structured_extra_steps"],
+        args["canonical_bias"],
+    )
+    py = _keyboard_python_trace(model, **args)
+
+    assert len(cpp["steps"][0]["dtHead"]) == 2
+    assert len(py["steps"][0]["dtHead"]) == 2
+    for actual, expected in zip(cpp["steps"], py["steps"], strict=True):
+        _assert_vector(actual["dtHead"], expected["dtHead"])
+        assert actual["previousDt"] == pytest.approx(expected["previousDt"], **APPROX)
+        assert actual["dtMs"] == pytest.approx(expected["dtMs"], **APPROX)
+
+
+def test_keyboard_cpp_runtime_uses_learned_typo_head(runtime_probe: Path, tmp_path: Path) -> None:
+    runtime_path = _export_learned_typo_keyboard_checkpoint(
+        tmp_path,
+        predict_press_count_head=True,
+        predicted_press_count=1.0,
+    )
+
+    cpp = _run_probe(
+        runtime_probe,
+        "keyboard",
+        runtime_path,
+        "",
+        "a",
+        4,
+        "constrained",
+        2,
+        1.5,
+    )
+
+    assert [row["action"] for row in cpp["rows"]] == ["x", KEY_BACKSPACE, "a"]
+    assert cpp["usedPredictedPressCount"] is True
+    assert cpp["effectiveMaxSteps"] == 3
+    assert cpp["rows"][0]["stepKind"] == "learned_typo"
+    assert cpp["rows"][-1]["textAfter"] == "a"
+    assert cpp["steps"][0]["learnedTypoProbability"] > 0.99
+
+
+def test_keyboard_cpp_runtime_uses_predicted_press_budget(
+    runtime_probe: Path,
+    tmp_path: Path,
+) -> None:
+    runtime_path = _export_learned_typo_keyboard_checkpoint(
+        tmp_path,
+        predict_press_count_head=True,
+        predicted_press_count=3.0,
+    )
+
+    cpp = _run_probe(
+        runtime_probe,
+        "keyboard",
+        runtime_path,
+        "",
+        "a",
+        4,
+        "constrained",
+        0,
+        1.5,
+    )
+
+    assert cpp["usedPredictedPressCount"] is True
+    assert cpp["predictedPressCount"] == pytest.approx(3.0, **APPROX)
+    assert cpp["effectiveMaxSteps"] == 3
+    assert [row["action"] for row in cpp["rows"]] == ["x", KEY_BACKSPACE, "a"]
+    assert cpp["rows"][-1]["textAfter"] == "a"
+
+
+def test_keyboard_cpp_runtime_only_requires_target_edit_actions(runtime_probe: Path, tmp_path: Path) -> None:
+    runtime_path = _export_keyboard_checkpoint_with_condition_only_chars(tmp_path)
+
+    cpp = _run_probe(
+        runtime_probe,
+        "keyboard",
+        runtime_path,
+        "@C",
+        "@Cat",
+        2,
+        "constrained",
+        0,
+        3.0,
+    )
+
+    assert [row["action"] for row in cpp["rows"]] == ["a", "t"]
+    assert cpp["rows"][-1]["textAfter"] == "@Cat"

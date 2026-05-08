@@ -4,7 +4,9 @@
 from __future__ import annotations
 
 import json
+import math
 import random
+from collections.abc import Callable
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -17,12 +19,17 @@ from ._generated_data_capture import SessionStartedEvent, SessionStoppedEvent
 from .constants import MOUSE_ACTIONS
 from .data import (
     event_screen_size,
-    extract_focused_text_keyboard_episodes,
+    extract_keyboard_episodes,
     extract_mouse_episodes,
     iter_capture_events,
     screen_filter_allows,
 )
-from .diagnostics import log_click_rollout_diagnostics, log_keyboard_rollout_diagnostics
+from .dataset_inspection import format_keyboard_episode_report
+from .diagnostics import (
+    log_click_rollout_diagnostics,
+    log_keyboard_epoch_inspection_table,
+    log_keyboard_rollout_diagnostics,
+)
 from .models.keyboard import (
     KeyboardActionGRU,
     KeyboardTrajectoryDataset,
@@ -42,8 +49,11 @@ from .training_utils import (
     coordinate_scale_for,
     filter_keyboard_training_episodes,
     keyboard_condition_length,
+    keyboard_training_filter_counts,
     move_batch_to_device,
     split_items,
+    summarize_metric_observations,
+    sweep_score_metrics,
 )
 from .types import ScreenSizeFilter, WandbState
 from .utils import (
@@ -106,40 +116,67 @@ def train_loop(
     wandb_state: WandbState | None = None,
     wandb_task: str | None = None,
     wandb_log_model_artifacts: bool = True,
+    wandb_epoch_table_logger: Callable[[int, dict], None] | None = None,
 ) -> None:
     """Train a model, persist epoch checkpoints, and emit optional W&B logs."""
     metrics_path = run_dir / "metrics.jsonl"
     log_stage("training")
     best_score = float("inf")
     best_epoch = 0
+    best_composite_score = float("inf")
+    last_composite_score: float | None = None
     epochs_without_improvement = 0
     for epoch in range(1, epochs + 1):
         # Run one optimizer pass over the training split and keep scalar loss
         # pieces so local metrics and W&B receive the same view of the epoch.
         model.train()
         train_records: list[dict[str, float]] = []
+        train_observations: list[dict[str, list[float]]] = []
         for batch in train_loader:
             batch = move_batch_to_device(batch, device)
             optimizer.zero_grad(set_to_none=True)
-            loss, metrics = loss_fn(batch, model)
+            result = loss_fn(batch, model)
+            if len(result) == 2:
+                loss, metrics = result
+                observations: dict[str, list[float]] = {}
+            else:
+                loss, metrics, observations = result
             loss.backward()
             nn.utils.clip_grad_norm_(model.parameters(), 1.0)
             optimizer.step()
             train_records.append(metrics)
+            if observations:
+                train_observations.append(observations)
 
         train_metrics = aggregate_metrics(train_records)
+        train_metrics.update(summarize_metric_observations(train_observations))
         val_metrics: dict[str, float] = {}
         if val_loader is not None:
             # Validation reuses the same loss function but does not touch model
             # state, which keeps early stopping tied to the deployed objective.
             model.eval()
             val_records: list[dict[str, float]] = []
+            val_observations: list[dict[str, list[float]]] = []
             with torch.no_grad():
                 for batch in val_loader:
                     batch = move_batch_to_device(batch, device)
-                    _, metrics = loss_fn(batch, model)
+                    result = loss_fn(batch, model)
+                    if len(result) == 2:
+                        _, metrics = result
+                        observations = {}
+                    else:
+                        _, metrics, observations = result
                     val_records.append(metrics)
+                    if observations:
+                        val_observations.append(observations)
             val_metrics = aggregate_metrics(val_records)
+            val_metrics.update(summarize_metric_observations(val_observations))
+
+        score_metrics = sweep_score_metrics(wandb_task, train_metrics, val_metrics)
+        composite_score = score_metrics.get("score/composite")
+        if composite_score is not None and math.isfinite(composite_score):
+            last_composite_score = composite_score
+            best_composite_score = min(best_composite_score, composite_score)
 
         record = {"epoch": epoch, "train": train_metrics, "val": val_metrics}
         write_jsonl(metrics_path, record)
@@ -173,10 +210,14 @@ def train_loop(
             train_metrics=train_metrics,
             val_metrics=val_metrics,
             score=score,
+            score_metrics=score_metrics,
             best_score=best_score,
+            best_composite_score=best_composite_score if math.isfinite(best_composite_score) else None,
             best_epoch=best_epoch,
             lr=float(lr) if lr is not None else None,
         )
+        if wandb_state is not None and wandb_epoch_table_logger is not None:
+            wandb_epoch_table_logger(epoch, checkpoint)
 
         if early_stopping_patience > 0 and epochs_without_improvement >= early_stopping_patience:
             stop_record = {
@@ -203,6 +244,10 @@ def train_loop(
     if wandb_state is not None:
         wandb_state.run.summary["best/loss"] = best_score
         wandb_state.run.summary["best/epoch"] = best_epoch
+        if math.isfinite(best_composite_score):
+            wandb_state.run.summary["best/composite"] = best_composite_score
+        if last_composite_score is not None:
+            wandb_state.run.summary["score/composite"] = last_composite_score
         if wandb_log_model_artifacts:
             wandb_log_artifacts(wandb_state, wandb_task or "cadence", run_dir)
 
@@ -265,6 +310,7 @@ def train_clicks(args: Any | TrainingExperimentSettings) -> None:
         "action_count": len(MOUSE_ACTIONS),
         "layers": args.layers,
         "dropout": args.dropout,
+        "timing_distribution": args.timing_distribution,
     }
     model = MouseTrajectoryGRU(**model_config).to(device)
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
@@ -358,14 +404,13 @@ def train_keyboard(args: Any | TrainingExperimentSettings) -> None:
         raise SystemExit("No .ndjson or .jsonl recordings found.")
     log_info(f"recording_files={len(paths)}")
 
-    # Current recordings carry the focused accessibility value, so keyboard
-    # training is a direct text-diff problem rather than key-geometry recovery.
+    # Keyboard training uses the recorded physical key stream. Focused element
+    # snapshots only provide field identity and reset boundaries.
     log_stage("building keyboard episodes")
-    episodes, focused_text_meta = extract_focused_text_keyboard_episodes(
+    episodes, focused_text_meta = extract_keyboard_episodes(
         paths,
         gap_ms=args.gap_ms,
         accessibility_id=args.keyboard_accessibility_id,
-        max_snapshot_edit_actions=args.keyboard_max_snapshot_edit_actions,
         screen_filter=args.screen_filter,
     )
     if not episodes:
@@ -376,28 +421,41 @@ def train_keyboard(args: Any | TrainingExperimentSettings) -> None:
         f"focused_text_episodes={len(episodes)} selected_identity={selected} "
         f"snapshots={focused_text_meta.get('selected_focused_text_snapshots', 0)}"
     )
-    vocab_episodes = episodes
     if (
         args.keyboard_min_final_length > 0
         or args.keyboard_min_duration_ms > 0
         or args.keyboard_max_condition_length is not None
+        or args.keyboard_max_steps is not None
     ):
         before_filter = len(episodes)
+        filter_counts = keyboard_training_filter_counts(
+            episodes,
+            sequence_mode=keyboard_sequence_mode,
+            min_final_length=args.keyboard_min_final_length,
+            min_duration_ms=args.keyboard_min_duration_ms,
+            max_condition_length=args.keyboard_max_condition_length,
+            max_steps=args.keyboard_max_steps,
+        )
         episodes = filter_keyboard_training_episodes(
             episodes,
             sequence_mode=keyboard_sequence_mode,
             min_final_length=args.keyboard_min_final_length,
             min_duration_ms=args.keyboard_min_duration_ms,
             max_condition_length=args.keyboard_max_condition_length,
+            max_steps=args.keyboard_max_steps,
         )
         log_info(
             f"filtered_keyboard_episodes={len(episodes)} from={before_filter} "
             f"min_final_length={args.keyboard_min_final_length} "
             f"min_duration_ms={args.keyboard_min_duration_ms:g} "
-            f"max_condition_length={args.keyboard_max_condition_length or 'none'}"
+            f"max_condition_length={args.keyboard_max_condition_length or 'none'} "
+            f"max_steps={args.keyboard_max_steps or 'none'} "
+            f"dropped_condition_length={filter_counts['dropped_max_condition_length']} "
+            f"dropped_steps={filter_counts['dropped_max_steps']}"
         )
         if not episodes:
             raise SystemExit("No keyboard episodes remain after the current training filters.")
+    vocab_episodes = episodes
     lengths = [len(episode.steps) for episode in episodes]
     condition_lengths = [keyboard_condition_length(episode) for episode in episodes]
     log_info(
@@ -406,8 +464,8 @@ def train_keyboard(args: Any | TrainingExperimentSettings) -> None:
         f"source=focused_text sequence_mode={keyboard_sequence_mode}"
     )
 
-    # Build vocabularies from the unfiltered candidate set so generation can
-    # still emit characters seen in valid source data but filtered from training.
+    # Build vocabularies after preprocessing so long terminal buffers do not
+    # leak rare prompt/output characters into the keyboard checkpoint.
     log_stage("building vocabularies and splitting data")
     char_to_id, action_to_id = build_keyboard_vocabs(vocab_episodes)
     id_to_char = {index: token for token, index in char_to_id.items()}
@@ -462,6 +520,9 @@ def train_keyboard(args: Any | TrainingExperimentSettings) -> None:
         "action_embed_size": args.action_embed_size,
         "layers": args.layers,
         "dropout": args.dropout,
+        "learned_typo_head": True,
+        "predict_press_count_head": True,
+        "timing_distribution": args.timing_distribution,
     }
     model = KeyboardActionGRU(**model_config).to(device)
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
@@ -525,8 +586,12 @@ def train_keyboard(args: Any | TrainingExperimentSettings) -> None:
                 dt_weight=args.dt_loss_weight,
                 action_weight=args.keyboard_action_loss_weight,
                 duration_weight=args.keyboard_duration_loss_weight,
+                press_count_weight=args.keyboard_press_count_loss_weight,
                 backspace_action_weight=args.backspace_action_weight,
                 stop_action_weight=args.stop_action_weight,
+                typo_weight=args.keyboard_typo_loss_weight,
+                typo_action_weight=args.keyboard_typo_action_loss_weight,
+                typo_positive_weight=args.keyboard_typo_positive_weight,
             ),
             checkpoint_payload=checkpoint_payload,
             early_stopping_patience=args.early_stopping_patience,
@@ -534,6 +599,16 @@ def train_keyboard(args: Any | TrainingExperimentSettings) -> None:
             wandb_state=wandb_state,
             wandb_task="keyboard",
             wandb_log_model_artifacts=args.wandb_log_artifacts,
+            wandb_epoch_table_logger=lambda epoch, checkpoint: log_keyboard_epoch_inspection_table(
+                checkpoint=checkpoint,
+                model=model,
+                episodes=val_episodes or train_episodes,
+                epoch=epoch,
+                device=device,
+                wandb_state=wandb_state,
+                max_examples=args.wandb_keyboard_inspect_examples,
+                max_steps=args.wandb_keyboard_rollout_max_steps,
+            ),
         )
         log_keyboard_rollout_diagnostics(
             checkpoint=checkpoint_payload(),
@@ -584,13 +659,32 @@ def inspect_recordings(args: Any) -> None:
         min_distance=args.min_distance,
         screen_filter=args.screen_filter,
     )
-    keyboard_episodes, focused_meta = extract_focused_text_keyboard_episodes(
+    keyboard_episodes, focused_meta = extract_keyboard_episodes(
         paths,
         gap_ms=args.gap_ms,
         accessibility_id=args.keyboard_accessibility_id,
-        max_snapshot_edit_actions=args.keyboard_max_snapshot_edit_actions,
         screen_filter=args.screen_filter,
     )
+    keyboard_sequence_mode = "raw"
+    keyboard_filter_counts = keyboard_training_filter_counts(
+        keyboard_episodes,
+        sequence_mode=keyboard_sequence_mode,
+        min_final_length=getattr(args, "keyboard_min_final_length", 1),
+        min_duration_ms=getattr(args, "keyboard_min_duration_ms", 0.0),
+        max_condition_length=getattr(args, "keyboard_max_condition_length", 1024),
+        max_steps=getattr(args, "keyboard_max_steps", 256),
+    )
+    if getattr(args, "keyboard_details", False):
+        print(
+            format_keyboard_episode_report(
+                keyboard_episodes,
+                metadata=focused_meta,
+                limit=getattr(args, "keyboard_detail_limit", 20),
+                query=getattr(args, "keyboard_detail_query", None),
+                ansi=getattr(args, "keyboard_detail_ansi", False),
+            )
+        )
+        return
     result = {
         "files": [str(path) for path in paths],
         "event_counts": counts,
@@ -599,6 +693,15 @@ def inspect_recordings(args: Any) -> None:
         "screen_filter": namespace_config(SimpleNamespace(screen_filter=args.screen_filter))["screen_filter"],
         "motivated_click_episodes": len(mouse_episodes),
         "focused_text_keyboard_episodes": len(keyboard_episodes),
+        "focused_text_keyboard_training_episodes": keyboard_filter_counts["output"],
+        "focused_text_keyboard_training_filter": {
+            **keyboard_filter_counts,
+            "sequence_mode": keyboard_sequence_mode,
+            "min_final_length": getattr(args, "keyboard_min_final_length", 1),
+            "min_duration_ms": getattr(args, "keyboard_min_duration_ms", 0.0),
+            "max_condition_length": getattr(args, "keyboard_max_condition_length", 1024),
+            "max_steps": getattr(args, "keyboard_max_steps", 256),
+        },
         "focused_text": focused_meta,
     }
     print(json.dumps(result, indent=2, sort_keys=True))

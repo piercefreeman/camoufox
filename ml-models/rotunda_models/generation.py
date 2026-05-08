@@ -13,20 +13,20 @@ from .constants import (
     CHAR_EOS,
     CHAR_SEP,
     CHAR_UNK,
-    DEFAULT_KEYBOARD_TYPO_MODE_WEIGHTS,
     KEY_BACKSPACE,
     KEY_STOP,
-    KEYBOARD_TYPO_MODE_ALIASES,
 )
 from .keyboard_logic import (
     apply_keyboard_action,
     constrained_keyboard_action,
     keyboard_next_char,
     minimum_terminal_edit_steps,
+    terminal_edit_actions,
 )
-from .models.keyboard import KeyboardActionGRU
+from .models.common import sample_timing_log
+from .models.keyboard import KeyboardActionGRU, decode_press_count_logits
 from .models.mouse import MouseTrajectoryGRU
-from .types import KeyboardEditStep, MouseEpisode
+from .types import MouseEpisode
 from .utils import log_to_dt, screen_position_from_goal_relative
 
 
@@ -52,6 +52,22 @@ class MouseDecoder:
         self.actions = actions
         self.device = device
 
+    @staticmethod
+    def endpoint_step_budget(distance: float, max_steps: int) -> int:
+        """Return a realistic endpoint-guidance budget for a point-to-click path."""
+        capped_distance = min(max(0.0, float(distance)), 400.0)
+        learned_budget = 8.0 + (2.0 * math.sqrt(capped_distance))
+        small_move_budget = 2.0 + (0.5 * math.sqrt(capped_distance))
+        if capped_distance < 80.0:
+            blended_budget = small_move_budget
+        elif capped_distance < 160.0:
+            alpha = (capped_distance - 80.0) / 80.0
+            blended_budget = (small_move_budget * (1.0 - alpha)) + (learned_budget * alpha)
+        else:
+            blended_budget = learned_budget
+        budget = round(blended_budget)
+        return max(4, min(max_steps, budget))
+
     def decode(
         self,
         episode: MouseEpisode,
@@ -61,6 +77,8 @@ class MouseDecoder:
         endpoint_guidance: bool = True,
         sample: bool = False,
         temperature: float = 1.0,
+        timing_temperature: float = 0.0,
+        timing_seed: int | None = None,
         click_at_end: bool = True,
     ) -> list[dict[str, float | str]]:
         """Roll out a complete mouse trajectory before any caller dispatches it."""
@@ -77,6 +95,7 @@ class MouseDecoder:
         dx = dst_x - start_x
         dy = dst_y - start_y
         distance = math.hypot(dx, dy)
+        endpoint_budget = self.endpoint_step_budget(distance, max_steps)
         scale = max(1.0, float(self.coordinate_scale))
         condition = torch.tensor(
             [[start_x / scale, start_y / scale, dst_x / scale, dst_y / scale, dx / scale, dy / scale, distance / scale]],
@@ -90,6 +109,10 @@ class MouseDecoder:
         rows: list[dict[str, float | str]] = []
         previous_rows: list[list[float]] = [[0.0, 0.0, 0.0] + [0.0] * (action_count + 1)]
         previous_rows[0][3 + bos_index] = 1.0
+        timing_generator = None
+        if timing_temperature > 0 and timing_seed is not None:
+            timing_generator = torch.Generator(device=self.device)
+            timing_generator.manual_seed(int(timing_seed))
         with torch.no_grad():
             for step_index in range(max_steps):
                 previous = torch.tensor([previous_rows], dtype=torch.float32, device=self.device)
@@ -103,7 +126,12 @@ class MouseDecoder:
                 else:
                     action_id = int(logits[0, 0].argmax().item())
                 action = actions[action_id]
-                dt_ms = log_to_dt(float(dt_pred[0, 0].cpu()))
+                dt_log = sample_timing_log(
+                    dt_pred[0, 0],
+                    timing_temperature,
+                    generator=timing_generator,
+                )
+                dt_ms = log_to_dt(float(dt_log.cpu()))
                 if rows:
                     dt_ms = max(dt_ms, min_dt_ms)
                 offset += dt_ms
@@ -112,9 +140,11 @@ class MouseDecoder:
                 rel_y = float(pos_pred[0, 0, 1].cpu())
                 if self.position_frame == "goal_relative_delta":
                     if endpoint_guidance:
-                        remaining_steps = max(1, max_steps - step_index)
+                        remaining_steps = max(1, endpoint_budget - step_index)
                         min_delta = (1.0 - state_along) / remaining_steps
-                        state_along = min(1.0, state_along + max(rel_x, min_delta, 0.0))
+                        max_delta = max(min_delta, min_delta * 2.0)
+                        guided_delta = max(min(rel_x, max_delta), min_delta, 0.0)
+                        state_along = min(1.0, state_along + guided_delta)
                         guided_perp = state_perp + rel_y
                         envelope = max(0.0, 0.35 * math.sin(math.pi * max(0.0, min(1.0, state_along))))
                         state_perp = max(-envelope, min(envelope, guided_perp * (1.0 - 0.25 * state_along)))
@@ -149,7 +179,7 @@ class MouseDecoder:
                     break
 
                 next_previous = [0.0, state_along, state_perp] + [0.0] * (action_count + 1)
-                next_previous[0] = float(dt_pred[0, 0].detach().cpu())
+                next_previous[0] = float(dt_log.detach().cpu())
                 next_previous[3 + action_id] = 1.0
                 previous_rows.append(next_previous)
 
@@ -169,6 +199,8 @@ def simulate_mouse_click_rows(
     endpoint_guidance: bool = True,
     sample: bool = False,
     temperature: float = 1.0,
+    timing_temperature: float = 0.0,
+    timing_seed: int | None = None,
     click_at_end: bool = True,
 ) -> list[dict[str, float | str]]:
     """Compatibility wrapper around `MouseDecoder.decode`."""
@@ -186,6 +218,8 @@ def simulate_mouse_click_rows(
         endpoint_guidance=endpoint_guidance,
         sample=sample,
         temperature=temperature,
+        timing_temperature=timing_temperature,
+        timing_seed=timing_seed,
         click_at_end=click_at_end,
     )
 
@@ -223,12 +257,22 @@ def encode_final_string(final_string: str, char_to_id: dict[str, int], device: t
     return encode_keyboard_condition("", final_string, char_to_id, device)
 
 
-def require_keyboard_target_supported(final_string: str, action_to_id: dict[str, int]) -> None:
-    """Raise if constrained keyboard decoding cannot emit every target character."""
-    missing = sorted({char for char in final_string if char not in action_to_id})
+def require_keyboard_target_supported(
+    initial_string: str,
+    final_string: str,
+    action_to_id: dict[str, int],
+) -> None:
+    """Raise if constrained keyboard decoding cannot emit required insertions."""
+    missing = sorted(
+        {
+            action
+            for action in terminal_edit_actions(initial_string, final_string)
+            if action != KEY_BACKSPACE and action not in action_to_id
+        }
+    )
     if missing:
         labels = ", ".join(repr(char) for char in missing)
-        raise SystemExit(f"Target contains characters outside the keyboard action vocabulary: {labels}")
+        raise SystemExit(f"Target edit requires characters outside the keyboard action vocabulary: {labels}")
 
 
 def structured_keyboard_action_ids(
@@ -302,201 +346,50 @@ def choose_structured_keyboard_action(
     return id_to_action[action_id], action_id
 
 
-def keyboard_typo_candidates(action_to_id: dict[str, int], desired_action: str) -> list[str]:
-    """List plausible wrong-key actions for typo injection."""
-    return [
-        action
-        for action in sorted(action_to_id)
-        if action not in {desired_action, KEY_BACKSPACE, KEY_STOP}
+def choose_learned_keyboard_typo(
+    typo_logit: torch.Tensor,
+    typo_action_logits: torch.Tensor,
+    valid_action_ids: list[int],
+    id_to_action: dict[int, str],
+    preferred_action_id: int,
+    rng: random.Random,
+    sample: bool,
+    temperature: float,
+    threshold: float,
+) -> tuple[str, int, float] | None:
+    """Choose one learned wrong-character action under the structured mask."""
+    candidate_ids_list = [
+        int(action_id)
+        for action_id in valid_action_ids
+        if int(action_id) != int(preferred_action_id)
+        and id_to_action[int(action_id)] not in {KEY_BACKSPACE, KEY_STOP}
     ]
+    if not candidate_ids_list:
+        return None
 
+    probability = float(torch.sigmoid(typo_logit).detach().cpu())
+    if sample:
+        if rng.random() >= probability:
+            return None
+    elif probability < threshold:
+        return None
 
-def parse_keyboard_typo_mode_weights(weights: str | dict[str, float] | None) -> dict[str, float]:
-    """Normalize typo mode weights from CLI/config input.
-
-    Accepts either a dictionary or comma-separated text such as
-    `"replace=0.5,forward=0.3,backtrack=0.2"`. Mode aliases are normalized and
-    duplicate modes are summed.
-    """
-    # Typo behavior is optional and expressed as small named plans rather than
-    # arbitrary bad edits. Normalize aliases once so generation can work with a
-    # compact mode -> weight map.
-    if weights is None:
-        weights = DEFAULT_KEYBOARD_TYPO_MODE_WEIGHTS
-    parsed: dict[str, float] = {}
-    if isinstance(weights, dict):
-        items = weights.items()
+    candidate_ids = torch.tensor(candidate_ids_list, dtype=torch.long, device=typo_action_logits.device)
+    candidate_logits = typo_action_logits.index_select(0, candidate_ids)
+    if sample and len(candidate_ids_list) > 1:
+        probabilities = torch.softmax(candidate_logits / max(temperature, 1e-4), dim=0).detach().cpu().tolist()
+        pick = rng.random()
+        cumulative = 0.0
+        selected_index = len(candidate_ids_list) - 1
+        for index, candidate_probability in enumerate(probabilities):
+            cumulative += float(candidate_probability)
+            if pick <= cumulative:
+                selected_index = index
+                break
     else:
-        items_list: list[tuple[str, str]] = []
-        for raw_part in weights.split(","):
-            part = raw_part.strip()
-            if not part:
-                continue
-            if "=" in part:
-                mode, value = part.split("=", 1)
-                items_list.append((mode.strip(), value.strip()))
-            else:
-                items_list.append((part, "1.0"))
-        items = items_list
-
-    for raw_mode, raw_weight in items:
-        mode = KEYBOARD_TYPO_MODE_ALIASES.get(str(raw_mode).strip().lower())
-        if mode is None:
-            allowed = ", ".join(sorted(set(KEYBOARD_TYPO_MODE_ALIASES.values())))
-            raise ValueError(f"Unknown keyboard typo mode {raw_mode!r}; expected one of: {allowed}.")
-        weight = float(raw_weight)
-        if weight < 0:
-            raise ValueError(f"Keyboard typo mode weights must be non-negative; got {raw_mode}={weight}.")
-        parsed[mode] = parsed.get(mode, 0.0) + weight
-
-    if sum(parsed.values()) <= 0:
-        raise ValueError("At least one keyboard typo mode weight must be greater than zero.")
-    return parsed
-
-
-def weighted_keyboard_typo_mode(modes: list[tuple[str, float]], rng: random.Random) -> str | None:
-    """Sample a typo mode from `(mode, weight)` pairs."""
-    total = sum(weight for _, weight in modes)
-    if total <= 0:
-        return None
-    pick = rng.random() * total
-    cumulative = 0.0
-    for mode, weight in modes:
-        cumulative += weight
-        if pick <= cumulative:
-            return mode
-    return modes[-1][0]
-
-
-def choose_keyboard_typo(
-    logits: torch.Tensor,
-    action_to_id: dict[str, int],
-    id_to_action: dict[int, str],
-    desired_action: str,
-    rng: random.Random,
-    temperature: float,
-) -> tuple[str, int] | None:
-    """Sample a wrong keyboard action from model logits.
-
-    The candidate set excludes the desired target action and structural repair
-    tokens. Returns both the action string and id, or `None` if no wrong-key
-    action exists in the checkpoint vocabulary.
-    """
-    # Wrong-key choices still come from the model distribution, just restricted
-    # away from the desired action and repair/stop tokens. That keeps injected
-    # typos shaped like actions the model considers plausible.
-    candidates = keyboard_typo_candidates(action_to_id, desired_action)
-    if not candidates:
-        return None
-    candidate_ids = torch.tensor([action_to_id[action] for action in candidates], dtype=torch.long, device=logits.device)
-    candidate_logits = logits.index_select(0, candidate_ids)
-    probs = torch.softmax(candidate_logits / max(temperature, 1e-4), dim=0).detach().cpu().tolist()
-    pick = rng.random()
-    cumulative = 0.0
-    for candidate_id, probability in zip(candidate_ids.detach().cpu().tolist(), probs, strict=False):
-        cumulative += float(probability)
-        if pick <= cumulative:
-            return id_to_action[int(candidate_id)], int(candidate_id)
-    fallback_id = int(candidate_ids[-1].detach().cpu())
-    return id_to_action[fallback_id], fallback_id
-
-
-def apply_keyboard_plan(text: list[str], plan: list[KeyboardEditStep]) -> list[str]:
-    """Apply a candidate edit plan to text and return the resulting text."""
-    result = list(text)
-    for step in plan:
-        apply_keyboard_action(result, step.action)
-    return result
-
-
-def minimum_constrained_keyboard_steps(final_string: str, text: list[str]) -> int:
-    """Return the minimum edits needed to finish a constrained keyboard target."""
-    return minimum_terminal_edit_steps(final_string, text)
-
-
-def sample_keyboard_typo_plan(
-    logits: torch.Tensor,
-    action_to_id: dict[str, int],
-    id_to_action: dict[int, str],
-    final_string: str,
-    text: list[str],
-    rng: random.Random,
-    temperature: float,
-    mode_weights: dict[str, float],
-    max_wrong_chars: int,
-    max_backtrack_chars: int,
-) -> list[KeyboardEditStep]:
-    """Build a bounded typo-and-repair plan for constrained keyboard decoding.
-
-    Plans are small local detours: replace one target character, type extra
-    wrong characters then repair them, or backtrack over already-correct text.
-    The caller is responsible for checking that the resulting text can still be
-    repaired within the decode step budget.
-    """
-    # A typo plan is a bounded detour around the normal target path. Each plan
-    # must be repairable by later constrained decoding, so callers check the
-    # resulting edit budget before committing to it.
-    current = "".join(text)
-    if not final_string.startswith(current) or current == final_string:
-        return []
-
-    modes: list[tuple[str, float]] = []
-    if max_wrong_chars > 0:
-        modes.extend(
-            (mode, mode_weights.get(mode, 0.0))
-            for mode in ("replace", "forward")
-            if mode_weights.get(mode, 0.0) > 0
-        )
-    if text and max_backtrack_chars > 0 and mode_weights.get("backtrack", 0.0) > 0:
-        modes.append(("backtrack", mode_weights["backtrack"]))
-
-    mode = weighted_keyboard_typo_mode(modes, rng)
-    if mode is None:
-        return []
-
-    desired_action = final_string[len(current)]
-    if mode == "replace":
-        typo = choose_keyboard_typo(
-            logits,
-            action_to_id=action_to_id,
-            id_to_action=id_to_action,
-            desired_action=desired_action,
-            rng=rng,
-            temperature=temperature,
-        )
-        if typo is None:
-            return []
-        wrong_action, _ = typo
-        return [
-            KeyboardEditStep(wrong_action, "replace"),
-            KeyboardEditStep(KEY_BACKSPACE, "repair"),
-            KeyboardEditStep(desired_action, "target"),
-        ]
-
-    if mode == "forward":
-        wrong_count = rng.randint(1, max_wrong_chars)
-        plan = [KeyboardEditStep(desired_action, "target")]
-        for _ in range(wrong_count):
-            typo = choose_keyboard_typo(
-                logits,
-                action_to_id=action_to_id,
-                id_to_action=id_to_action,
-                desired_action=desired_action,
-                rng=rng,
-                temperature=temperature,
-            )
-            if typo is None:
-                return []
-            wrong_action, _ = typo
-            plan.append(KeyboardEditStep(wrong_action, "forward"))
-        plan.extend(KeyboardEditStep(KEY_BACKSPACE, "repair") for _ in range(wrong_count))
-        return plan
-
-    if mode == "backtrack":
-        backtrack_count = rng.randint(1, min(max_backtrack_chars, len(text)))
-        return [KeyboardEditStep(KEY_BACKSPACE, "backtrack") for _ in range(backtrack_count)]
-
-    return []
+        selected_index = int(candidate_logits.argmax().item())
+    action_id = int(candidate_ids[selected_index].detach().cpu())
+    return id_to_action[action_id], action_id, probability
 
 
 class KeyboardDecoder:
@@ -517,13 +410,11 @@ class KeyboardDecoder:
         initial_string: str = "",
         structured_extra_steps: int = 6,
         canonical_bias: float = 1.5,
-        typo_rate: float = 0.0,
-        max_typos: int = 2,
+        max_typos: int = -1,
         typo_seed: int | None = 13,
-        typo_mode_weights: str | dict[str, float] | None = None,
-        max_typo_chars: int = 3,
-        max_backtrack_chars: int = 2,
-        typo_min_dt_ms: float = 20.0,
+        learned_typo_threshold: float = 0.05,
+        timing_temperature: float = 0.0,
+        timing_seed: int | None = None,
     ) -> list[dict[str, Any]]:
         return _decode_keyboard_rows_impl(
             checkpoint=self.checkpoint,
@@ -537,14 +428,39 @@ class KeyboardDecoder:
             initial_string=initial_string,
             structured_extra_steps=structured_extra_steps,
             canonical_bias=canonical_bias,
-            typo_rate=typo_rate,
             max_typos=max_typos,
             typo_seed=typo_seed,
-            typo_mode_weights=typo_mode_weights,
-            max_typo_chars=max_typo_chars,
-            max_backtrack_chars=max_backtrack_chars,
-            typo_min_dt_ms=typo_min_dt_ms,
+            learned_typo_threshold=learned_typo_threshold,
+            timing_temperature=timing_temperature,
+            timing_seed=timing_seed,
         )
+
+
+def _constrained_keyboard_budget(
+    model: KeyboardActionGRU,
+    final_ids: torch.Tensor,
+    final_lengths: torch.Tensor,
+    *,
+    final_string: str,
+    min_steps: int,
+    max_steps: int,
+    structured_extra_steps: int,
+) -> tuple[int, float | None]:
+    """Return the constrained decode budget and optional raw press-count prediction."""
+    if model.press_count_head is None:
+        raise RuntimeError("Constrained keyboard decode requires a predictive press-count head.")
+
+    with torch.no_grad():
+        condition = model.encode(final_ids, final_lengths)
+        press_count_logits = model.press_count_head(condition).squeeze(-1)
+        predicted_press_count = float(decode_press_count_logits(press_count_logits)[0].detach().cpu())
+    if not math.isfinite(predicted_press_count):
+        raise RuntimeError("Constrained keyboard decode produced a non-finite press-count prediction.")
+
+    extra_steps = max(0, structured_extra_steps)
+    floor_budget = max(min_steps, len(final_string) + extra_steps)
+    predicted_budget = max(min_steps, math.ceil(max(0.0, predicted_press_count - 1e-6)))
+    return min(max_steps, max(floor_budget, predicted_budget)), predicted_press_count
 
 
 def _decode_keyboard_rows_impl(
@@ -559,13 +475,11 @@ def _decode_keyboard_rows_impl(
     initial_string: str = "",
     structured_extra_steps: int = 6,
     canonical_bias: float = 1.5,
-    typo_rate: float = 0.0,
-    max_typos: int = 2,
+    max_typos: int = -1,
     typo_seed: int | None = 13,
-    typo_mode_weights: str | dict[str, float] | None = None,
-    max_typo_chars: int = 3,
-    max_backtrack_chars: int = 2,
-    typo_min_dt_ms: float = 20.0,
+    learned_typo_threshold: float = 0.05,
+    timing_temperature: float = 0.0,
+    timing_seed: int | None = None,
 ) -> list[dict[str, Any]]:
     """Roll out keyboard edit rows from a trained keyboard checkpoint model.
 
@@ -573,9 +487,9 @@ def _decode_keyboard_rows_impl(
     action, resulting text, and a `stepKind` label. `constrained` mode masks the
     model to actions that can still reach `final_string`; `canonical` mode emits
     the shortest valid edit path while still using model timing; `unconstrained`
-    mode exposes raw model action choices and may not reach the target. Optional
-    typo settings inject bounded correction plans before returning to normal
-    constrained decoding.
+    mode exposes raw model action choices and may not reach the target. Learned
+    typo emission is part of constrained decoding and uses the same reachability
+    mask as normal model actions.
     """
     # Keyboard generation has three layers:
     # 1. Encode the requested edit as the model condition.
@@ -588,33 +502,36 @@ def _decode_keyboard_rows_impl(
     if action_to_id is None:
         action_to_id = {token: index for index, token in id_to_action.items()}
     action_count = len(id_to_action)
-    if not 0.0 <= typo_rate <= 1.0:
-        raise ValueError(f"typo_rate must be between 0 and 1, got {typo_rate}.")
-    if max_typos < 0:
-        raise ValueError(f"max_typos must be non-negative, got {max_typos}.")
-    if max_typo_chars < 0:
-        raise ValueError(f"max_typo_chars must be non-negative, got {max_typo_chars}.")
-    if max_backtrack_chars < 0:
-        raise ValueError(f"max_backtrack_chars must be non-negative, got {max_backtrack_chars}.")
-    if typo_min_dt_ms < 0:
-        raise ValueError(f"typo_min_dt_ms must be non-negative, got {typo_min_dt_ms}.")
-    parsed_typo_mode_weights = parse_keyboard_typo_mode_weights(typo_mode_weights)
+    if max_typos < -1:
+        raise ValueError(f"max_typos must be -1 or non-negative, got {max_typos}.")
+    if not 0.0 <= learned_typo_threshold <= 1.0:
+        raise ValueError(f"learned_typo_threshold must be between 0 and 1, got {learned_typo_threshold}.")
+    final_ids, final_lengths = encode_keyboard_condition(initial_string, final_string, char_to_id, device)
+    predicted_press_count: float | None = None
+    min_steps = minimum_terminal_edit_steps(final_string, list(initial_string))
 
-    # Establish the decode contract up front. Constrained mode reserves a small
-    # amount of extra room for learned repairs; canonical mode follows the
-    # shortest path; unconstrained mode is raw logits and may miss the target.
+    # Establish the decode contract up front. Constrained mode uses the learned
+    # press budget with a small floor based on target length; canonical mode
+    # follows the shortest path; unconstrained mode is raw logits and may miss
+    # the target.
     if decode_mode == "constrained":
-        require_keyboard_target_supported(final_string, action_to_id)
-        min_steps = minimum_terminal_edit_steps(final_string, list(initial_string))
-        effective_max_steps = min(max_steps, min_steps + max(0, structured_extra_steps))
+        require_keyboard_target_supported(initial_string, final_string, action_to_id)
         if max_steps < min_steps:
             raise SystemExit(
                 f"Constrained keyboard decode needs at least {min_steps} steps for this target; "
                 f"got --max-steps {max_steps}."
             )
+        effective_max_steps, predicted_press_count = _constrained_keyboard_budget(
+            model,
+            final_ids,
+            final_lengths,
+            final_string=final_string,
+            min_steps=min_steps,
+            max_steps=max_steps,
+            structured_extra_steps=structured_extra_steps,
+        )
     elif decode_mode == "canonical":
-        require_keyboard_target_supported(final_string, action_to_id)
-        min_steps = minimum_terminal_edit_steps(final_string, list(initial_string))
+        require_keyboard_target_supported(initial_string, final_string, action_to_id)
         effective_max_steps = max_steps
         if max_steps < min_steps:
             raise SystemExit(
@@ -625,19 +542,24 @@ def _decode_keyboard_rows_impl(
         raise ValueError(f"Unknown keyboard decode mode: {decode_mode!r}")
     else:
         effective_max_steps = max_steps
+    if max_typos < 0 and decode_mode in {"constrained", "canonical"}:
+        max_typos = max(0, (effective_max_steps - min_steps) // 2)
 
     offset = 0.0
     text: list[str] = list(initial_string)
     rows: list[dict[str, Any]] = []
-    final_ids, final_lengths = encode_keyboard_condition(initial_string, final_string, char_to_id, device)
     previous_action_ids = [action_count]
     previous_dt_values = [0.0]
     next_char_id_values: list[int] = []
     typo_rng = random.Random(typo_seed)
+    timing_generator = None
+    if timing_temperature > 0 and timing_seed is not None:
+        timing_generator = torch.Generator(device=device)
+        timing_generator.manual_seed(int(timing_seed))
     typos_used = 0
-    pending_typo_plan: list[KeyboardEditStep] = []
+    non_canonical_prefixes: set[str] = set()
     with torch.no_grad():
-        for _ in range(max_steps):
+        for _ in range(effective_max_steps):
             # Feed the model the current prefix history plus the next desired
             # target character. The next-char feature is a local guide, not a
             # hard action; the action head still decides what to do next.
@@ -650,94 +572,105 @@ def _decode_keyboard_rows_impl(
             previous_action = torch.tensor([previous_action_ids], dtype=torch.long, device=device)
             previous_dt = torch.tensor([previous_dt_values], dtype=torch.float32, device=device)
             next_char_ids = torch.tensor([next_char_id_values], dtype=torch.long, device=device)
-            dt_pred_all, logits_all = model(final_ids, final_lengths, previous_action, previous_dt, next_char_ids)
+            dt_pred_all, logits_all, typo_logits_all, typo_action_logits_all, _ = model(
+                final_ids,
+                final_lengths,
+                previous_action,
+                previous_dt,
+                next_char_ids,
+            )
             dt_pred = dt_pred_all[:, -1:]
             logits = logits_all[:, -1:, :]
+            typo_logit = typo_logits_all[0, -1] if typo_logits_all is not None else None
+            typo_action_logits = typo_action_logits_all[0, -1] if typo_action_logits_all is not None else None
 
             if decode_mode in {"constrained", "canonical"}:
-                if pending_typo_plan:
-                    # Once a typo plan starts, finish it exactly so the injected
-                    # detour is internally coherent before returning to normal
-                    # model-constrained decoding.
-                    edit_step = pending_typo_plan.pop(0)
-                    action = edit_step.action
+                action = ""
+                action_id = -1
+                step_kind = "target"
+                current = "".join(text)
+                if decode_mode == "canonical":
+                    # Canonical mode is deterministic shortest-path editing. It
+                    # still uses model timing, but not model action preferences.
+                    action = constrained_keyboard_action(final_string, text)
                     action_id = int(action_to_id[action])
-                    step_kind = edit_step.step_kind
+                    step_kind = "repair" if action == KEY_BACKSPACE else "target"
                 else:
-                    action = ""
-                    action_id = -1
-                    step_kind = "target"
-                    current = "".join(text)
+                    # Constrained mode lets the model choose among all reachable
+                    # actions. The learned typo head is the only non-canonical
+                    # correction strategy; it is also filtered through the same
+                    # hard reachability mask as normal model actions.
+                    remaining_steps_after_action = max(0, effective_max_steps - len(rows) - 1)
+                    valid_action_ids = structured_keyboard_action_ids(
+                        final_string=final_string,
+                        text=text,
+                        action_to_id=action_to_id,
+                        remaining_steps_after_action=remaining_steps_after_action,
+                    )
+                    preferred_action = constrained_keyboard_action(final_string, text)
+                    preferred_action_id = int(action_to_id[preferred_action])
+                    learned_typo = None
+                    selected_from_structured_head = False
                     if (
-                        typo_rate > 0
+                        typo_logit is not None
+                        and typo_action_logits is not None
                         and max_typos > 0
                         and typos_used < max_typos
+                        and current not in non_canonical_prefixes
                         and final_string.startswith(current)
                         and current != final_string
-                        and typo_rng.random() < typo_rate
                     ):
-                        # Injected typos are optional bounded plans. They only
-                        # get accepted if the remaining step budget can still
-                        # repair the text and finish the requested target.
-                        plan = sample_keyboard_typo_plan(
-                            logits[0, 0],
-                            action_to_id=action_to_id,
+                        learned_typo = choose_learned_keyboard_typo(
+                            typo_logit=typo_logit,
+                            typo_action_logits=typo_action_logits,
+                            valid_action_ids=valid_action_ids,
                             id_to_action=id_to_action,
-                            final_string=final_string,
-                            text=text,
+                            preferred_action_id=preferred_action_id,
                             rng=typo_rng,
+                            sample=sample,
                             temperature=temperature,
-                            mode_weights=parsed_typo_mode_weights,
-                            max_wrong_chars=max_typo_chars,
-                            max_backtrack_chars=max_backtrack_chars,
+                            threshold=learned_typo_threshold,
                         )
-                        plan_end_text = apply_keyboard_plan(text, plan)
-                        required_steps = len(plan) + minimum_constrained_keyboard_steps(final_string, plan_end_text)
-                        if plan and len(rows) + required_steps <= max_steps:
-                            typos_used += 1
-                            edit_step = plan.pop(0)
-                            pending_typo_plan.extend(plan)
-                            action = edit_step.action
-                            action_id = int(action_to_id[action])
-                            step_kind = edit_step.step_kind
+                    if learned_typo is not None:
+                        action, action_id, _ = learned_typo
+                        typos_used += 1
+                        non_canonical_prefixes.add(current)
+                        step_kind = "learned_typo"
                     if not action:
-                        if decode_mode == "canonical":
-                            # Canonical mode is deterministic shortest-path
-                            # editing. It still uses model timing, but not model
-                            # action preferences.
-                            action = constrained_keyboard_action(final_string, text)
-                            action_id = int(action_to_id[action])
-                            step_kind = "repair" if action == KEY_BACKSPACE else "target"
+                        must_progress = final_string.startswith(current) and current in non_canonical_prefixes
+                        if must_progress:
+                            action = preferred_action
+                            action_id = preferred_action_id
                         else:
-                            # Constrained mode lets the model choose among all
-                            # reachable actions. The canonical action receives a
-                            # small bias so the rollout stays efficient unless
-                            # the model strongly prefers another valid edit.
-                            remaining_steps_after_action = max(0, effective_max_steps - len(rows) - 1)
-                            valid_action_ids = structured_keyboard_action_ids(
-                                final_string=final_string,
-                                text=text,
-                                action_to_id=action_to_id,
-                                remaining_steps_after_action=remaining_steps_after_action,
-                            )
-                            preferred_action = constrained_keyboard_action(final_string, text)
                             action, action_id = choose_structured_keyboard_action(
                                 logits[0, 0],
                                 valid_action_ids=valid_action_ids,
                                 id_to_action=id_to_action,
                                 sample=sample,
                                 temperature=temperature,
-                                preferred_action_id=int(action_to_id[preferred_action]),
+                                preferred_action_id=preferred_action_id,
                                 preferred_bias=canonical_bias,
                             )
-                            if action == KEY_STOP:
-                                step_kind = "model_stop"
-                            elif action == KEY_BACKSPACE:
-                                step_kind = "model_repair"
-                            elif final_string.startswith(current) and len(current) < len(final_string) and action == final_string[len(current)]:
-                                step_kind = "model_target"
-                            else:
-                                step_kind = "model_edit"
+                        selected_from_structured_head = True
+                    if selected_from_structured_head and action == KEY_STOP:
+                        step_kind = "model_stop"
+                    elif selected_from_structured_head and action == KEY_BACKSPACE:
+                        step_kind = "model_repair"
+                    elif (
+                        selected_from_structured_head
+                        and final_string.startswith(current)
+                        and len(current) < len(final_string)
+                        and action == final_string[len(current)]
+                    ):
+                        step_kind = "model_target"
+                    elif selected_from_structured_head:
+                        step_kind = "model_edit"
+                    if (
+                        final_string.startswith(current)
+                        and action_id != preferred_action_id
+                        and action != KEY_STOP
+                    ):
+                        non_canonical_prefixes.add(current)
             elif sample:
                 # Unconstrained mode is diagnostic: it samples or argmaxes the
                 # raw action head and does not guarantee the target text.
@@ -750,9 +683,15 @@ def _decode_keyboard_rows_impl(
                 action = id_to_action[action_id]
                 step_kind = "model"
 
-            dt_ms = log_to_dt(float(dt_pred[0, 0].cpu()))
-            if step_kind in {"replace", "forward", "backtrack", "repair"} and typo_min_dt_ms > 0:
-                dt_ms = max(dt_ms, typo_min_dt_ms)
+            current_timing_temperature = timing_temperature if rows else 0.0
+            dt_log = sample_timing_log(
+                dt_pred[0, 0],
+                current_timing_temperature,
+                generator=timing_generator,
+            )
+            dt_ms = log_to_dt(float(dt_log.cpu()))
+            if timing_temperature > 0:
+                dt_ms = min(650.0, max(6.0, dt_ms))
             offset += dt_ms
             if action == KEY_STOP:
                 # Stop is emitted only after the target is complete in
@@ -771,14 +710,20 @@ def _decode_keyboard_rows_impl(
                 }
             )
             previous_action_ids.append(action_id)
-            previous_dt_values.append(float(dt_pred[0, 0].detach().cpu()))
+            previous_dt_values.append(float(dt_log.detach().cpu()))
 
     # Constrained modes are intended for execution, so failing to reach the
     # requested text is an invariant violation rather than a soft metric.
     if decode_mode in {"constrained", "canonical"} and "".join(text) != final_string:
+        budget_detail = ""
+        if predicted_press_count is not None:
+            budget_detail = (
+                f" using predicted press budget {predicted_press_count:.2f} "
+                f"with guard band {max(0, structured_extra_steps)}"
+            )
         raise RuntimeError(
             f"{decode_mode.capitalize()} keyboard decode failed to reach target {final_string!r}; "
-            f"ended at {''.join(text)!r} after {max_steps} steps."
+            f"ended at {''.join(text)!r} after {effective_max_steps} allowed steps{budget_detail}."
         )
     return rows
 
@@ -795,13 +740,11 @@ def decode_keyboard_rows(
     initial_string: str = "",
     structured_extra_steps: int = 6,
     canonical_bias: float = 1.5,
-    typo_rate: float = 0.0,
-    max_typos: int = 2,
+    max_typos: int = -1,
     typo_seed: int | None = 13,
-    typo_mode_weights: str | dict[str, float] | None = None,
-    max_typo_chars: int = 3,
-    max_backtrack_chars: int = 2,
-    typo_min_dt_ms: float = 20.0,
+    learned_typo_threshold: float = 0.05,
+    timing_temperature: float = 0.0,
+    timing_seed: int | None = None,
 ) -> list[dict[str, Any]]:
     """Compatibility wrapper around `KeyboardDecoder.decode`."""
     return KeyboardDecoder(checkpoint=checkpoint, model=model, device=device).decode(
@@ -813,11 +756,9 @@ def decode_keyboard_rows(
         initial_string=initial_string,
         structured_extra_steps=structured_extra_steps,
         canonical_bias=canonical_bias,
-        typo_rate=typo_rate,
         max_typos=max_typos,
         typo_seed=typo_seed,
-        typo_mode_weights=typo_mode_weights,
-        max_typo_chars=max_typo_chars,
-        max_backtrack_chars=max_backtrack_chars,
-        typo_min_dt_ms=typo_min_dt_ms,
+        learned_typo_threshold=learned_typo_threshold,
+        timing_temperature=timing_temperature,
+        timing_seed=timing_seed,
     )

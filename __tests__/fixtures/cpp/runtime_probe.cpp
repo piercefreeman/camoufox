@@ -59,6 +59,9 @@ nlohmann::json keyboardStepJson(
       {"hidden", step.hidden},
       {"dtHead", step.dtHead},
       {"actionHead", step.actionHead},
+      {"typoHead", step.typoHead},
+      {"typoActionHead", step.typoActionHead},
+      {"learnedTypoProbability", step.learnedTypoProbability},
       {"validActionIds", step.validActionIds},
       {"previousActionId", step.previousActionId},
       {"selectedActionId", step.selectedActionId},
@@ -136,6 +139,10 @@ int main(int argc, char** argv) {
         std::stod(argv[8]));
     nlohmann::json output;
     output["kind"] = "keyboard";
+    output["minimumSteps"] = trace.minimumSteps;
+    output["effectiveMaxSteps"] = trace.effectiveMaxSteps;
+    output["predictedPressCount"] = trace.predictedPressCount;
+    output["usedPredictedPressCount"] = trace.usedPredictedPressCount;
     output["conditionIds"] = trace.conditionIds;
     output["condition"] = trace.condition;
     output["steps"] = nlohmann::json::array();

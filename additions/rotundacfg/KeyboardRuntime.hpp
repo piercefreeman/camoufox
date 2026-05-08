@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdint>
 #include <optional>
 #include <string>
 #include <unordered_map>
@@ -27,10 +28,13 @@ struct KeyboardRuntimeTraceStep {
   std::vector<double> hidden;
   std::vector<double> dtHead;
   std::vector<double> actionHead;
+  std::vector<double> typoHead;
+  std::vector<double> typoActionHead;
   std::vector<int> validActionIds;
   int previousActionId = 0;
   int selectedActionId = -1;
   int preferredActionId = -1;
+  double learnedTypoProbability = 0.0;
   double previousDt = 0.0;
   double offsetMs = 0.0;
   double dtMs = 0.0;
@@ -41,6 +45,10 @@ struct KeyboardRuntimeTraceStep {
 };
 
 struct KeyboardRuntimeTrace {
+  int minimumSteps = 0;
+  int effectiveMaxSteps = 0;
+  double predictedPressCount = 0.0;
+  bool usedPredictedPressCount = false;
   std::vector<int> conditionIds;
   std::vector<double> condition;
   std::vector<KeyboardRuntimeTraceStep> steps;
@@ -56,11 +64,21 @@ class KeyboardRuntimeModel {
   std::vector<KeyboardRuntimeRow> decode(
       const std::string& initialString, const std::string& finalString,
       int maxSteps = 256, const std::string& decodeMode = "constrained",
-      int structuredExtraSteps = 6, double canonicalBias = 1.5) const;
+      int structuredExtraSteps = -1, double canonicalBias = 1.5,
+      double learnedTypoThreshold = 0.05, int maxLearnedTypos = -1,
+      bool sampleLearnedTypos = false, double timingJitterSigma = 0.0,
+      double pauseProbability = 0.0, double pauseMeanMs = 35.0,
+      std::uint32_t randomSeed = 0, double timingTemperature = 0.0,
+      double actionTemperature = 0.0) const;
   KeyboardRuntimeTrace traceDecode(
       const std::string& initialString, const std::string& finalString,
       int maxSteps = 256, const std::string& decodeMode = "constrained",
-      int structuredExtraSteps = 6, double canonicalBias = 1.5) const;
+      int structuredExtraSteps = -1, double canonicalBias = 1.5,
+      double learnedTypoThreshold = 0.05, int maxLearnedTypos = -1,
+      bool sampleLearnedTypos = false, double timingJitterSigma = 0.0,
+      double pauseProbability = 0.0, double pauseMeanMs = 35.0,
+      std::uint32_t randomSeed = 0, double timingTemperature = 0.0,
+      double actionTemperature = 0.0) const;
 
   const nlohmann::json& metadata() const { return m_metadata; }
   bool isLoaded() const { return m_loaded; }
@@ -84,6 +102,8 @@ class KeyboardRuntimeModel {
                               int layer) const;
   std::vector<double> encode(const std::string& initialString,
                              const std::string& finalString) const;
+  std::optional<double> predictPressCount(
+      const std::vector<double>& condition) const;
   std::string nextChar(const std::string& finalString,
                        const std::string& text) const;
   std::string constrainedAction(const std::string& finalString,
@@ -91,7 +111,8 @@ class KeyboardRuntimeModel {
   std::vector<int> structuredActionIds(
       const std::string& finalString, const std::string& text,
       int remainingStepsAfterAction) const;
-  bool targetSupported(const std::string& finalString) const;
+  bool targetSupported(const std::string& initialString,
+                       const std::string& finalString) const;
   int minimumTerminalEditSteps(const std::string& finalString,
                                const std::string& text) const;
   std::string applyActionCopy(const std::string& text,
@@ -99,7 +120,11 @@ class KeyboardRuntimeModel {
   KeyboardRuntimeTrace decodeInternal(
       const std::string& initialString, const std::string& finalString,
       int maxSteps, const std::string& decodeMode, int structuredExtraSteps,
-      double canonicalBias, bool collectTrace) const;
+      double canonicalBias, double learnedTypoThreshold,
+      int maxLearnedTypos, bool sampleLearnedTypos, double timingJitterSigma,
+      double timingTemperature, double pauseProbability, double pauseMeanMs,
+      std::uint32_t randomSeed, double actionTemperature,
+      bool collectTrace) const;
 
   RuntimeWeights m_weights;
   nlohmann::json m_metadata;
@@ -110,6 +135,9 @@ class KeyboardRuntimeModel {
   int m_layers = 1;
   int m_actionCount = 0;
   bool m_loaded = false;
+  bool m_hasLearnedTypoHead = false;
+  bool m_hasPressCountHead = false;
+  std::string m_timingDistribution = "point";
 };
 
 }  // namespace rotundacfg

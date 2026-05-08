@@ -186,15 +186,29 @@ std::optional<std::string> RuntimeWeights::ResolveBundledModelPath(
   if (!executable || executable->empty()) return std::nullopt;
 
   std::string executableDir = directoryName(*executable);
-  std::vector<std::string> candidates = {
-      joinPath(joinPath(executableDir, "runtime-models"), fileName),
-      joinPath(joinPath(joinPath(joinPath(executableDir, ".."), "Resources"),
-                        "runtime-models"),
-               fileName),
-      joinPath(joinPath(joinPath(joinPath(executableDir, ".."), ".."),
-                        "runtime-models"),
-               fileName),
-  };
+  std::vector<std::string> candidates;
+  candidates.push_back(joinPath(joinPath(executableDir, "runtime-models"),
+                                fileName));
+  candidates.push_back(joinPath(
+      joinPath(joinPath(joinPath(executableDir, ".."), "Resources"),
+               "runtime-models"),
+      fileName));
+  candidates.push_back(joinPath(
+      joinPath(joinPath(joinPath(executableDir, ".."), ".."), "runtime-models"),
+      fileName));
+  // Content/helper processes run from nested helper apps, e.g.
+  // Rotunda.app/Contents/MacOS/plugin-container.app/Contents/MacOS.
+  // Those processes should still resolve the main app's bundled resources.
+  // Keep this candidate platform-neutral so the Linux C++ parity probe can
+  // exercise the macOS bundle layout.
+  candidates.push_back(joinPath(
+      joinPath(joinPath(joinPath(joinPath(joinPath(joinPath(executableDir, ".."),
+                                                  ".."),
+                                          ".."),
+                                  ".."),
+                          "Resources"),
+               "runtime-models"),
+      fileName));
 
   for (const auto& candidate : candidates) {
     if (fileExists(candidate)) return candidate;

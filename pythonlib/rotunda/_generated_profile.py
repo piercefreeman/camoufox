@@ -168,6 +168,19 @@ class HumanizeProfile(BaseModel):
         None, alias='mouseClickThreshold', ge=0.0, le=1.0
     )
     mouse_min_dt_ms: float | None = Field(None, alias='mouseMinDtMs', ge=0.0)
+    mouse_path_curve_sigma: float | None = Field(
+        None, alias='mousePathCurveSigma', ge=0.0
+    )
+    keyboard_sample_typos: bool | None = Field(None, alias='keyboardSampleTypos')
+    keyboard_timing_jitter_sigma: float | None = Field(
+        None, alias='keyboardTimingJitterSigma', ge=0.0
+    )
+    keyboard_pause_probability: float | None = Field(
+        None, alias='keyboardPauseProbability', ge=0.0, le=1.0
+    )
+    keyboard_pause_mean_ms: float | None = Field(
+        None, alias='keyboardPauseMeanMs', ge=0.0
+    )
 
 
 class AudioContextProfile(BaseModel):

@@ -1,7 +1,9 @@
 [dependency-groups]
 dev = [
+    "fastapi",
     "ruff==0.15.11",
     "ty==0.0.31",
+    "uvicorn",
 ]
 
 [tool.uv.workspace]

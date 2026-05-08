@@ -125,9 +125,11 @@ def test_keyboard_model_forward_backward_step_on_tiny_dataset() -> None:
         action_embed_size=8,
         layers=1,
         dropout=0.0,
+        learned_typo_head=True,
+        predict_press_count_head=True,
     )
 
-    dt_pred, action_logits = model(
+    dt_pred, action_logits, typo_logits, typo_action_logits, press_count_logits = model(
         batch["final_ids"],
         batch["final_lengths"],
         batch["previous_actions"],
@@ -138,10 +140,26 @@ def test_keyboard_model_forward_backward_step_on_tiny_dataset() -> None:
     assert dt_pred.shape == batch["dt"].shape
     assert action_logits.shape[:2] == batch["actions"].shape
     assert action_logits.shape[-1] == len(action_to_id)
+    assert typo_logits is not None
+    assert typo_action_logits is not None
+    assert press_count_logits is not None
+    assert typo_logits.shape == batch["dt"].shape
+    assert typo_action_logits.shape[:2] == batch["actions"].shape
+    assert typo_action_logits.shape[-1] == len(action_to_id)
+    assert press_count_logits.shape == batch["press_count"].shape
 
-    loss, metrics = keyboard_loss(batch, model, duration_weight=0.5)
+    loss, metrics, observations = keyboard_loss(batch, model, duration_weight=0.5, press_count_weight=0.5)
     assert torch.isfinite(loss)
     assert metrics["loss"] > 0.0
+    assert "target_wait_ms_median_values" in observations
+    assert "pred_wait_ms_median_values" in observations
+    assert "target_edit_duration_ms_median_values" in observations
+    assert "pred_edit_duration_ms_median_values" in observations
+    assert "target_press_count_median_values" in observations
+    assert "pred_press_count_median_values" in observations
+    assert "key_action_error_rate_mean_values" in observations
+    assert len(observations["target_edit_duration_ms_median_values"]) == len(episodes)
+    assert len(observations["target_press_count_median_values"]) == len(episodes)
 
     optimizer = torch.optim.AdamW(model.parameters(), lr=1e-3)
     optimizer.zero_grad(set_to_none=True)
@@ -150,3 +168,61 @@ def test_keyboard_model_forward_backward_step_on_tiny_dataset() -> None:
     assert has_nonzero_gradient(model)
 
     optimizer.step()
+
+
+def test_keyboard_dataset_labels_raw_wrong_character_actions() -> None:
+    episode = KeyboardEpisode(
+        source="fixture-typo",
+        initial_string="",
+        final_string="ab",
+        steps=(
+            KeyStep(dt_ms=30.0, action="a"),
+            KeyStep(dt_ms=35.0, action="c"),
+            KeyStep(dt_ms=40.0, action="<BACKSPACE>"),
+            KeyStep(dt_ms=45.0, action="b"),
+        ),
+    )
+    char_to_id, action_to_id = build_keyboard_vocabs([episode])
+    dataset = KeyboardTrajectoryDataset(
+        [episode],
+        char_to_id=char_to_id,
+        action_to_id=action_to_id,
+        sequence_mode="raw",
+    )
+
+    sample = dataset[0]
+
+    assert sample["typo_labels"].tolist() == [0.0, 1.0, 0.0, 0.0, 0.0]
+    assert sample["typo_action_ids"].tolist()[1] == action_to_id["c"]
+    assert sample["typo_action_ids"].tolist()[0] == -100
+
+
+def test_keyboard_dataset_labels_wrong_character_repaired_later() -> None:
+    episode = KeyboardEpisode(
+        source="fixture-typo",
+        initial_string="t",
+        final_string="thanks",
+        steps=(
+            KeyStep(dt_ms=30.0, action="h"),
+            KeyStep(dt_ms=35.0, action="a"),
+            KeyStep(dt_ms=40.0, action="n"),
+            KeyStep(dt_ms=45.0, action="s"),
+            KeyStep(dt_ms=50.0, action="k"),
+            KeyStep(dt_ms=55.0, action="<BACKSPACE>"),
+            KeyStep(dt_ms=60.0, action="<BACKSPACE>"),
+            KeyStep(dt_ms=65.0, action="k"),
+            KeyStep(dt_ms=70.0, action="s"),
+        ),
+    )
+    char_to_id, action_to_id = build_keyboard_vocabs([episode])
+    dataset = KeyboardTrajectoryDataset(
+        [episode],
+        char_to_id=char_to_id,
+        action_to_id=action_to_id,
+        sequence_mode="raw",
+    )
+
+    sample = dataset[0]
+
+    assert sample["typo_labels"].tolist() == [0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    assert sample["typo_action_ids"].tolist()[3] == action_to_id["s"]

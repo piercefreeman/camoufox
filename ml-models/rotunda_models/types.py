@@ -76,14 +76,6 @@ class KeyStep:
 
 
 @dataclass(frozen=True)
-class KeyboardEditStep:
-    """Planned keyboard action plus its role in constrained generation."""
-
-    action: str
-    step_kind: str
-
-
-@dataclass(frozen=True)
 class KeyboardEpisode:
     """A text edit episode that turns an initial string into a final string."""
 
@@ -103,6 +95,9 @@ class FocusedTextSnapshot:
     identity: str
     raw_accessibility_id: str | None
     value: str
+    key_action: str | None = None
+    key_code: int | None = None
+    is_keyboard_event: bool = False
 
     @property
     def effective_offset_ms(self) -> int:
