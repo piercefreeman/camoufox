@@ -183,7 +183,7 @@ std::vector<KeyboardRuntimeRow> KeyboardRuntimeModel::GenerateFromConfig(
   if (auto configured = MaskConfig::GetDouble("humanize.keyboardCanonicalBias")) {
     canonicalBias = std::max(0.0, *configured);
   }
-  double learnedTypoThreshold = 0.2;
+  double learnedTypoThreshold = 0.05;
   if (auto configured =
           MaskConfig::GetDouble("humanize.keyboardLearnedTypoThreshold")) {
     learnedTypoThreshold = std::max(0.0, std::min(1.0, *configured));

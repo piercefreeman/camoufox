@@ -32,7 +32,7 @@ struct Options {
   int keyboardMaxSteps = 256;
   int keyboardStructuredExtraSteps = 6;
   double keyboardCanonicalBias = 3.0;
-  double keyboardLearnedTypoThreshold = 0.2;
+  double keyboardLearnedTypoThreshold = 0.05;
   int keyboardMaxTypos = 2;
   bool keyboardSampleTypos = true;
   double keyboardTimingJitterSigma = 0.0;
@@ -82,7 +82,7 @@ int usage(const char* binary) {
       << "  --keyboard-max-steps <int>              default 256\n"
       << "  --keyboard-structured-extra-steps <int> default 6\n"
       << "  --keyboard-canonical-bias <float>       default 3.0\n"
-      << "  --keyboard-learned-typo-threshold <float> default 0.2\n"
+      << "  --keyboard-learned-typo-threshold <float> default 0.05\n"
       << "  --keyboard-max-typos <int>              default 2\n"
       << "  --no-keyboard-sample-typos              disable typo sampling\n"
       << "  --keyboard-timing-jitter-sigma <float>  default 0.0\n"
