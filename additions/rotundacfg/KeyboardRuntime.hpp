@@ -64,19 +64,21 @@ class KeyboardRuntimeModel {
   std::vector<KeyboardRuntimeRow> decode(
       const std::string& initialString, const std::string& finalString,
       int maxSteps = 256, const std::string& decodeMode = "constrained",
-      int structuredExtraSteps = 6, double canonicalBias = 3.0,
-      double learnedTypoThreshold = 0.2, int maxLearnedTypos = 2,
+      int structuredExtraSteps = 6, double canonicalBias = 1.5,
+      double learnedTypoThreshold = 0.05, int maxLearnedTypos = 3,
       bool sampleLearnedTypos = false, double timingJitterSigma = 0.0,
       double pauseProbability = 0.0, double pauseMeanMs = 35.0,
-      std::uint32_t randomSeed = 0, double timingTemperature = 0.0) const;
+      std::uint32_t randomSeed = 0, double timingTemperature = 0.0,
+      double actionTemperature = 0.0) const;
   KeyboardRuntimeTrace traceDecode(
       const std::string& initialString, const std::string& finalString,
       int maxSteps = 256, const std::string& decodeMode = "constrained",
-      int structuredExtraSteps = 6, double canonicalBias = 3.0,
-      double learnedTypoThreshold = 0.2, int maxLearnedTypos = 2,
+      int structuredExtraSteps = 6, double canonicalBias = 1.5,
+      double learnedTypoThreshold = 0.05, int maxLearnedTypos = 3,
       bool sampleLearnedTypos = false, double timingJitterSigma = 0.0,
       double pauseProbability = 0.0, double pauseMeanMs = 35.0,
-      std::uint32_t randomSeed = 0, double timingTemperature = 0.0) const;
+      std::uint32_t randomSeed = 0, double timingTemperature = 0.0,
+      double actionTemperature = 0.0) const;
 
   const nlohmann::json& metadata() const { return m_metadata; }
   bool isLoaded() const { return m_loaded; }
@@ -121,7 +123,8 @@ class KeyboardRuntimeModel {
       double canonicalBias, double learnedTypoThreshold,
       int maxLearnedTypos, bool sampleLearnedTypos, double timingJitterSigma,
       double timingTemperature, double pauseProbability, double pauseMeanMs,
-      std::uint32_t randomSeed, bool collectTrace) const;
+      std::uint32_t randomSeed, double actionTemperature,
+      bool collectTrace) const;
 
   RuntimeWeights m_weights;
   nlohmann::json m_metadata;

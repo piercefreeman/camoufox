@@ -76,6 +76,37 @@ double sampledKeyboardDt(double dtMs, double timingJitterSigma,
   return std::min(kMaxSampledDtMs, std::max(kMinSampledDtMs, sampled));
 }
 
+int sampledLogitId(const std::vector<int>& candidateIds,
+                   const std::vector<double>& logits, double temperature,
+                   std::mt19937& rng, int preferredId = -1,
+                   double preferredBias = 0.0) {
+  if (candidateIds.empty()) return -1;
+  double temp = std::min(std::max(temperature, 1e-4), 3.0);
+  double maxLogit = -std::numeric_limits<double>::infinity();
+  std::vector<double> adjusted;
+  adjusted.reserve(candidateIds.size());
+  for (int id : candidateIds) {
+    if (id < 0 || static_cast<size_t>(id) >= logits.size()) {
+      adjusted.push_back(-std::numeric_limits<double>::infinity());
+      continue;
+    }
+    double value = logits[static_cast<size_t>(id)] +
+                   (id == preferredId ? preferredBias : 0.0);
+    adjusted.push_back(value);
+    maxLogit = std::max(maxLogit, value);
+  }
+  if (!std::isfinite(maxLogit)) return -1;
+
+  std::vector<double> weights;
+  weights.reserve(adjusted.size());
+  for (double value : adjusted) {
+    weights.push_back(std::isfinite(value) ? std::exp((value - maxLogit) / temp)
+                                           : 0.0);
+  }
+  std::discrete_distribution<size_t> distribution(weights.begin(), weights.end());
+  return candidateIds[distribution(rng)];
+}
+
 bool startsWith(const std::string& value, const std::string& prefix) {
   return prefix.size() <= value.size() &&
          value.compare(0, prefix.size(), prefix) == 0;
@@ -179,7 +210,7 @@ std::vector<KeyboardRuntimeRow> KeyboardRuntimeModel::GenerateFromConfig(
           MaskConfig::GetInt32("humanize.keyboardStructuredExtraSteps")) {
     structuredExtraSteps = std::max(0, *configured);
   }
-  double canonicalBias = 3.0;
+  double canonicalBias = 1.5;
   if (auto configured = MaskConfig::GetDouble("humanize.keyboardCanonicalBias")) {
     canonicalBias = std::max(0.0, *configured);
   }
@@ -188,7 +219,7 @@ std::vector<KeyboardRuntimeRow> KeyboardRuntimeModel::GenerateFromConfig(
           MaskConfig::GetDouble("humanize.keyboardLearnedTypoThreshold")) {
     learnedTypoThreshold = std::max(0.0, std::min(1.0, *configured));
   }
-  int maxLearnedTypos = 2;
+  int maxLearnedTypos = 3;
   if (auto configured = MaskConfig::GetInt32("humanize.keyboardMaxTypos")) {
     maxLearnedTypos = std::max(0, *configured);
   }
@@ -208,6 +239,11 @@ std::vector<KeyboardRuntimeRow> KeyboardRuntimeModel::GenerateFromConfig(
           MaskConfig::GetDouble("humanize.keyboardTimingTemperature")) {
     timingTemperature = std::max(0.0, *configured);
   }
+  double actionTemperature = 0.6;
+  if (auto configured =
+          MaskConfig::GetDouble("humanize.keyboardActionTemperature")) {
+    actionTemperature = std::max(0.0, *configured);
+  }
   double pauseProbability = 0.0;
   if (auto configured =
           MaskConfig::GetDouble("humanize.keyboardPauseProbability")) {
@@ -221,7 +257,8 @@ std::vector<KeyboardRuntimeRow> KeyboardRuntimeModel::GenerateFromConfig(
                        structuredExtraSteps, canonicalBias,
                        learnedTypoThreshold, maxLearnedTypos,
                        sampleLearnedTypos, timingJitterSigma,
-                       pauseProbability, pauseMeanMs, 0, timingTemperature);
+                       pauseProbability, pauseMeanMs, 0, timingTemperature,
+                       actionTemperature);
 }
 
 int KeyboardRuntimeModel::charId(const std::string& token) const {
@@ -446,13 +483,13 @@ std::vector<KeyboardRuntimeRow> KeyboardRuntimeModel::decode(
     double canonicalBias, double learnedTypoThreshold, int maxLearnedTypos,
     bool sampleLearnedTypos, double timingJitterSigma,
     double pauseProbability, double pauseMeanMs, std::uint32_t randomSeed,
-    double timingTemperature) const {
+    double timingTemperature, double actionTemperature) const {
   return decodeInternal(initialString, finalString, maxSteps, decodeMode,
                         structuredExtraSteps, canonicalBias,
                         learnedTypoThreshold, maxLearnedTypos,
                         sampleLearnedTypos, timingJitterSigma,
                         timingTemperature, pauseProbability, pauseMeanMs,
-                        randomSeed, false)
+                        randomSeed, actionTemperature, false)
       .rows;
 }
 
@@ -462,13 +499,13 @@ KeyboardRuntimeTrace KeyboardRuntimeModel::traceDecode(
     double canonicalBias, double learnedTypoThreshold, int maxLearnedTypos,
     bool sampleLearnedTypos, double timingJitterSigma,
     double pauseProbability, double pauseMeanMs, std::uint32_t randomSeed,
-    double timingTemperature) const {
+    double timingTemperature, double actionTemperature) const {
   return decodeInternal(initialString, finalString, maxSteps, decodeMode,
                         structuredExtraSteps, canonicalBias,
                         learnedTypoThreshold, maxLearnedTypos,
                         sampleLearnedTypos, timingJitterSigma,
                         timingTemperature, pauseProbability, pauseMeanMs,
-                        randomSeed, true);
+                        randomSeed, actionTemperature, true);
 }
 
 KeyboardRuntimeTrace KeyboardRuntimeModel::decodeInternal(
@@ -477,7 +514,8 @@ KeyboardRuntimeTrace KeyboardRuntimeModel::decodeInternal(
     double canonicalBias, double learnedTypoThreshold, int maxLearnedTypos,
     bool sampleLearnedTypos, double timingJitterSigma,
     double timingTemperature, double pauseProbability, double pauseMeanMs,
-    std::uint32_t randomSeed, bool collectTrace) const {
+    std::uint32_t randomSeed, double actionTemperature,
+    bool collectTrace) const {
   KeyboardRuntimeTrace trace;
   if (!m_loaded || maxSteps <= 0) return {};
   if (decodeMode != "constrained" && decodeMode != "canonical") return {};
@@ -524,15 +562,17 @@ KeyboardRuntimeTrace KeyboardRuntimeModel::decodeInternal(
   std::string text = initialString;
   std::vector<KeyboardRuntimeRow> rows;
   int learnedTyposUsed = 0;
-  std::set<std::string> learnedTypoPrefixes;
+  std::set<std::string> nonCanonicalPrefixes;
   bool sampleLearnedTiming =
       m_timingDistribution == "lognormal" && timingTemperature > 0.0;
   bool sampleResidualTiming =
       timingJitterSigma > 0.0 ||
       (pauseProbability > 0.0 && pauseMeanMs > 0.0);
   bool sampleTiming = sampleLearnedTiming || sampleResidualTiming;
+  actionTemperature = std::min(std::max(0.0, actionTemperature), 3.0);
+  bool sampleActions = actionTemperature > 0.0;
   std::optional<std::mt19937> randomSampler;
-  if (sampleTiming || sampleLearnedTypos) {
+  if (sampleTiming || sampleLearnedTypos || sampleActions) {
     randomSampler.emplace(randomSeed == 0 ? std::random_device{}() : randomSeed);
   }
 
@@ -605,7 +645,7 @@ KeyboardRuntimeTrace KeyboardRuntimeModel::decodeInternal(
       preferredId = actionId(preferred);
       if (collectTrace) traceStep.validActionIds = valid;
       if (m_hasLearnedTypoHead && learnedTyposUsed < maxLearnedTypos &&
-          learnedTypoPrefixes.find(text) == learnedTypoPrefixes.end() &&
+          nonCanonicalPrefixes.find(text) == nonCanonicalPrefixes.end() &&
           startsWith(finalString, text) && text != finalString &&
           !typoHead.empty() && !typoActionHead.empty()) {
         double typoProbability = sigmoid(typoHead[0]);
@@ -615,7 +655,7 @@ KeyboardRuntimeTrace KeyboardRuntimeModel::decodeInternal(
           shouldTryTypo = uniform(*randomSampler) < typoProbability;
         }
         if (shouldTryTypo) {
-          double bestTypoLogit = -std::numeric_limits<double>::infinity();
+          std::vector<int> typoCandidates;
           for (int id : valid) {
             if (id < 0 || static_cast<size_t>(id) >= typoActionHead.size() ||
                 id == preferredId) {
@@ -625,28 +665,48 @@ KeyboardRuntimeTrace KeyboardRuntimeModel::decodeInternal(
             if (candidateAction == kBackspace || candidateAction == kStop) {
               continue;
             }
-            double value = typoActionHead[static_cast<size_t>(id)];
-            if (selectedActionId < 0 || value > bestTypoLogit) {
-              bestTypoLogit = value;
-              selectedActionId = id;
+            typoCandidates.push_back(id);
+          }
+          if (sampleActions && sampleLearnedTypos && randomSampler.has_value()) {
+            selectedActionId = sampledLogitId(
+                typoCandidates, typoActionHead, actionTemperature, *randomSampler);
+          } else {
+            double bestTypoLogit = -std::numeric_limits<double>::infinity();
+            for (int id : typoCandidates) {
+              double value = typoActionHead[static_cast<size_t>(id)];
+              if (selectedActionId < 0 || value > bestTypoLogit) {
+                bestTypoLogit = value;
+                selectedActionId = id;
+              }
             }
           }
           if (selectedActionId >= 0) {
             ++learnedTyposUsed;
-            learnedTypoPrefixes.insert(text);
+            nonCanonicalPrefixes.insert(text);
             stepKind = "learned_typo";
           }
         }
       }
       if (selectedActionId < 0) {
-        double bestLogit = -std::numeric_limits<double>::infinity();
-        for (int id : valid) {
-          if (id < 0 || static_cast<size_t>(id) >= actionHead.size()) continue;
-          double value = actionHead[static_cast<size_t>(id)] +
-                         (id == preferredId ? canonicalBias : 0.0);
-          if (selectedActionId < 0 || value > bestLogit) {
-            bestLogit = value;
-            selectedActionId = id;
+        bool mustProgress =
+            startsWith(finalString, text) &&
+            nonCanonicalPrefixes.find(text) != nonCanonicalPrefixes.end();
+        if (mustProgress && preferredId >= 0) {
+          selectedActionId = preferredId;
+        } else if (sampleActions && randomSampler.has_value() && valid.size() > 1) {
+          selectedActionId = sampledLogitId(valid, actionHead, actionTemperature,
+                                            *randomSampler, preferredId,
+                                            canonicalBias);
+        } else {
+          double bestLogit = -std::numeric_limits<double>::infinity();
+          for (int id : valid) {
+            if (id < 0 || static_cast<size_t>(id) >= actionHead.size()) continue;
+            double value = actionHead[static_cast<size_t>(id)] +
+                           (id == preferredId ? canonicalBias : 0.0);
+            if (selectedActionId < 0 || value > bestLogit) {
+              bestLogit = value;
+              selectedActionId = id;
+            }
           }
         }
       }
@@ -663,6 +723,10 @@ KeyboardRuntimeTrace KeyboardRuntimeModel::decodeInternal(
         stepKind = "model_target";
       } else {
         stepKind = "model_edit";
+      }
+      if (startsWith(finalString, text) && selectedActionId != preferredId &&
+          action != kStop) {
+        nonCanonicalPrefixes.insert(text);
       }
     }
 

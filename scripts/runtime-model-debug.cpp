@@ -31,12 +31,13 @@ struct Options {
   std::uint32_t mouseRandomSeed = 13;
   int keyboardMaxSteps = 256;
   int keyboardStructuredExtraSteps = 6;
-  double keyboardCanonicalBias = 3.0;
+  double keyboardCanonicalBias = 1.5;
   double keyboardLearnedTypoThreshold = 0.05;
-  int keyboardMaxTypos = 2;
+  int keyboardMaxTypos = 3;
   bool keyboardSampleTypos = true;
   double keyboardTimingJitterSigma = 0.0;
   double keyboardTimingTemperature = 0.25;
+  double keyboardActionTemperature = 0.6;
   double keyboardPauseProbability = 0.0;
   double keyboardPauseMeanMs = 35.0;
   std::uint32_t keyboardRandomSeed = 13;
@@ -81,12 +82,13 @@ int usage(const char* binary) {
       << "  --mouse-random-seed <int>               default 13\n"
       << "  --keyboard-max-steps <int>              default 256\n"
       << "  --keyboard-structured-extra-steps <int> default 6\n"
-      << "  --keyboard-canonical-bias <float>       default 3.0\n"
+      << "  --keyboard-canonical-bias <float>       default 1.5\n"
       << "  --keyboard-learned-typo-threshold <float> default 0.05\n"
-      << "  --keyboard-max-typos <int>              default 2\n"
+      << "  --keyboard-max-typos <int>              default 3\n"
       << "  --no-keyboard-sample-typos              disable typo sampling\n"
       << "  --keyboard-timing-jitter-sigma <float>  default 0.0\n"
       << "  --keyboard-timing-temperature <float>   default 0.25\n"
+      << "  --keyboard-action-temperature <float>   default 0.6\n"
       << "  --keyboard-pause-probability <float>    default 0.0\n"
       << "  --keyboard-pause-mean-ms <float>        default 35.0\n"
       << "  --keyboard-random-seed <int>            default 13\n"
@@ -163,6 +165,10 @@ std::optional<Options> parseOptions(int argc, char** argv) {
       auto next = value();
       if (!next) return std::nullopt;
       options.keyboardTimingTemperature = std::stod(*next);
+    } else if (isOption(arg, "--keyboard-action-temperature")) {
+      auto next = value();
+      if (!next) return std::nullopt;
+      options.keyboardActionTemperature = std::stod(*next);
     } else if (isOption(arg, "--keyboard-pause-probability")) {
       auto next = value();
       if (!next) return std::nullopt;
@@ -750,6 +756,7 @@ nlohmann::json diagnosticRun(const Options& options) {
       {"keyboardSampleTypos", options.keyboardSampleTypos},
       {"keyboardTimingJitterSigma", options.keyboardTimingJitterSigma},
       {"keyboardTimingTemperature", options.keyboardTimingTemperature},
+      {"keyboardActionTemperature", options.keyboardActionTemperature},
       {"keyboardPauseProbability", options.keyboardPauseProbability},
       {"keyboardPauseMeanMs", options.keyboardPauseMeanMs},
       {"keyboardRandomSeed", options.keyboardRandomSeed},
@@ -763,11 +770,14 @@ nlohmann::json diagnosticRun(const Options& options) {
            ? "sampled low-frequency goal-relative curve bias"
            : "deterministic learned perpendicular head"},
       {"keyboardAction",
-       "argmax(valid action logits + canonical bias); no multinomial sampling"},
+       options.keyboardActionTemperature > 0.0
+           ? "sample valid action logits plus canonical bias under reachability mask"
+           : "argmax(valid action logits + canonical bias); no multinomial sampling"},
       {"keyboardTypo",
        options.keyboardSampleTypos
-           ? "sample sigmoid(typo_head) after threshold, then "
-             "argmax(typo_action_head)"
+           ? (options.keyboardActionTemperature > 0.0
+                  ? "sample sigmoid(typo_head) after threshold, then sample typo_action_head"
+                  : "sample sigmoid(typo_head) after threshold, then argmax(typo_action_head)")
            : "sigmoid(typo_head) >= threshold, then argmax(typo_action_head); "
              "no probabilistic typo sampling"},
       {"keyboardTiming",
@@ -798,7 +808,8 @@ nlohmann::json diagnosticRun(const Options& options) {
         options.keyboardMaxTypos, options.keyboardSampleTypos,
         options.keyboardTimingJitterSigma,
         options.keyboardPauseProbability, options.keyboardPauseMeanMs,
-        options.keyboardRandomSeed, options.keyboardTimingTemperature);
+        options.keyboardRandomSeed, options.keyboardTimingTemperature,
+        options.keyboardActionTemperature);
     nlohmann::json caseOutput =
         keyboardCaseJson(testCase, trace, keyboardActions, options.includeVectors);
     if (trace.rows.empty() && testCase.initial != testCase.final) {

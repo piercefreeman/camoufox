@@ -409,10 +409,10 @@ class KeyboardDecoder:
         temperature: float = 1.0,
         initial_string: str = "",
         structured_extra_steps: int = 6,
-        canonical_bias: float = 3.0,
-        max_typos: int = 2,
+        canonical_bias: float = 1.5,
+        max_typos: int = 3,
         typo_seed: int | None = 13,
-        learned_typo_threshold: float = 0.2,
+        learned_typo_threshold: float = 0.05,
         timing_temperature: float = 0.0,
         timing_seed: int | None = None,
     ) -> list[dict[str, Any]]:
@@ -474,10 +474,10 @@ def _decode_keyboard_rows_impl(
     temperature: float = 1.0,
     initial_string: str = "",
     structured_extra_steps: int = 6,
-    canonical_bias: float = 3.0,
-    max_typos: int = 2,
+    canonical_bias: float = 1.5,
+    max_typos: int = 3,
     typo_seed: int | None = 13,
-    learned_typo_threshold: float = 0.2,
+    learned_typo_threshold: float = 0.05,
     timing_temperature: float = 0.0,
     timing_seed: int | None = None,
 ) -> list[dict[str, Any]]:
@@ -556,7 +556,7 @@ def _decode_keyboard_rows_impl(
         timing_generator = torch.Generator(device=device)
         timing_generator.manual_seed(int(timing_seed))
     typos_used = 0
-    learned_typo_prefixes: set[str] = set()
+    non_canonical_prefixes: set[str] = set()
     with torch.no_grad():
         for _ in range(effective_max_steps):
             # Feed the model the current prefix history plus the next desired
@@ -615,7 +615,7 @@ def _decode_keyboard_rows_impl(
                         and typo_action_logits is not None
                         and max_typos > 0
                         and typos_used < max_typos
-                        and current not in learned_typo_prefixes
+                        and current not in non_canonical_prefixes
                         and final_string.startswith(current)
                         and current != final_string
                     ):
@@ -633,18 +633,23 @@ def _decode_keyboard_rows_impl(
                     if learned_typo is not None:
                         action, action_id, _ = learned_typo
                         typos_used += 1
-                        learned_typo_prefixes.add(current)
+                        non_canonical_prefixes.add(current)
                         step_kind = "learned_typo"
                     if not action:
-                        action, action_id = choose_structured_keyboard_action(
-                            logits[0, 0],
-                            valid_action_ids=valid_action_ids,
-                            id_to_action=id_to_action,
-                            sample=sample,
-                            temperature=temperature,
-                            preferred_action_id=preferred_action_id,
-                            preferred_bias=canonical_bias,
-                        )
+                        must_progress = final_string.startswith(current) and current in non_canonical_prefixes
+                        if must_progress:
+                            action = preferred_action
+                            action_id = preferred_action_id
+                        else:
+                            action, action_id = choose_structured_keyboard_action(
+                                logits[0, 0],
+                                valid_action_ids=valid_action_ids,
+                                id_to_action=id_to_action,
+                                sample=sample,
+                                temperature=temperature,
+                                preferred_action_id=preferred_action_id,
+                                preferred_bias=canonical_bias,
+                            )
                         selected_from_structured_head = True
                     if selected_from_structured_head and action == KEY_STOP:
                         step_kind = "model_stop"
@@ -659,6 +664,12 @@ def _decode_keyboard_rows_impl(
                         step_kind = "model_target"
                     elif selected_from_structured_head:
                         step_kind = "model_edit"
+                    if (
+                        final_string.startswith(current)
+                        and action_id != preferred_action_id
+                        and action != KEY_STOP
+                    ):
+                        non_canonical_prefixes.add(current)
             elif sample:
                 # Unconstrained mode is diagnostic: it samples or argmaxes the
                 # raw action head and does not guarantee the target text.
@@ -727,10 +738,10 @@ def decode_keyboard_rows(
     temperature: float = 1.0,
     initial_string: str = "",
     structured_extra_steps: int = 6,
-    canonical_bias: float = 3.0,
-    max_typos: int = 2,
+    canonical_bias: float = 1.5,
+    max_typos: int = 3,
     typo_seed: int | None = 13,
-    learned_typo_threshold: float = 0.2,
+    learned_typo_threshold: float = 0.05,
     timing_temperature: float = 0.0,
     timing_seed: int | None = None,
 ) -> list[dict[str, Any]]:
