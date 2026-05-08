@@ -8,7 +8,7 @@
     {
       "kind": "keyboard_action_gru",
       "path": "keyboard.safetensors",
-      "tensorCount": 18
+      "tensorCount": 20
     }
   ],
   "format": "rotunda-runtime-manifest-v1"

@@ -3,12 +3,17 @@ from __future__ import annotations
 
 import json
 import os
+import socket
 import statistics
+import threading
 import time
 from pathlib import Path
 from typing import Any
 
 import click
+import uvicorn
+from fastapi import FastAPI, Request
+from fastapi.responses import HTMLResponse, JSONResponse
 from playwright.sync_api import sync_playwright
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -74,10 +79,7 @@ def find_executable(explicit_path: Path | None) -> Path:
     )
 
 
-def write_demo_page(output_dir: Path) -> Path:
-    page_path = output_dir / "runtime-model-demo.html"
-    page_path.write_text(
-        """<!doctype html>
+DEMO_HTML = """<!doctype html>
 <html>
 <head>
   <meta charset="utf-8">
@@ -105,6 +107,8 @@ def write_demo_page(output_dir: Path) -> Path:
     output { display: block; color: #39505f; font-size: 14px; min-height: 22px; }
     .preview { min-height: 86px; border: 1px solid #d8e0e6; background: #f7fafb; border-radius: 6px; padding: 12px; font-size: 14px; line-height: 1.45; white-space: pre-wrap; }
     pre { height: 320px; overflow: auto; background: #101820; color: #d8f2ff; border-radius: 6px; padding: 12px; font-size: 12px; line-height: 1.4; white-space: pre-wrap; }
+    .telemetry { margin-top: 12px; font-size: 12px; color: #5a6b78; display: flex; justify-content: space-between; gap: 8px; }
+    .telemetry span { font-variant-numeric: tabular-nums; }
     @media (max-width: 900px) { .workspace { grid-template-columns: 1fr; } .rail { position: static; } }
   </style>
 </head>
@@ -138,17 +142,34 @@ def write_demo_page(output_dir: Path) -> Path:
         <div id="previewPane" class="preview"></div>
         <h2 style="margin-top: 18px;">Event log</h2>
         <pre id="log"></pre>
+        <div class="telemetry">
+          <span>Buffered: <span id="bufferCount">0</span></span>
+          <span>Sent: <span id="sentCount">0</span></span>
+          <span id="sendStatus">idle</span>
+        </div>
       </aside>
     </div>
   </main>
   <script>
     window.__rotundaEvents = [];
     window.__rotundaActions = [];
+    window.__rotundaPending = [];
+    window.__rotundaSent = 0;
     const log = document.getElementById("log");
     const status = document.getElementById("status");
     const message = document.getElementById("message");
     const paragraph = document.getElementById("paragraph");
     const previewPane = document.getElementById("previewPane");
+    const bufferCount = document.getElementById("bufferCount");
+    const sentCount = document.getElementById("sentCount");
+    const sendStatus = document.getElementById("sendStatus");
+
+    const SESSION_ID = (typeof crypto !== "undefined" && crypto.randomUUID)
+      ? crypto.randomUUID()
+      : "session-" + Math.random().toString(36).slice(2);
+    const SESSION_START = Date.now();
+    const FLUSH_INTERVAL_MS = 250;
+    const MAX_BATCH = 200;
 
     function targetValue(event) {
       const target = event.target;
@@ -174,9 +195,61 @@ def write_demo_page(output_dir: Path) -> Path:
         value: targetValue(event)
       };
       window.__rotundaEvents.push(entry);
+      window.__rotundaPending.push(entry);
       const last = window.__rotundaEvents.slice(-28);
       log.textContent = last.map(item => JSON.stringify(item)).join("\\n");
+      bufferCount.textContent = String(window.__rotundaPending.length);
     }
+
+    let flushing = false;
+    async function flush() {
+      if (flushing || window.__rotundaPending.length === 0) return;
+      flushing = true;
+      const batch = window.__rotundaPending.splice(0, MAX_BATCH);
+      bufferCount.textContent = String(window.__rotundaPending.length);
+      sendStatus.textContent = "sending";
+      try {
+        const res = await fetch("/log", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            session_id: SESSION_ID,
+            session_start: SESSION_START,
+            received_at_client: Date.now(),
+            entries: batch
+          }),
+          keepalive: true
+        });
+        if (res.ok) {
+          window.__rotundaSent += batch.length;
+          sentCount.textContent = String(window.__rotundaSent);
+          sendStatus.textContent = "ok";
+        } else {
+          sendStatus.textContent = "http " + res.status;
+          window.__rotundaPending.unshift(...batch);
+          bufferCount.textContent = String(window.__rotundaPending.length);
+        }
+      } catch (err) {
+        sendStatus.textContent = "error";
+        window.__rotundaPending.unshift(...batch);
+        bufferCount.textContent = String(window.__rotundaPending.length);
+      } finally {
+        flushing = false;
+      }
+    }
+
+    setInterval(flush, FLUSH_INTERVAL_MS);
+    window.addEventListener("beforeunload", () => {
+      if (window.__rotundaPending.length === 0) return;
+      const blob = new Blob([JSON.stringify({
+        session_id: SESSION_ID,
+        session_start: SESSION_START,
+        received_at_client: Date.now(),
+        entries: window.__rotundaPending,
+        final: true
+      })], { type: "application/json" });
+      try { navigator.sendBeacon("/log", blob); } catch (_) {}
+    });
 
     for (const type of ["mousemove", "mousedown", "mouseup", "click"]) {
       window.addEventListener(type, record, true);
@@ -209,20 +282,96 @@ def write_demo_page(output_dir: Path) -> Path:
       });
     }
 
+    window.__rotundaFlush = flush;
     window.__rotundaSnapshot = () => ({
       message: message.value,
       paragraph: paragraph.value,
       status: status.textContent,
       preview: previewPane.textContent,
-      actionCount: window.__rotundaActions.length
+      actionCount: window.__rotundaActions.length,
+      pendingCount: window.__rotundaPending.length,
+      sentCount: window.__rotundaSent
     });
   </script>
 </body>
 </html>
-""",
-        encoding="utf-8",
-    )
+"""
+
+
+def write_demo_page(output_dir: Path) -> Path:
+    page_path = output_dir / "runtime-model-demo.html"
+    page_path.write_text(DEMO_HTML, encoding="utf-8")
     return page_path
+
+
+def _pick_free_port() -> int:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind(("127.0.0.1", 0))
+        return sock.getsockname()[1]
+
+
+def build_app(html: str, log_path: Path) -> tuple[FastAPI, threading.Lock, dict[str, int]]:
+    app = FastAPI(title="rotunda-runtime-model-demo")
+    write_lock = threading.Lock()
+    counters = {"batches": 0, "entries": 0}
+
+    @app.get("/", response_class=HTMLResponse)
+    def index() -> HTMLResponse:
+        return HTMLResponse(html)
+
+    @app.post("/log")
+    async def collect(request: Request) -> JSONResponse:
+        try:
+            payload = await request.json()
+        except Exception as exc:
+            return JSONResponse({"error": f"invalid json: {exc}"}, status_code=400)
+        entries = payload.get("entries") if isinstance(payload, dict) else None
+        if not isinstance(entries, list):
+            return JSONResponse({"error": "entries must be a list"}, status_code=400)
+        envelope = {
+            "received_at_server": time.time(),
+            "session_id": payload.get("session_id"),
+            "session_start": payload.get("session_start"),
+            "received_at_client": payload.get("received_at_client"),
+            "final": bool(payload.get("final")),
+            "entries": entries,
+        }
+        line = json.dumps(envelope, separators=(",", ":")) + "\n"
+        with write_lock:
+            with log_path.open("a", encoding="utf-8") as fh:
+                fh.write(line)
+            counters["batches"] += 1
+            counters["entries"] += len(entries)
+        return JSONResponse({"received": len(entries), "total_entries": counters["entries"]})
+
+    @app.get("/healthz")
+    def healthz() -> JSONResponse:
+        return JSONResponse({"ok": True, **counters})
+
+    return app, write_lock, counters
+
+
+def start_log_server(
+    html: str, log_path: Path, port: int | None = None
+) -> tuple[uvicorn.Server, threading.Thread, str, dict[str, int]]:
+    app, _lock, counters = build_app(html, log_path)
+    bound_port = port or _pick_free_port()
+    config = uvicorn.Config(
+        app,
+        host="127.0.0.1",
+        port=bound_port,
+        log_level="warning",
+        access_log=False,
+    )
+    server = uvicorn.Server(config)
+    thread = threading.Thread(target=server.run, name="rotunda-log-server", daemon=True)
+    thread.start()
+    deadline = time.time() + 10.0
+    while not server.started and time.time() < deadline:
+        time.sleep(0.05)
+    if not server.started:
+        raise click.ClickException("Log server failed to start within 10 seconds.")
+    return server, thread, f"http://127.0.0.1:{bound_port}", counters
 
 
 def summarize(
@@ -433,6 +582,13 @@ def command_loop(
     is_flag=True,
     help="Do not put model paths in the profile; let the browser resolve shipped runtime-models.",
 )
+@click.option(
+    "--server-port",
+    type=int,
+    default=0,
+    show_default=True,
+    help="Port to bind the localhost log server on. 0 picks a free ephemeral port.",
+)
 def main(
     executable_path: Path | None,
     mouse_model: Path,
@@ -446,6 +602,7 @@ def main(
     scripted_start: bool,
     no_interactive: bool,
     use_bundled_models: bool,
+    server_port: int,
 ) -> None:
     executable = find_executable(executable_path)
     mouse_model = mouse_model.expanduser().resolve()
@@ -458,6 +615,8 @@ def main(
     output_dir = output_root.expanduser().resolve() / f"runtime-browser-demo-{time.strftime('%Y%m%d-%H%M%S')}"
     output_dir.mkdir(parents=True, exist_ok=True)
     page_path = write_demo_page(output_dir)
+    log_path = output_dir / "browser-events.jsonl"
+    log_path.touch()
     config_path = output_dir / "rotunda-runtime-model-profile.json"
     config = {
         "debug": True,
@@ -474,34 +633,49 @@ def main(
     click.echo(f"Launching {executable}")
     click.echo(f"Writing demo artifacts to {output_dir}")
 
-    with sync_playwright() as playwright:
-        browser = playwright.firefox.launch(
-            executable_path=str(executable),
-            headless=headless,
-            env=env,
-        )
-        page = browser.new_page(viewport={"width": 1024, "height": 760})
-        page.goto(page_path.as_uri())
+    server, server_thread, base_url, counters = start_log_server(
+        DEMO_HTML, log_path, port=server_port or None
+    )
+    click.echo(f"Log server listening at {base_url} (browser logs -> {log_path})")
 
-        if scripted_start or no_interactive:
-            run_scripted_sequence(page, text, paragraph_text)
+    try:
+        with sync_playwright() as playwright:
+            browser = playwright.firefox.launch(
+                executable_path=str(executable),
+                headless=headless,
+                env=env,
+            )
+            page = browser.new_page(viewport={"width": 1024, "height": 760})
+            page.goto(base_url + "/")
 
-        if no_interactive:
-            if pause_seconds > 0:
-                page.wait_for_timeout(int(pause_seconds * 1000))
-        else:
-            command_loop(page, output_dir, text, paragraph_text)
+            if scripted_start or no_interactive:
+                run_scripted_sequence(page, text, paragraph_text)
 
-        if keep_open and no_interactive:
-            click.echo("Browser is open. Press Enter to close it.")
-            input()
+            if no_interactive:
+                if pause_seconds > 0:
+                    page.wait_for_timeout(int(pause_seconds * 1000))
+            else:
+                command_loop(page, output_dir, text, paragraph_text)
 
-        events = page.evaluate("window.__rotundaEvents")
-        actions = page.evaluate("window.__rotundaActions")
-        snapshot = browser_snapshot(page)
-        screenshot_path = output_dir / "runtime-model-demo.png"
-        page.screenshot(path=str(screenshot_path), full_page=True)
-        browser.close()
+            if keep_open and no_interactive:
+                click.echo("Browser is open. Press Enter to close it.")
+                input()
+
+            try:
+                page.evaluate("window.__rotundaFlush && window.__rotundaFlush()")
+                page.wait_for_timeout(400)
+            except Exception:
+                pass
+
+            events = page.evaluate("window.__rotundaEvents")
+            actions = page.evaluate("window.__rotundaActions")
+            snapshot = browser_snapshot(page)
+            screenshot_path = output_dir / "runtime-model-demo.png"
+            page.screenshot(path=str(screenshot_path), full_page=True)
+            browser.close()
+    finally:
+        server.should_exit = True
+        server_thread.join(timeout=5.0)
 
     summary = summarize(events, actions, snapshot)
     report = {
@@ -509,6 +683,12 @@ def main(
         "config": str(config_path),
         "page": str(page_path),
         "screenshot": str(screenshot_path),
+        "log_server": {
+            "url": base_url,
+            "log_path": str(log_path),
+            "batches_received": counters["batches"],
+            "entries_received": counters["entries"],
+        },
         "models": {
             "source": "bundled" if use_bundled_models else "profile",
             "mouse": None if use_bundled_models else str(mouse_model),
@@ -545,7 +725,18 @@ def main(
             f"(median interval {summary['keyboard']['input_interval_median_ms']} ms)."
         )
 
-    click.echo(json.dumps({"summary": summary, "report": str(report_path)}, indent=2))
+    click.echo(
+        json.dumps(
+            {
+                "summary": summary,
+                "report": str(report_path),
+                "browser_log": str(log_path),
+                "browser_log_batches": counters["batches"],
+                "browser_log_entries": counters["entries"],
+            },
+            indent=2,
+        )
+    )
 
 
 if __name__ == "__main__":
