@@ -240,7 +240,6 @@ MouseRuntimeTrace MouseRuntimeModel::decodeInternal(
   std::vector<double> previous(3 + static_cast<size_t>(m_actionCount) + 1, 0.0);
   previous[3 + static_cast<size_t>(m_actionCount)] = 1.0;
 
-  double offset = 0.0;
   double stateAlong = 0.0;
   double statePerp = 0.0;
   std::vector<MouseTrajectoryPoint> rows;
@@ -275,7 +274,6 @@ MouseRuntimeTrace MouseRuntimeModel::decodeInternal(
     int actionId = rawActionId;
     double dtMs = logToDt(dtHead[0]);
     if (!rows.empty()) dtMs = std::max(dtMs, minDtMs);
-    offset += dtMs;
 
     double remainingSteps = std::max(1, maxSteps - step);
     double minDelta = (1.0 - stateAlong) / remainingSteps;

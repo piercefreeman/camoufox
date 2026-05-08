@@ -158,6 +158,14 @@ def summarize(events: list[dict[str, Any]], final_text: str) -> dict[str, Any]:
     move_events = [event for event in events if event.get("type") == "mousemove"]
     input_events = [event for event in events if event.get("type") == "input"]
     key_events = [event for event in events if event.get("type") in {"keydown", "keyup"}]
+    value_change_input_events: list[dict[str, Any]] = []
+    last_value: str | None = None
+    for event in input_events:
+        value = event.get("value")
+        if not isinstance(value, str) or value == last_value:
+            continue
+        value_change_input_events.append(event)
+        last_value = value
 
     coords = {
         (round(event["x"], 2), round(event["y"], 2))
@@ -165,8 +173,8 @@ def summarize(events: list[dict[str, Any]], final_text: str) -> dict[str, Any]:
         if event.get("x") is not None and event.get("y") is not None
     }
     input_intervals = [
-        round(input_events[index]["ts"] - input_events[index - 1]["ts"], 3)
-        for index in range(1, len(input_events))
+        round(value_change_input_events[index]["ts"] - value_change_input_events[index - 1]["ts"], 3)
+        for index in range(1, len(value_change_input_events))
     ]
     mouse_duration = 0.0
     if len(mouse_events) >= 2:
@@ -185,6 +193,7 @@ def summarize(events: list[dict[str, Any]], final_text: str) -> dict[str, Any]:
         },
         "keyboard": {
             "input_event_count": len(input_events),
+            "value_change_input_count": len(value_change_input_events),
             "key_event_count": len(key_events),
             "input_interval_ms": input_intervals,
             "input_interval_median_ms": round(statistics.median(input_intervals), 3)
@@ -292,8 +301,8 @@ def main(
         raise click.ClickException(f"Final text mismatch: expected {text!r}, got {final_text!r}")
     if summary["mouse"]["mousemove_count"] < 2:
         raise click.ClickException("Mouse demo did not emit enough mousemove events")
-    if summary["keyboard"]["input_event_count"] < 1:
-        raise click.ClickException("Keyboard demo did not emit input events")
+    if summary["keyboard"]["value_change_input_count"] < 1:
+        raise click.ClickException("Keyboard demo did not emit value-changing input events")
 
     click.echo(json.dumps({"summary": summary, "report": str(report_path)}, indent=2))
 
