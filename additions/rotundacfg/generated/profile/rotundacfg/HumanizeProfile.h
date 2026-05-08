@@ -82,6 +82,34 @@ class HumanizeProfile {
       }
       m_mouseMinDtMs = value.get<double>();
     }
+    if (json.contains("keyboardSampleTypos") && !json.at("keyboardSampleTypos").is_null()) {
+      const auto& value = json.at("keyboardSampleTypos");
+      if (!value.is_boolean()) {
+        return false;
+      }
+      m_keyboardSampleTypos = value.get<bool>();
+    }
+    if (json.contains("keyboardTimingJitterSigma") && !json.at("keyboardTimingJitterSigma").is_null()) {
+      const auto& value = json.at("keyboardTimingJitterSigma");
+      if (!value.is_number()) {
+        return false;
+      }
+      m_keyboardTimingJitterSigma = value.get<double>();
+    }
+    if (json.contains("keyboardPauseProbability") && !json.at("keyboardPauseProbability").is_null()) {
+      const auto& value = json.at("keyboardPauseProbability");
+      if (!value.is_number()) {
+        return false;
+      }
+      m_keyboardPauseProbability = value.get<double>();
+    }
+    if (json.contains("keyboardPauseMeanMs") && !json.at("keyboardPauseMeanMs").is_null()) {
+      const auto& value = json.at("keyboardPauseMeanMs");
+      if (!value.is_number()) {
+        return false;
+      }
+      m_keyboardPauseMeanMs = value.get<double>();
+    }
     return true;
   }
 
@@ -110,6 +138,18 @@ class HumanizeProfile {
     }
     if (m_mouseMinDtMs.has_value()) {
       json["mouseMinDtMs"] = *m_mouseMinDtMs;
+    }
+    if (m_keyboardSampleTypos.has_value()) {
+      json["keyboardSampleTypos"] = *m_keyboardSampleTypos;
+    }
+    if (m_keyboardTimingJitterSigma.has_value()) {
+      json["keyboardTimingJitterSigma"] = *m_keyboardTimingJitterSigma;
+    }
+    if (m_keyboardPauseProbability.has_value()) {
+      json["keyboardPauseProbability"] = *m_keyboardPauseProbability;
+    }
+    if (m_keyboardPauseMeanMs.has_value()) {
+      json["keyboardPauseMeanMs"] = *m_keyboardPauseMeanMs;
     }
     return json;
   }
@@ -180,6 +220,38 @@ class HumanizeProfile {
     m_mouseMinDtMs = value;
   }
 
+  bool keyboardSampleTyposIsSet() const { return m_keyboardSampleTypos.has_value(); }
+  std::optional<bool> isKeyboardSampleTypos() const {
+    return m_keyboardSampleTypos;
+  }
+  void setKeyboardSampleTypos(const bool& value) {
+    m_keyboardSampleTypos = value;
+  }
+
+  bool keyboardTimingJitterSigmaIsSet() const { return m_keyboardTimingJitterSigma.has_value(); }
+  std::optional<double> getKeyboardTimingJitterSigma() const {
+    return m_keyboardTimingJitterSigma;
+  }
+  void setKeyboardTimingJitterSigma(const double& value) {
+    m_keyboardTimingJitterSigma = value;
+  }
+
+  bool keyboardPauseProbabilityIsSet() const { return m_keyboardPauseProbability.has_value(); }
+  std::optional<double> getKeyboardPauseProbability() const {
+    return m_keyboardPauseProbability;
+  }
+  void setKeyboardPauseProbability(const double& value) {
+    m_keyboardPauseProbability = value;
+  }
+
+  bool keyboardPauseMeanMsIsSet() const { return m_keyboardPauseMeanMs.has_value(); }
+  std::optional<double> getKeyboardPauseMeanMs() const {
+    return m_keyboardPauseMeanMs;
+  }
+  void setKeyboardPauseMeanMs(const double& value) {
+    m_keyboardPauseMeanMs = value;
+  }
+
  private:
   bool m_IsSet = false;
   std::optional<bool> m_enabled;
@@ -190,6 +262,10 @@ class HumanizeProfile {
   std::optional<int32_t> m_mouseMaxSteps;
   std::optional<double> m_mouseClickThreshold;
   std::optional<double> m_mouseMinDtMs;
+  std::optional<bool> m_keyboardSampleTypos;
+  std::optional<double> m_keyboardTimingJitterSigma;
+  std::optional<double> m_keyboardPauseProbability;
+  std::optional<double> m_keyboardPauseMeanMs;
 };
 
 }  // namespace rotundacfg
