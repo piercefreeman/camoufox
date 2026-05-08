@@ -51,7 +51,7 @@ index 1cfa4b8497..bdf8d7202e 100644
      // If we are given a tab to swap in, take care of it before first paint to
      // avoid an about:blank flash.
      let tabToAdopt = this.getTabToAdopt();
-@@ -345,6 +371,109 @@ var gBrowserInit = {
+@@ -345,6 +371,207 @@ var gBrowserInit = {
        }
      }
  
@@ -60,6 +60,8 @@ index 1cfa4b8497..bdf8d7202e 100644
 +      cursorFollower.id = "cursor-highlighter";
 +      cursorFollower.style.cssText = `
 +      position: fixed;
++      left: 0;
++      top: 0;
 +      width: 32px;
 +      height: 32px;
 +      pointer-events: none;
@@ -86,6 +88,16 @@ index 1cfa4b8497..bdf8d7202e 100644
 +      let startY = 0;
 +      let targetX = 0;
 +      let targetY = 0;
++      let control1X = 0;
++      let control1Y = 0;
++      let control2X = 0;
++      let control2Y = 0;
++      let velocityX = 0;
++      let velocityY = 0;
++      let headingX = 0;
++      let headingY = -1;
++      let lastRenderedX = 0;
++      let lastRenderedY = 0;
 +      let moveStartTime = 0;
 +      let moveDuration = 0;
 +      let animationFrame = 0;
@@ -94,7 +106,7 @@ index 1cfa4b8497..bdf8d7202e 100644
 +      let cursorAngle = 0;
 +      let cursorPressed = false;
 +      const renderCursor = () => {
-+        cursorFollower.style.transform = `translate(${currentX}px, ${currentY}px) translate(-50%, -50%)`;
++        cursorFollower.style.transform = `translate3d(${currentX}px, ${currentY}px, 0) translate(-50%, -50%)`;
 +        cursorFollower.style.opacity = "1";
 +      };
 +      const renderCursorGlyph = () => {
@@ -103,65 +115,151 @@ index 1cfa4b8497..bdf8d7202e 100644
 +        cursorGlyph.style.opacity = cursorPressed ? "1" : "0.96";
 +      };
 +      const animateCursor = timestamp => {
++        let progress = 1;
 +        if (moveDuration <= 0) {
 +          currentX = targetX;
 +          currentY = targetY;
 +        } else {
-+          const progress = Math.min(1, (timestamp - moveStartTime) / moveDuration);
-+          currentX = startX + (targetX - startX) * progress;
-+          currentY = startY + (targetY - startY) * progress;
++          progress = Math.min(1, (timestamp - moveStartTime) / moveDuration);
++          sampleBezier(progress);
 +        }
++        updateCursorHeading();
 +        renderCursor();
-+        if (currentX !== targetX || currentY !== targetY) {
++        if (progress < 1) {
 +          animationFrame = requestAnimationFrame(animateCursor);
 +        } else {
 +          animationFrame = 0;
 +        }
 +      };
-+      window.addEventListener('mousemove', e => {
++      const clampVector = (x, y, maxLength) => {
++        const length = Math.hypot(x, y);
++        if (!length || length <= maxLength) {
++          return [x, y];
++        }
++        const scale = maxLength / length;
++        return [x * scale, y * scale];
++      };
++      const updateCursorHeading = () => {
++        const dx = currentX - lastRenderedX;
++        const dy = currentY - lastRenderedY;
++        lastRenderedX = currentX;
++        lastRenderedY = currentY;
++        if (Math.hypot(dx, dy) < 0.2) {
++          return;
++        }
++        headingX = headingX * 0.82 + dx * 0.18;
++        headingY = headingY * 0.82 + dy * 0.18;
++        if (Math.hypot(headingX, headingY) > 0.15) {
++          cursorAngle = Math.atan2(headingY, headingX) * 180 / Math.PI + 90;
++          renderCursorGlyph();
++        }
++      };
++      const sampleBezier = t => {
++        const inverse = 1 - t;
++        const inverse2 = inverse * inverse;
++        const t2 = t * t;
++        currentX = inverse2 * inverse * startX + 3 * inverse2 * t * control1X + 3 * inverse * t2 * control2X + t2 * t * targetX;
++        currentY = inverse2 * inverse * startY + 3 * inverse2 * t * control1Y + 3 * inverse * t2 * control2Y + t2 * t * targetY;
++      };
++      const moveCursorTo = (x, y) => {
++        if (!Number.isFinite(x) || !Number.isFinite(y)) {
++          return;
++        }
 +        const now = performance.now();
 +        if (!visible) {
-+          currentX = e.clientX;
-+          currentY = e.clientY;
++          currentX = x;
++          currentY = y;
 +          targetX = currentX;
 +          targetY = currentY;
 +          visible = true;
 +          renderCursor();
 +          renderCursorGlyph();
++          lastRenderedX = currentX;
++          lastRenderedY = currentY;
 +          lastMoveTime = now;
 +          return;
 +        }
-+        const dx = e.clientX - targetX;
-+        const dy = e.clientY - targetY;
-+        if (Math.hypot(dx, dy) > 0.5) {
-+          cursorAngle = Math.atan2(dy, dx) * 180 / Math.PI + 90;
-+          renderCursorGlyph();
++        if (Math.hypot(x - targetX, y - targetY) < 0.5) {
++          return;
 +        }
 +        startX = currentX;
 +        startY = currentY;
-+        targetX = e.clientX;
-+        targetY = e.clientY;
++        targetX = x;
++        targetY = y;
 +        moveStartTime = now;
-+        moveDuration = Math.max(16, Math.min(80, now - lastMoveTime));
++        moveDuration = Math.max(24, Math.min(90, now - lastMoveTime));
 +        lastMoveTime = now;
++        const dx = targetX - startX;
++        const dy = targetY - startY;
++        const distance = Math.hypot(dx, dy);
++        if (distance > 0) {
++          const unitX = dx / distance;
++          const unitY = dy / distance;
++          const rawVelocityX = dx / moveDuration;
++          const rawVelocityY = dy / moveDuration;
++          let [c1Dx, c1Dy] = clampVector(
++            velocityX * moveDuration * 0.34,
++            velocityY * moveDuration * 0.34,
++            distance * 0.42
++          );
++          if (Math.hypot(c1Dx, c1Dy) < 0.5) {
++            c1Dx = unitX * distance * 0.24;
++            c1Dy = unitY * distance * 0.24;
++          }
++          const [c2Dx, c2Dy] = clampVector(
++            rawVelocityX * moveDuration * 0.24,
++            rawVelocityY * moveDuration * 0.24,
++            distance * 0.42
++          );
++          control1X = startX + c1Dx;
++          control1Y = startY + c1Dy;
++          control2X = targetX - c2Dx;
++          control2Y = targetY - c2Dy;
++          velocityX = velocityX * 0.72 + rawVelocityX * 0.28;
++          velocityY = velocityY * 0.72 + rawVelocityY * 0.28;
++        } else {
++          control1X = startX;
++          control1Y = startY;
++          control2X = targetX;
++          control2Y = targetY;
++          velocityX *= 0.72;
++          velocityY *= 0.72;
++        }
 +        if (!animationFrame) {
 +          animationFrame = requestAnimationFrame(animateCursor);
 +        }
++      };
++      const setCursorPressed = pressed => {
++        cursorPressed = pressed;
++        renderCursorGlyph();
++      };
++      window.addEventListener('mousemove', e => {
++        moveCursorTo(e.clientX, e.clientY);
 +      });
 +      window.addEventListener('mousedown', () => {
-+        cursorPressed = true;
-+        renderCursorGlyph();
++        setCursorPressed(true);
 +      }, true);
 +      window.addEventListener('mouseup', () => {
-+        cursorPressed = false;
-+        renderCursorGlyph();
++        setCursorPressed(false);
++      }, true);
++      window.__rotundaSetCursorOverlay = (x, y, type) => {
++        moveCursorTo(x, y);
++        if (type === "mousedown") {
++          setCursorPressed(true);
++        } else if (type === "mouseup") {
++          setCursorPressed(false);
++        }
++      };
++      window.addEventListener('RotundaCursorMove', e => {
++        const detail = e.detail || {};
++        window.__rotundaSetCursorOverlay(detail.x, detail.y, detail.type);
 +      }, true);
 +    }
 +
      // Wait until chrome is painted before executing code not critical to making the window visible
      this._boundDelayedStartup = this._delayedStartup.bind(this);
      window.addEventListener("MozAfterPaint", this._boundDelayedStartup);
-@@ -366,9 +495,152 @@ var gBrowserInit = {
+@@ -366,9 +573,152 @@ var gBrowserInit = {
        )?.removeAttribute("key");
      }
  

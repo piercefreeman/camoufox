@@ -537,6 +537,20 @@ export class PageHandler {
 
   async ['Page.dispatchMouseEvent']({type, x, y, button, clickCount, modifiers, buttons}) {
     const win = this._pageTarget._window;
+    const notifyCursorOverlay = (eventType, chromeX, chromeY) => {
+      try {
+        const overlayWin = this._pageTarget._linkedBrowser.ownerGlobal || win;
+        if (typeof overlayWin.__rotundaSetCursorOverlay === 'function') {
+          overlayWin.__rotundaSetCursorOverlay(chromeX, chromeY, eventType);
+          return;
+        }
+        overlayWin.dispatchEvent(new overlayWin.CustomEvent('RotundaCursorMove', {
+          detail: {type: eventType, x: chromeX, y: chromeY},
+        }));
+      } catch (e) {
+        // Cursor overlay is optional; never block input dispatch.
+      }
+    };
     const sendEvents = async (types, eventX = x, eventY = y) => {
       // 1. Scroll element to the desired location first; the coordinates are relative to the element.
       this._pageTarget._linkedBrowser.scrollRectIntoViewIfNeeded(eventX, eventY, 0, 0);
@@ -549,11 +563,14 @@ export class PageHandler {
       const watcher = new EventWatcher(this._pageEventSink, types, this._pendingEventWatchers);
       const promises = [];
       for (const type of types) {
+        const chromeX = eventX + boundingBox.left;
+        const chromeY = eventY + boundingBox.top;
+        notifyCursorOverlay(type, chromeX, chromeY);
         // This dispatches to the renderer synchronously.
         const jugglerEventId = win.windowUtils.jugglerSendMouseEvent(
           type,
-          eventX + boundingBox.left,
-          eventY + boundingBox.top,
+          chromeX,
+          chromeY,
           button,
           clickCount,
           modifiers,
