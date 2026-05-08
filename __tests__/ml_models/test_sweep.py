@@ -138,6 +138,10 @@ def test_run_sweep_dry_run_writes_yaml_defined_sweep_config(tmp_path: Path) -> N
         tmp_path / "sweeps" / "keyboard.yml",
         {
             "root_config": "../configs/root.yml",
+            "metric": {
+                "name": "best/composite",
+                "goal": "minimize",
+            },
             "output_dir": str(tmp_path / "sweep-output"),
             "overrides": {
                 "training.epochs": 20,
@@ -164,6 +168,7 @@ def test_run_sweep_dry_run_writes_yaml_defined_sweep_config(tmp_path: Path) -> N
     sweep_json = json.loads((sweep_dirs[0] / "sweep.json").read_text(encoding="utf-8"))
     meta_json = json.loads((sweep_dirs[0] / "meta.json").read_text(encoding="utf-8"))
 
+    assert sweep_json["metric"]["name"] == "best/composite"
     assert sweep_json["parameters"]["training__lr"]["distribution"] == "log_uniform_values"
     assert sweep_json["parameters"]["keyboard__keyboard_typo_positive_weight"]["values"] == [4.0, 8.0, 12.0]
     assert meta_json["root_config"] == str(root_config.resolve())

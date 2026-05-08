@@ -6,7 +6,7 @@ output_dir: Training/sweeps
 snapshot_inputs: true
 
 metric:
-  name: score/loss
+  name: best/composite
   goal: minimize
 
 overrides:

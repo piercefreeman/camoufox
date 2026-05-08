@@ -149,7 +149,9 @@ def wandb_log_epoch(
     train_metrics: dict[str, float],
     val_metrics: dict[str, float],
     score: float,
+    score_metrics: dict[str, float],
     best_score: float,
+    best_composite_score: float | None,
     best_epoch: int,
     lr: float | None,
 ) -> None:
@@ -159,11 +161,14 @@ def wandb_log_epoch(
     # Flatten metrics into stable namespaces so W&B plots line up across click
     # and keyboard experiments.
     payload: dict[str, Any] = {"epoch": epoch, "score/loss": score}
+    payload.update(score_metrics)
     payload.update({f"train/{key}": value for key, value in train_metrics.items()})
     payload.update({f"val/{key}": value for key, value in val_metrics.items()})
     if math.isfinite(best_score):
         payload["best/loss"] = best_score
         payload["best/epoch"] = best_epoch
+    if best_composite_score is not None and math.isfinite(best_composite_score):
+        payload["best/composite"] = best_composite_score
     if lr is not None:
         payload["optimizer/lr"] = lr
     state.run.log(payload, step=epoch)

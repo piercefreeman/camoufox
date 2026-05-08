@@ -269,6 +269,9 @@ Example sweep spec:
 ```yaml
 root_config: ../laptop-keyboard.yml
 trials: 8
+metric:
+  name: best/composite
+  goal: minimize
 overrides:
   training.epochs: 20
 parameters:
@@ -279,6 +282,15 @@ parameters:
   keyboard.keyboard_typo_positive_weight:
     values: [4.0, 8.0, 12.0]
 ```
+
+For keyboard sweeps, `best/composite` is the recommended optimization target.
+It tracks an equal blend of:
+
+- median per-key wait timing error
+- median full-edit duration timing error
+- median key-press budget error
+- key action error rate
+- typo behavior error (rate mismatch plus precision/recall when defined)
 
 Run a keyboard sweep from the repository root:
 

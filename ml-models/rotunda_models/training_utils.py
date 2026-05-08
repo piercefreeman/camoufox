@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import math
 import random
+from collections import defaultdict
 
 import torch
 
@@ -17,6 +19,7 @@ from .constants import (
 )
 from .keyboard_logic import canonical_keyboard_steps
 from .types import KeyboardEpisode, MouseEpisode
+from .utils import mean, median
 
 
 def move_batch_to_device(batch: dict, device: torch.device) -> dict:
@@ -30,6 +33,122 @@ def aggregate_metrics(records: list[dict[str, float]]) -> dict[str, float]:
         return {}
     keys = records[0].keys()
     return {key: sum(record[key] for record in records) / len(records) for key in keys}
+
+
+def summarize_metric_observations(records: list[dict[str, list[float]]]) -> dict[str, float]:
+    """Collapse per-batch observation lists into exact epoch-level metrics."""
+    if not records:
+        return {}
+    merged: dict[str, list[float]] = defaultdict(list)
+    for record in records:
+        for key, values in record.items():
+            merged[key].extend(values)
+
+    summary: dict[str, float] = {}
+    for key, values in merged.items():
+        if key.endswith("_median_values"):
+            summary[f"{key.removesuffix('_median_values')}_median"] = median(values)
+        elif key.endswith("_mean_values"):
+            summary[key.removesuffix("_mean_values")] = mean(values)
+        else:
+            raise ValueError(
+                f"Unknown metric observation key {key!r}. "
+                "Expected suffix '_median_values' or '_mean_values'."
+            )
+    return summary
+
+
+def _finite_metric(metrics: dict[str, float], key: str) -> float | None:
+    """Read one scalar metric and drop missing or non-finite values."""
+    value = metrics.get(key)
+    if value is None:
+        return None
+    numeric = float(value)
+    if not math.isfinite(numeric):
+        return None
+    return numeric
+
+
+def _bounded_relative_error(predicted: float | None, target: float | None, floor: float) -> float | None:
+    """Normalize an absolute error into a bounded [0, 1] penalty."""
+    if predicted is None or target is None:
+        return None
+    scale = max(abs(predicted), abs(target), float(floor))
+    if scale <= 0.0:
+        return 0.0
+    return min(abs(predicted - target) / scale, 1.0)
+
+
+def keyboard_sweep_score_metrics(
+    train_metrics: dict[str, float],
+    val_metrics: dict[str, float],
+) -> dict[str, float]:
+    """Build behavior-facing keyboard sweep scores from train/val metrics."""
+    source = val_metrics if val_metrics else train_metrics
+    wait_timing_error = _bounded_relative_error(
+        _finite_metric(source, "pred_wait_ms_median"),
+        _finite_metric(source, "target_wait_ms_median"),
+        floor=25.0,
+    )
+    duration_timing_error = _bounded_relative_error(
+        _finite_metric(source, "pred_edit_duration_ms_median"),
+        _finite_metric(source, "target_edit_duration_ms_median"),
+        floor=100.0,
+    )
+    press_budget_error = _bounded_relative_error(
+        _finite_metric(source, "pred_press_count_median"),
+        _finite_metric(source, "target_press_count_median"),
+        floor=1.0,
+    )
+    action_error = _finite_metric(source, "key_action_error_rate")
+
+    typo_terms: list[float] = []
+    target_typo_rate = _finite_metric(source, "target_typo_rate")
+    predicted_typo_rate = _finite_metric(source, "predicted_typo_rate")
+    if target_typo_rate is not None and predicted_typo_rate is not None:
+        typo_terms.append(abs(predicted_typo_rate - target_typo_rate))
+    typo_precision = _finite_metric(source, "typo_precision")
+    if typo_precision is not None:
+        typo_terms.append(1.0 - typo_precision)
+    typo_recall = _finite_metric(source, "typo_recall")
+    if typo_recall is not None:
+        typo_terms.append(1.0 - typo_recall)
+    typo_behavior_error = mean(typo_terms) if typo_terms else None
+
+    scores: dict[str, float] = {}
+    if wait_timing_error is not None:
+        scores["score/keyboard_wait_timing_error"] = wait_timing_error
+    if duration_timing_error is not None:
+        scores["score/keyboard_duration_timing_error"] = duration_timing_error
+    if press_budget_error is not None:
+        scores["score/keyboard_press_budget_error"] = press_budget_error
+    if action_error is not None:
+        scores["score/keyboard_action_error"] = action_error
+    if typo_behavior_error is not None:
+        scores["score/keyboard_typo_behavior_error"] = typo_behavior_error
+
+    components = [
+        wait_timing_error,
+        duration_timing_error,
+        press_budget_error,
+        action_error,
+        typo_behavior_error,
+    ]
+    valid_components = [value for value in components if value is not None]
+    if valid_components:
+        scores["score/composite"] = mean(valid_components)
+    return scores
+
+
+def sweep_score_metrics(
+    task: str | None,
+    train_metrics: dict[str, float],
+    val_metrics: dict[str, float],
+) -> dict[str, float]:
+    """Return task-specific sweep score metrics."""
+    if task == "keyboard":
+        return keyboard_sweep_score_metrics(train_metrics, val_metrics)
+    return {}
 
 
 def split_items(items: list, val_fraction: float, seed: int) -> tuple[list, list]:

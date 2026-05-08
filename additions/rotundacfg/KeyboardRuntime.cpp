@@ -19,8 +19,14 @@ constexpr const char* kStop = "<STOP>";
 constexpr const char* kUnk = "<UNK>";
 constexpr const char* kEos = "<EOS>";
 constexpr const char* kSep = "<SEP>";
+constexpr double kMaxPredictedPressCount = 1024.0;
 
 double sigmoid(double value) { return 1.0 / (1.0 + std::exp(-value)); }
+
+double softplus(double value) {
+  if (value > 20.0) return value;
+  return std::log1p(std::exp(value));
+}
 
 double logToDt(double value) {
   return std::expm1(std::max(0.0, std::min(value, std::log1p(5000.0))));
@@ -85,6 +91,8 @@ KeyboardRuntimeModel::KeyboardRuntimeModel(RuntimeWeights weights)
                            m_weights.get("typo_head.bias") &&
                            m_weights.get("typo_action_head.weight") &&
                            m_weights.get("typo_action_head.bias");
+    m_hasPressCountHead = m_weights.get("press_count_head.weight") &&
+                          m_weights.get("press_count_head.bias");
     m_loaded = m_hiddenSize > 0 && m_layers > 0 && !m_charToId.empty() &&
                !m_idToAction.empty() && !m_actionToId.empty();
   }
@@ -274,6 +282,18 @@ std::vector<double> KeyboardRuntimeModel::encode(
   return hidden;
 }
 
+std::optional<double> KeyboardRuntimeModel::predictPressCount(
+    const std::vector<double>& condition) const {
+  if (!m_hasPressCountHead) return std::nullopt;
+  std::vector<double> head =
+      linear(condition, "press_count_head.weight", "press_count_head.bias");
+  if (head.empty()) return std::nullopt;
+  double logCount = std::min(softplus(head[0]), std::log1p(kMaxPredictedPressCount));
+  double count = std::expm1(logCount);
+  if (!std::isfinite(count)) return std::nullopt;
+  return count;
+}
+
 std::string KeyboardRuntimeModel::nextChar(
     const std::string& finalString, const std::string& text) const {
   if (startsWith(finalString, text) && text.size() < finalString.size()) {
@@ -384,16 +404,33 @@ KeyboardRuntimeTrace KeyboardRuntimeModel::decodeInternal(
 
   int minSteps = minimumTerminalEditSteps(finalString, initialString);
   if (maxSteps < minSteps) return {};
-  int effectiveMaxSteps = decodeMode == "constrained"
-                              ? std::min(maxSteps, minSteps + structuredExtraSteps)
-                              : maxSteps;
 
   if (collectTrace) {
+    trace.minimumSteps = minSteps;
     trace.conditionIds = encodeCondition(initialString, finalString);
   }
   std::vector<double> condition = encode(initialString, finalString);
   if (condition.empty()) return {};
   if (collectTrace) trace.condition = condition;
+  std::optional<double> predictedPressCount;
+  int effectiveMaxSteps = maxSteps;
+  if (decodeMode == "constrained") {
+    if (!m_hasPressCountHead) return {};
+    predictedPressCount = predictPressCount(condition);
+    if (!predictedPressCount) return {};
+    int floorBudget =
+        std::max(minSteps, static_cast<int>(finalString.size()) + structuredExtraSteps);
+    int predictedBudget =
+        std::max(minSteps, static_cast<int>(std::ceil(std::max(0.0, *predictedPressCount - 1e-6))));
+    effectiveMaxSteps = std::min(maxSteps, std::max(floorBudget, predictedBudget));
+  }
+  if (collectTrace) {
+    trace.effectiveMaxSteps = effectiveMaxSteps;
+    if (predictedPressCount) {
+      trace.predictedPressCount = *predictedPressCount;
+      trace.usedPredictedPressCount = true;
+    }
+  }
   std::vector<std::vector<double>> hidden(
       static_cast<size_t>(m_layers), condition);
 

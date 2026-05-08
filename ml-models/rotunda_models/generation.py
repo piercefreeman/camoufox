@@ -23,7 +23,7 @@ from .keyboard_logic import (
     minimum_terminal_edit_steps,
     terminal_edit_actions,
 )
-from .models.keyboard import KeyboardActionGRU
+from .models.keyboard import KeyboardActionGRU, decode_press_count_logits
 from .models.mouse import MouseTrajectoryGRU
 from .types import MouseEpisode
 from .utils import log_to_dt, screen_position_from_goal_relative
@@ -397,6 +397,33 @@ class KeyboardDecoder:
         )
 
 
+def _constrained_keyboard_budget(
+    model: KeyboardActionGRU,
+    final_ids: torch.Tensor,
+    final_lengths: torch.Tensor,
+    *,
+    final_string: str,
+    min_steps: int,
+    max_steps: int,
+    structured_extra_steps: int,
+) -> tuple[int, float | None]:
+    """Return the constrained decode budget and optional raw press-count prediction."""
+    if model.press_count_head is None:
+        raise RuntimeError("Constrained keyboard decode requires a predictive press-count head.")
+
+    with torch.no_grad():
+        condition = model.encode(final_ids, final_lengths)
+        press_count_logits = model.press_count_head(condition).squeeze(-1)
+        predicted_press_count = float(decode_press_count_logits(press_count_logits)[0].detach().cpu())
+    if not math.isfinite(predicted_press_count):
+        raise RuntimeError("Constrained keyboard decode produced a non-finite press-count prediction.")
+
+    extra_steps = max(0, structured_extra_steps)
+    floor_budget = max(min_steps, len(final_string) + extra_steps)
+    predicted_budget = max(min_steps, math.ceil(max(0.0, predicted_press_count - 1e-6)))
+    return min(max_steps, max(floor_budget, predicted_budget)), predicted_press_count
+
+
 def _decode_keyboard_rows_impl(
     checkpoint: dict,
     model: KeyboardActionGRU,
@@ -438,19 +465,30 @@ def _decode_keyboard_rows_impl(
         raise ValueError(f"max_typos must be non-negative, got {max_typos}.")
     if not 0.0 <= learned_typo_threshold <= 1.0:
         raise ValueError(f"learned_typo_threshold must be between 0 and 1, got {learned_typo_threshold}.")
+    final_ids, final_lengths = encode_keyboard_condition(initial_string, final_string, char_to_id, device)
+    predicted_press_count: float | None = None
 
-    # Establish the decode contract up front. Constrained mode reserves a small
-    # amount of extra room for learned repairs; canonical mode follows the
-    # shortest path; unconstrained mode is raw logits and may miss the target.
+    # Establish the decode contract up front. Constrained mode uses the learned
+    # press budget with a small floor based on target length; canonical mode
+    # follows the shortest path; unconstrained mode is raw logits and may miss
+    # the target.
     if decode_mode == "constrained":
         require_keyboard_target_supported(initial_string, final_string, action_to_id)
         min_steps = minimum_terminal_edit_steps(final_string, list(initial_string))
-        effective_max_steps = min(max_steps, min_steps + max(0, structured_extra_steps))
         if max_steps < min_steps:
             raise SystemExit(
                 f"Constrained keyboard decode needs at least {min_steps} steps for this target; "
                 f"got --max-steps {max_steps}."
             )
+        effective_max_steps, predicted_press_count = _constrained_keyboard_budget(
+            model,
+            final_ids,
+            final_lengths,
+            final_string=final_string,
+            min_steps=min_steps,
+            max_steps=max_steps,
+            structured_extra_steps=structured_extra_steps,
+        )
     elif decode_mode == "canonical":
         require_keyboard_target_supported(initial_string, final_string, action_to_id)
         min_steps = minimum_terminal_edit_steps(final_string, list(initial_string))
@@ -468,7 +506,6 @@ def _decode_keyboard_rows_impl(
     offset = 0.0
     text: list[str] = list(initial_string)
     rows: list[dict[str, Any]] = []
-    final_ids, final_lengths = encode_keyboard_condition(initial_string, final_string, char_to_id, device)
     previous_action_ids = [action_count]
     previous_dt_values = [0.0]
     next_char_id_values: list[int] = []
@@ -489,7 +526,7 @@ def _decode_keyboard_rows_impl(
             previous_action = torch.tensor([previous_action_ids], dtype=torch.long, device=device)
             previous_dt = torch.tensor([previous_dt_values], dtype=torch.float32, device=device)
             next_char_ids = torch.tensor([next_char_id_values], dtype=torch.long, device=device)
-            dt_pred_all, logits_all, typo_logits_all, typo_action_logits_all = model(
+            dt_pred_all, logits_all, typo_logits_all, typo_action_logits_all, _ = model(
                 final_ids,
                 final_lengths,
                 previous_action,
@@ -613,9 +650,15 @@ def _decode_keyboard_rows_impl(
     # Constrained modes are intended for execution, so failing to reach the
     # requested text is an invariant violation rather than a soft metric.
     if decode_mode in {"constrained", "canonical"} and "".join(text) != final_string:
+        budget_detail = ""
+        if predicted_press_count is not None:
+            budget_detail = (
+                f" using predicted press budget {predicted_press_count:.2f} "
+                f"with guard band {max(0, structured_extra_steps)}"
+            )
         raise RuntimeError(
             f"{decode_mode.capitalize()} keyboard decode failed to reach target {final_string!r}; "
-            f"ended at {''.join(text)!r} after {effective_max_steps} allowed steps."
+            f"ended at {''.join(text)!r} after {effective_max_steps} allowed steps{budget_detail}."
         )
     return rows
 

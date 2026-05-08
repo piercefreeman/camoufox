@@ -126,9 +126,10 @@ def test_keyboard_model_forward_backward_step_on_tiny_dataset() -> None:
         layers=1,
         dropout=0.0,
         learned_typo_head=True,
+        predict_press_count_head=True,
     )
 
-    dt_pred, action_logits, typo_logits, typo_action_logits = model(
+    dt_pred, action_logits, typo_logits, typo_action_logits, press_count_logits = model(
         batch["final_ids"],
         batch["final_lengths"],
         batch["previous_actions"],
@@ -141,13 +142,24 @@ def test_keyboard_model_forward_backward_step_on_tiny_dataset() -> None:
     assert action_logits.shape[-1] == len(action_to_id)
     assert typo_logits is not None
     assert typo_action_logits is not None
+    assert press_count_logits is not None
     assert typo_logits.shape == batch["dt"].shape
     assert typo_action_logits.shape[:2] == batch["actions"].shape
     assert typo_action_logits.shape[-1] == len(action_to_id)
+    assert press_count_logits.shape == batch["press_count"].shape
 
-    loss, metrics = keyboard_loss(batch, model, duration_weight=0.5)
+    loss, metrics, observations = keyboard_loss(batch, model, duration_weight=0.5, press_count_weight=0.5)
     assert torch.isfinite(loss)
     assert metrics["loss"] > 0.0
+    assert "target_wait_ms_median_values" in observations
+    assert "pred_wait_ms_median_values" in observations
+    assert "target_edit_duration_ms_median_values" in observations
+    assert "pred_edit_duration_ms_median_values" in observations
+    assert "target_press_count_median_values" in observations
+    assert "pred_press_count_median_values" in observations
+    assert "key_action_error_rate_mean_values" in observations
+    assert len(observations["target_edit_duration_ms_median_values"]) == len(episodes)
+    assert len(observations["target_press_count_median_values"]) == len(episodes)
 
     optimizer = torch.optim.AdamW(model.parameters(), lr=1e-3)
     optimizer.zero_grad(set_to_none=True)

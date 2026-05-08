@@ -139,6 +139,10 @@ int main(int argc, char** argv) {
         std::stod(argv[8]));
     nlohmann::json output;
     output["kind"] = "keyboard";
+    output["minimumSteps"] = trace.minimumSteps;
+    output["effectiveMaxSteps"] = trace.effectiveMaxSteps;
+    output["predictedPressCount"] = trace.predictedPressCount;
+    output["usedPredictedPressCount"] = trace.usedPredictedPressCount;
     output["conditionIds"] = trace.conditionIds;
     output["condition"] = trace.condition;
     output["steps"] = nlohmann::json::array();

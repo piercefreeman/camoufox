@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import math
 import random
 from collections.abc import Callable
 from pathlib import Path
@@ -51,6 +52,8 @@ from .training_utils import (
     keyboard_training_filter_counts,
     move_batch_to_device,
     split_items,
+    summarize_metric_observations,
+    sweep_score_metrics,
 )
 from .types import ScreenSizeFilter, WandbState
 from .utils import (
@@ -120,34 +123,60 @@ def train_loop(
     log_stage("training")
     best_score = float("inf")
     best_epoch = 0
+    best_composite_score = float("inf")
+    last_composite_score: float | None = None
     epochs_without_improvement = 0
     for epoch in range(1, epochs + 1):
         # Run one optimizer pass over the training split and keep scalar loss
         # pieces so local metrics and W&B receive the same view of the epoch.
         model.train()
         train_records: list[dict[str, float]] = []
+        train_observations: list[dict[str, list[float]]] = []
         for batch in train_loader:
             batch = move_batch_to_device(batch, device)
             optimizer.zero_grad(set_to_none=True)
-            loss, metrics = loss_fn(batch, model)
+            result = loss_fn(batch, model)
+            if len(result) == 2:
+                loss, metrics = result
+                observations: dict[str, list[float]] = {}
+            else:
+                loss, metrics, observations = result
             loss.backward()
             nn.utils.clip_grad_norm_(model.parameters(), 1.0)
             optimizer.step()
             train_records.append(metrics)
+            if observations:
+                train_observations.append(observations)
 
         train_metrics = aggregate_metrics(train_records)
+        train_metrics.update(summarize_metric_observations(train_observations))
         val_metrics: dict[str, float] = {}
         if val_loader is not None:
             # Validation reuses the same loss function but does not touch model
             # state, which keeps early stopping tied to the deployed objective.
             model.eval()
             val_records: list[dict[str, float]] = []
+            val_observations: list[dict[str, list[float]]] = []
             with torch.no_grad():
                 for batch in val_loader:
                     batch = move_batch_to_device(batch, device)
-                    _, metrics = loss_fn(batch, model)
+                    result = loss_fn(batch, model)
+                    if len(result) == 2:
+                        _, metrics = result
+                        observations = {}
+                    else:
+                        _, metrics, observations = result
                     val_records.append(metrics)
+                    if observations:
+                        val_observations.append(observations)
             val_metrics = aggregate_metrics(val_records)
+            val_metrics.update(summarize_metric_observations(val_observations))
+
+        score_metrics = sweep_score_metrics(wandb_task, train_metrics, val_metrics)
+        composite_score = score_metrics.get("score/composite")
+        if composite_score is not None and math.isfinite(composite_score):
+            last_composite_score = composite_score
+            best_composite_score = min(best_composite_score, composite_score)
 
         record = {"epoch": epoch, "train": train_metrics, "val": val_metrics}
         write_jsonl(metrics_path, record)
@@ -181,7 +210,9 @@ def train_loop(
             train_metrics=train_metrics,
             val_metrics=val_metrics,
             score=score,
+            score_metrics=score_metrics,
             best_score=best_score,
+            best_composite_score=best_composite_score if math.isfinite(best_composite_score) else None,
             best_epoch=best_epoch,
             lr=float(lr) if lr is not None else None,
         )
@@ -213,6 +244,10 @@ def train_loop(
     if wandb_state is not None:
         wandb_state.run.summary["best/loss"] = best_score
         wandb_state.run.summary["best/epoch"] = best_epoch
+        if math.isfinite(best_composite_score):
+            wandb_state.run.summary["best/composite"] = best_composite_score
+        if last_composite_score is not None:
+            wandb_state.run.summary["score/composite"] = last_composite_score
         if wandb_log_model_artifacts:
             wandb_log_artifacts(wandb_state, wandb_task or "cadence", run_dir)
 
@@ -485,6 +520,7 @@ def train_keyboard(args: Any | TrainingExperimentSettings) -> None:
         "layers": args.layers,
         "dropout": args.dropout,
         "learned_typo_head": True,
+        "predict_press_count_head": True,
     }
     model = KeyboardActionGRU(**model_config).to(device)
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
@@ -548,6 +584,7 @@ def train_keyboard(args: Any | TrainingExperimentSettings) -> None:
                 dt_weight=args.dt_loss_weight,
                 action_weight=args.keyboard_action_loss_weight,
                 duration_weight=args.keyboard_duration_loss_weight,
+                press_count_weight=args.keyboard_press_count_loss_weight,
                 backspace_action_weight=args.backspace_action_weight,
                 stop_action_weight=args.stop_action_weight,
                 typo_weight=args.keyboard_typo_loss_weight,

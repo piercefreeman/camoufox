@@ -44,6 +44,10 @@ struct KeyboardRuntimeTraceStep {
 };
 
 struct KeyboardRuntimeTrace {
+  int minimumSteps = 0;
+  int effectiveMaxSteps = 0;
+  double predictedPressCount = 0.0;
+  bool usedPredictedPressCount = false;
   std::vector<int> conditionIds;
   std::vector<double> condition;
   std::vector<KeyboardRuntimeTraceStep> steps;
@@ -89,6 +93,8 @@ class KeyboardRuntimeModel {
                               int layer) const;
   std::vector<double> encode(const std::string& initialString,
                              const std::string& finalString) const;
+  std::optional<double> predictPressCount(
+      const std::vector<double>& condition) const;
   std::string nextChar(const std::string& finalString,
                        const std::string& text) const;
   std::string constrainedAction(const std::string& finalString,
@@ -118,6 +124,7 @@ class KeyboardRuntimeModel {
   int m_actionCount = 0;
   bool m_loaded = false;
   bool m_hasLearnedTypoHead = false;
+  bool m_hasPressCountHead = false;
 };
 
 }  // namespace rotundacfg
