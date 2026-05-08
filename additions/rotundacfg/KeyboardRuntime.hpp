@@ -66,15 +66,17 @@ class KeyboardRuntimeModel {
       int maxSteps = 256, const std::string& decodeMode = "constrained",
       int structuredExtraSteps = 6, double canonicalBias = 3.0,
       double learnedTypoThreshold = 0.2, int maxLearnedTypos = 2,
-      double timingJitterSigma = 0.0, double pauseProbability = 0.0,
-      double pauseMeanMs = 35.0, std::uint32_t randomSeed = 0) const;
+      bool sampleLearnedTypos = false, double timingJitterSigma = 0.0,
+      double pauseProbability = 0.0, double pauseMeanMs = 35.0,
+      std::uint32_t randomSeed = 0) const;
   KeyboardRuntimeTrace traceDecode(
       const std::string& initialString, const std::string& finalString,
       int maxSteps = 256, const std::string& decodeMode = "constrained",
       int structuredExtraSteps = 6, double canonicalBias = 3.0,
       double learnedTypoThreshold = 0.2, int maxLearnedTypos = 2,
-      double timingJitterSigma = 0.0, double pauseProbability = 0.0,
-      double pauseMeanMs = 35.0, std::uint32_t randomSeed = 0) const;
+      bool sampleLearnedTypos = false, double timingJitterSigma = 0.0,
+      double pauseProbability = 0.0, double pauseMeanMs = 35.0,
+      std::uint32_t randomSeed = 0) const;
 
   const nlohmann::json& metadata() const { return m_metadata; }
   bool isLoaded() const { return m_loaded; }
@@ -117,7 +119,7 @@ class KeyboardRuntimeModel {
       const std::string& initialString, const std::string& finalString,
       int maxSteps, const std::string& decodeMode, int structuredExtraSteps,
       double canonicalBias, double learnedTypoThreshold,
-      int maxLearnedTypos, double timingJitterSigma,
+      int maxLearnedTypos, bool sampleLearnedTypos, double timingJitterSigma,
       double pauseProbability, double pauseMeanMs, std::uint32_t randomSeed,
       bool collectTrace) const;
 

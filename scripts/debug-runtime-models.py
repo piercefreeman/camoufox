@@ -40,6 +40,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--keyboard-canonical-bias", type=float, default=3.0)
     parser.add_argument("--keyboard-learned-typo-threshold", type=float, default=0.2)
     parser.add_argument("--keyboard-max-typos", type=int, default=2)
+    parser.add_argument("--keyboard-sample-typos", action="store_true")
     parser.add_argument("--keyboard-timing-jitter-sigma", type=float, default=0.0)
     parser.add_argument("--keyboard-pause-probability", type=float, default=0.0)
     parser.add_argument("--keyboard-pause-mean-ms", type=float, default=35.0)
@@ -142,6 +143,8 @@ def run_diagnostics(args: argparse.Namespace, binary: Path) -> dict[str, Any]:
         "--keyboard-random-seed",
         str(args.keyboard_random_seed),
     ]
+    if args.keyboard_sample_typos:
+        command.append("--keyboard-sample-typos")
     if args.include_vectors:
         command.append("--include-vectors")
 

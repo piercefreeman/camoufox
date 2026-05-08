@@ -32,6 +32,7 @@ struct Options {
   double keyboardCanonicalBias = 3.0;
   double keyboardLearnedTypoThreshold = 0.2;
   int keyboardMaxTypos = 2;
+  bool keyboardSampleTypos = false;
   double keyboardTimingJitterSigma = 0.0;
   double keyboardPauseProbability = 0.0;
   double keyboardPauseMeanMs = 35.0;
@@ -78,6 +79,7 @@ int usage(const char* binary) {
       << "  --keyboard-canonical-bias <float>       default 3.0\n"
       << "  --keyboard-learned-typo-threshold <float> default 0.2\n"
       << "  --keyboard-max-typos <int>              default 2\n"
+      << "  --keyboard-sample-typos                 sample typo opportunities\n"
       << "  --keyboard-timing-jitter-sigma <float>  default 0.0\n"
       << "  --keyboard-pause-probability <float>    default 0.0\n"
       << "  --keyboard-pause-mean-ms <float>        default 35.0\n"
@@ -134,6 +136,8 @@ std::optional<Options> parseOptions(int argc, char** argv) {
       auto next = value();
       if (!next) return std::nullopt;
       options.keyboardMaxTypos = std::stoi(*next);
+    } else if (isOption(arg, "--keyboard-sample-typos")) {
+      options.keyboardSampleTypos = true;
     } else if (isOption(arg, "--keyboard-timing-jitter-sigma")) {
       auto next = value();
       if (!next) return std::nullopt;
@@ -720,6 +724,7 @@ nlohmann::json diagnosticRun(const Options& options) {
       {"keyboardCanonicalBias", options.keyboardCanonicalBias},
       {"keyboardLearnedTypoThreshold", options.keyboardLearnedTypoThreshold},
       {"keyboardMaxTypos", options.keyboardMaxTypos},
+      {"keyboardSampleTypos", options.keyboardSampleTypos},
       {"keyboardTimingJitterSigma", options.keyboardTimingJitterSigma},
       {"keyboardPauseProbability", options.keyboardPauseProbability},
       {"keyboardPauseMeanMs", options.keyboardPauseMeanMs},
@@ -732,8 +737,11 @@ nlohmann::json diagnosticRun(const Options& options) {
       {"keyboardAction",
        "argmax(valid action logits + canonical bias); no multinomial sampling"},
       {"keyboardTypo",
-       "sigmoid(typo_head) >= threshold, then argmax(typo_action_head); no "
-       "probabilistic typo sampling"},
+       options.keyboardSampleTypos
+           ? "sample sigmoid(typo_head) after threshold, then "
+             "argmax(typo_action_head)"
+           : "sigmoid(typo_head) >= threshold, then argmax(typo_action_head); "
+             "no probabilistic typo sampling"},
       {"keyboardTiming",
        options.keyboardTimingJitterSigma > 0.0 ||
                options.keyboardPauseProbability > 0.0
@@ -757,7 +765,8 @@ nlohmann::json diagnosticRun(const Options& options) {
         testCase.initial, testCase.final, options.keyboardMaxSteps,
         "constrained", options.keyboardStructuredExtraSteps,
         options.keyboardCanonicalBias, options.keyboardLearnedTypoThreshold,
-        options.keyboardMaxTypos, options.keyboardTimingJitterSigma,
+        options.keyboardMaxTypos, options.keyboardSampleTypos,
+        options.keyboardTimingJitterSigma,
         options.keyboardPauseProbability, options.keyboardPauseMeanMs,
         options.keyboardRandomSeed);
     nlohmann::json caseOutput =
