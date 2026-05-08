@@ -35,7 +35,7 @@ struct Options {
   double keyboardLearnedTypoThreshold = 0.2;
   int keyboardMaxTypos = 2;
   bool keyboardSampleTypos = true;
-  double keyboardTimingJitterSigma = 0.22;
+  double keyboardTimingJitterSigma = 0.0;
   double keyboardTimingTemperature = 0.25;
   double keyboardPauseProbability = 0.0;
   double keyboardPauseMeanMs = 35.0;
@@ -85,7 +85,7 @@ int usage(const char* binary) {
       << "  --keyboard-learned-typo-threshold <float> default 0.2\n"
       << "  --keyboard-max-typos <int>              default 2\n"
       << "  --no-keyboard-sample-typos              disable typo sampling\n"
-      << "  --keyboard-timing-jitter-sigma <float>  default 0.22\n"
+      << "  --keyboard-timing-jitter-sigma <float>  default 0.0\n"
       << "  --keyboard-timing-temperature <float>   default 0.25\n"
       << "  --keyboard-pause-probability <float>    default 0.0\n"
       << "  --keyboard-pause-mean-ms <float>        default 35.0\n"

@@ -196,7 +196,8 @@ std::vector<KeyboardRuntimeRow> KeyboardRuntimeModel::GenerateFromConfig(
   if (auto configured = MaskConfig::GetBool("humanize.keyboardSampleTypos")) {
     sampleLearnedTypos = *configured;
   }
-  double timingJitterSigma = 0.22;
+  double timingJitterSigma =
+      model->m_timingDistribution == "lognormal" ? 0.0 : 0.22;
   if (auto configured =
           MaskConfig::GetDouble("humanize.keyboardTimingJitterSigma")) {
     timingJitterSigma = std::max(0.0, *configured);

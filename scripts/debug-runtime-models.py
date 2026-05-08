@@ -43,7 +43,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--keyboard-learned-typo-threshold", type=float, default=0.2)
     parser.add_argument("--keyboard-max-typos", type=int, default=2)
     parser.add_argument("--keyboard-sample-typos", action=argparse.BooleanOptionalAction, default=True)
-    parser.add_argument("--keyboard-timing-jitter-sigma", type=float, default=0.22)
+    parser.add_argument("--keyboard-timing-jitter-sigma", type=float, default=0.0)
     parser.add_argument("--keyboard-timing-temperature", type=float, default=0.25)
     parser.add_argument("--keyboard-pause-probability", type=float, default=0.0)
     parser.add_argument("--keyboard-pause-mean-ms", type=float, default=35.0)
