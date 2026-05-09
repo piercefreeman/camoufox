@@ -1,0 +1,17 @@
+diff --git a/dom/base/Navigator.cpp b/dom/base/Navigator.cpp
+index 23e8de1e55..d0e250102b 100644
+--- a/dom/base/Navigator.cpp
++++ b/dom/base/Navigator.cpp
+@@ -678,6 +678,12 @@ void Navigator::GetDoNotTrack(nsAString& aResult) {
+ }
+ 
+ bool Navigator::GlobalPrivacyControl() {
++  if (auto navigator = MaskConfig::Profile().getNavigator()) {
++    if (auto value = navigator->isGlobalPrivacyControl(); value.has_value()) {
++      return *value;
++    }
++  }
++
+   bool gpcStatus = StaticPrefs::privacy_globalprivacycontrol_enabled();
+   if (!gpcStatus) {
+     nsCOMPtr<nsILoadContext> loadContext = do_GetInterface(mWindow);
