@@ -397,11 +397,13 @@ def test_from_browserforge_compiles_host_compatible_config(
 def test_macos_font_probe_uses_defaults_and_samples_local_extras(
     modules: tuple[Any, Any, Any],
     monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
 ) -> None:
     _ = modules
     hosts = importlib.import_module("rotunda.fingerprinting.hosts")
     host_macos = importlib.import_module("rotunda.fingerprinting.host_macos")
     fonts = importlib.import_module("rotunda.fingerprinting.fonts")
+    cache = _macos_inventory_cache(host_macos, tmp_path)
 
     discovered = (
         fonts.Font(
@@ -443,6 +445,7 @@ def test_macos_font_probe_uses_defaults_and_samples_local_extras(
         classmethod(lambda cls: ()),
     )
     monkeypatch.setattr(host_macos, "_probe_gpu_family", lambda: ("apple", "apple_m_series"))
+    monkeypatch.setattr(host_macos, "_host_inventory_cache", lambda: cache)
     monkeypatch.setattr(hosts, "_sample_extras", lambda items: list(items))
 
     adapter = host_macos.MacOSHostAdapter._probe()
@@ -462,6 +465,58 @@ def test_macos_font_probe_uses_defaults_and_samples_local_extras(
     assert "Ubuntu Mono derivative Powerline" not in sampled
     assert "MS Outlook" not in sampled
     assert "OpenSymbol" not in sampled
+
+
+def test_macos_host_probe_uses_fresh_inventory_cache(
+    modules: tuple[Any, Any, Any],
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _ = modules
+    hosts = importlib.import_module("rotunda.fingerprinting.hosts")
+    host_macos = importlib.import_module("rotunda.fingerprinting.host_macos")
+    cache = _macos_inventory_cache(host_macos, tmp_path)
+    cache.write(
+        host_macos.MacOSHostInventory(
+            architecture="arm64",
+            gpu_vendor="apple",
+            gpu_family="apple_m_series",
+            fonts=[
+                host_macos.CachedFont(family="Helvetica Neue", is_system=True),
+                host_macos.CachedFont(family="Fira Code", is_system=False),
+            ],
+            voices=[
+                host_macos.CachedVoice(name="Alex", bundled=True),
+                host_macos.CachedVoice(name="Moira (Enhanced)", bundled=False),
+            ],
+        )
+    )
+
+    def unexpected_probe() -> None:
+        raise AssertionError("fresh inventory cache should avoid host probes")
+
+    monkeypatch.setattr(host_macos, "_host_inventory_cache", lambda: cache)
+    monkeypatch.setattr(
+        host_macos.MacOSHostAdapter,
+        "_discover_installed_fonts",
+        classmethod(lambda cls: unexpected_probe()),
+    )
+    monkeypatch.setattr(
+        host_macos.MacOSHostAdapter,
+        "_discover_installed_voices",
+        classmethod(lambda cls: unexpected_probe()),
+    )
+    monkeypatch.setattr(host_macos, "_probe_gpu_family", unexpected_probe)
+    monkeypatch.setattr(hosts, "_sample_extras", lambda items: list(items))
+
+    adapter = host_macos.MacOSHostAdapter._probe()
+
+    assert adapter.architecture == "arm64"
+    assert adapter.gpu_vendor == "apple"
+    assert adapter.gpu_family == "apple_m_series"
+    assert "Helvetica Neue" in adapter.bundled_fonts
+    assert "Fira Code" in adapter.sample_fonts()
+    assert adapter.sample_voices() == ["Alex", "Moira (Enhanced)"]
 
 
 def test_macos_font_probe_prefers_fast_appkit_inventory(
@@ -493,6 +548,14 @@ def test_macos_font_probe_prefers_fast_appkit_inventory(
     assert [font.family for font in discovered] == ["Helvetica Neue", "Fira Code"]
     assert discovered[0].is_system is True
     assert discovered[1].is_system is False
+
+
+def _macos_inventory_cache(host_macos: Any, tmp_path: Path) -> Any:
+    return host_macos.PydanticDiskCache(
+        tmp_path / "macos-host-inventory.json",
+        payload_model=host_macos.MacOSHostInventory,
+        max_age_seconds=host_macos._HOST_INVENTORY_CACHE_MAX_AGE_SECONDS,
+    )
 
 
 @pytest.mark.skipif(sys.platform != "darwin", reason="requires macOS AppKit")

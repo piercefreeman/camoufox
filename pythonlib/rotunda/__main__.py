@@ -137,6 +137,7 @@ def _do_sync(spoof_os=None, spoof_arch=None) -> bool:
             repo_data = {
                 "name": repo_config.name,
                 "repo": repo_config.repo,
+                "python_library": repo_config.python_library_version,
                 "versions": [
                     {
                         "version": v.version.version,

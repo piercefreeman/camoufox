@@ -1,19 +1,11 @@
-"""
-Rotunda version constants.
-"""
+from __future__ import annotations
+
+from importlib.metadata import PackageNotFoundError
+from importlib.metadata import version as package_version
 
 
-class CONSTRAINTS:
-    """
-    The minimum and maximum supported versions of the Rotunda browser.
-    """
-
-    MIN_VERSION = 'alpha.1'
-    MAX_VERSION = '1'
-
-    @staticmethod
-    def as_range() -> str:
-        """
-        Returns the version range as a string.
-        """
-        return f">={CONSTRAINTS.MIN_VERSION}, <{CONSTRAINTS.MAX_VERSION}"
+def installed_library_version() -> str:
+    try:
+        return package_version("rotunda")
+    except PackageNotFoundError:
+        return "0+unknown"

@@ -7,9 +7,11 @@ from dataclasses import dataclass
 from importlib import import_module
 from typing import ClassVar
 
+from pydantic import BaseModel
 from typing_extensions import Self
 
 from .._generated_profile import NavigatorProfile, RotundaProfile
+from ..cache import PydanticDiskCache, cache_path
 from .common import MACOS, HostTargetOS
 from .fonts import (
     Font,
@@ -27,7 +29,27 @@ from .hosts import (
 )
 from .voices import Voice, dedupe_voices, voice_definitions_for_target_os
 
+_HOST_INVENTORY_CACHE_MAX_AGE_SECONDS = 7 * 24 * 60 * 60
+_HOST_INVENTORY_CACHE_PATH = cache_path("fingerprinting", "macos-host-inventory.json")
 _NS_FONT_MANAGER = "NSFontManager"
+
+
+class CachedFont(BaseModel):
+    family: str
+    is_system: bool = False
+
+
+class CachedVoice(BaseModel):
+    name: str
+    bundled: bool = False
+
+
+class MacOSHostInventory(BaseModel):
+    architecture: str
+    gpu_vendor: str | None = None
+    gpu_family: str | None = None
+    fonts: list[CachedFont]
+    voices: list[CachedVoice]
 
 
 @dataclass(frozen=True)
@@ -42,14 +64,14 @@ class MacOSHostAdapter(HostFingerprintAdapter):
     def _probe(cls) -> Self:
         normalize_target_os(MACOS)
 
-        discovered_fonts = cls._discover_installed_fonts()
-        discovered_voices = cls._discover_installed_voices()
+        inventory = _load_host_inventory(cls)
+        discovered_fonts = _fonts_from_inventory(inventory)
+        discovered_voices = _voices_from_inventory(inventory)
         matched_catalog_voices = cls._filter_locally_available_voices(
             list(voice_definitions_for_target_os(MACOS)),
             discovered_voices,
         )
         matched_catalog_voice_names = {voice.name for voice in matched_catalog_voices}
-        gpu_vendor, gpu_family = _probe_gpu_family()
 
         default_font_families = default_families_for_target_os(MACOS)
         allowed_alias_families = allowed_alias_families_for_target_os(MACOS)
@@ -77,9 +99,9 @@ class MacOSHostAdapter(HostFingerprintAdapter):
                 extra_voices.append(voice)
 
         return cls(
-            architecture=normalize_architecture(platform.machine()),
-            gpu_vendor=gpu_vendor,
-            gpu_family=gpu_family,
+            architecture=inventory.architecture,
+            gpu_vendor=inventory.gpu_vendor,
+            gpu_family=inventory.gpu_family,
             bundled_fonts=dedupe(bundled_fonts),
             extra_fonts=dedupe(extra_fonts),
             bundled_voices=dedupe_voices(bundled_voices),
@@ -223,6 +245,49 @@ class MacOSHostAdapter(HostFingerprintAdapter):
             else:
                 max_screen_y = avail_top + max_outer_height - config.window.outer_height
                 config.window.screen_y = min(max(screen_y, avail_top), max_screen_y)
+
+
+def _load_host_inventory(adapter_cls: type[MacOSHostAdapter]) -> MacOSHostInventory:
+    return _host_inventory_cache().get_or_create(lambda: _probe_host_inventory(adapter_cls))
+
+
+def _host_inventory_cache() -> PydanticDiskCache[MacOSHostInventory]:
+    return PydanticDiskCache(
+        _HOST_INVENTORY_CACHE_PATH,
+        payload_model=MacOSHostInventory,
+        max_age_seconds=_HOST_INVENTORY_CACHE_MAX_AGE_SECONDS,
+    )
+
+
+def _probe_host_inventory(adapter_cls: type[MacOSHostAdapter]) -> MacOSHostInventory:
+    gpu_vendor, gpu_family = _probe_gpu_family()
+    return MacOSHostInventory(
+        architecture=normalize_architecture(platform.machine()),
+        gpu_vendor=gpu_vendor,
+        gpu_family=gpu_family,
+        fonts=[
+            CachedFont(family=font.family, is_system=bool(font.is_system))
+            for font in adapter_cls._discover_installed_fonts()
+        ],
+        voices=[
+            CachedVoice(name=voice.name, bundled=bool(voice.bundled))
+            for voice in adapter_cls._discover_installed_voices()
+        ],
+    )
+
+
+def _fonts_from_inventory(inventory: MacOSHostInventory) -> tuple[Font, ...]:
+    return tuple(
+        Font(
+            family=font.family,
+            is_system=font.is_system,
+        )
+        for font in inventory.fonts
+    )
+
+
+def _voices_from_inventory(inventory: MacOSHostInventory) -> tuple[Voice, ...]:
+    return tuple(Voice(name=voice.name, bundled=voice.bundled) for voice in inventory.voices)
 
 
 def _discover_fonts_with_appkit() -> tuple[Font, ...]:
