@@ -2,6 +2,7 @@
 #include "MouseRuntime.hpp"
 #include "json.hpp"
 
+#include <cstdint>
 #include <cstdlib>
 #include <iostream>
 #include <string>
@@ -86,7 +87,10 @@ int usage(const char* binary) {
       << " <maxSteps> <clickThreshold> <minDtMs>\n"
       << "  " << binary
       << " keyboard <weights> <initial> <final> <maxSteps> <decodeMode>"
-      << " <structuredExtraSteps> <canonicalBias>\n"
+      << " <structuredExtraSteps> <canonicalBias>"
+      << " [learnedTypoThreshold maxTypos sampleTypos timingJitterSigma"
+      << " pauseProbability pauseMeanMs randomSeed timingTemperature"
+      << " actionTemperature]\n"
       << "  " << binary << " resolve-model <fileName>\n";
   return 2;
 }
@@ -127,16 +131,29 @@ int main(int argc, char** argv) {
   }
 
   if (mode == "keyboard") {
-    if (argc != 9) return usage(argv[0]);
+    if (argc != 9 && argc != 18) return usage(argv[0]);
     auto model = rotundacfg::KeyboardRuntimeModel::Load(argv[2]);
     if (!model) {
       std::cerr << "failed to load keyboard model\n";
       return 1;
     }
 
+    double learnedTypoThreshold = argc == 18 ? std::stod(argv[9]) : 0.05;
+    int maxTypos = argc == 18 ? std::stoi(argv[10]) : -1;
+    bool sampleTypos = argc == 18 ? parseBool(argv[11]) : false;
+    double timingJitterSigma = argc == 18 ? std::stod(argv[12]) : 0.0;
+    double pauseProbability = argc == 18 ? std::stod(argv[13]) : 0.0;
+    double pauseMeanMs = argc == 18 ? std::stod(argv[14]) : 35.0;
+    std::uint32_t randomSeed =
+        argc == 18 ? static_cast<std::uint32_t>(std::stoul(argv[15])) : 0;
+    double timingTemperature = argc == 18 ? std::stod(argv[16]) : 0.0;
+    double actionTemperature = argc == 18 ? std::stod(argv[17]) : 0.0;
+
     rotundacfg::KeyboardRuntimeTrace trace = model->traceDecode(
         argv[3], argv[4], std::stoi(argv[5]), argv[6], std::stoi(argv[7]),
-        std::stod(argv[8]));
+        std::stod(argv[8]), learnedTypoThreshold, maxTypos, sampleTypos,
+        timingJitterSigma, pauseProbability, pauseMeanMs, randomSeed,
+        timingTemperature, actionTemperature);
     nlohmann::json output;
     output["kind"] = "keyboard";
     output["minimumSteps"] = trace.minimumSteps;
