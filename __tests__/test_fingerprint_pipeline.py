@@ -464,6 +464,51 @@ def test_macos_font_probe_uses_defaults_and_samples_local_extras(
     assert "OpenSymbol" not in sampled
 
 
+def test_macos_font_probe_prefers_fast_appkit_inventory(
+    modules: tuple[Any, Any, Any],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _ = modules
+    host_macos = importlib.import_module("rotunda.fingerprinting.host_macos")
+
+    class FakeFontManager:
+        def availableFontFamilies(self) -> list[str]:
+            return ["Helvetica Neue", "Fira Code", "Helvetica Neue", ""]
+
+    class FakeNSFontManager:
+        @staticmethod
+        def sharedFontManager() -> FakeFontManager:
+            return FakeFontManager()
+
+    fake_appkit = types.SimpleNamespace(NSFontManager=FakeNSFontManager)
+    monkeypatch.setitem(sys.modules, "AppKit", fake_appkit)
+    monkeypatch.setattr(
+        host_macos,
+        "run_host_text",
+        lambda *args: (_ for _ in ()).throw(AssertionError("system_profiler should not run")),
+    )
+
+    discovered = host_macos.MacOSHostAdapter._discover_installed_fonts()
+
+    assert [font.family for font in discovered] == ["Helvetica Neue", "Fira Code"]
+    assert discovered[0].is_system is True
+    assert discovered[1].is_system is False
+
+
+@pytest.mark.skipif(sys.platform != "darwin", reason="requires macOS AppKit")
+def test_macos_appkit_font_probe_returns_real_families(
+    modules: tuple[Any, Any, Any],
+) -> None:
+    _ = modules
+    host_macos = importlib.import_module("rotunda.fingerprinting.host_macos")
+
+    discovered = host_macos._discover_fonts_with_appkit()
+    families = {font.family for font in discovered}
+
+    assert families
+    assert {"Arial", "Helvetica"}.intersection(families)
+
+
 def test_macos_font_blocklist_keeps_legitimate_mac_families(
     modules: tuple[Any, Any, Any],
 ) -> None:

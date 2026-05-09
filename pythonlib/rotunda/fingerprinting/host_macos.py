@@ -4,6 +4,7 @@ import json
 import platform
 import re
 from dataclasses import dataclass
+from importlib import import_module
 from typing import ClassVar
 
 from typing_extensions import Self
@@ -26,11 +27,7 @@ from .hosts import (
 )
 from .voices import Voice, dedupe_voices, voice_definitions_for_target_os
 
-_SYSTEM_FONT_PREFIXES = (
-    "/System/Library/Fonts",
-    "/System/Library/AssetsV2",
-    "/Library/Apple/System/Library/Fonts",
-)
+_NS_FONT_MANAGER = "NSFontManager"
 
 
 @dataclass(frozen=True)
@@ -92,26 +89,7 @@ class MacOSHostAdapter(HostFingerprintAdapter):
 
     @classmethod
     def _discover_installed_fonts(cls) -> tuple[Font, ...]:
-        data = json.loads(run_host_text("system_profiler", "SPFontsDataType", "-json"))
-        records: list[Font] = []
-        seen: set[str] = set()
-
-        for entry in data.get("SPFontsDataType", []):
-            if entry.get("enabled") != "yes":
-                continue
-
-            font_path = entry.get("path", "")
-            is_system = _is_system_font(font_path)
-            for face in entry.get("typefaces", []):
-                if face.get("enabled") != "yes" or face.get("valid") == "no":
-                    continue
-                family = face.get("family")
-                if not isinstance(family, str) or family in seen:
-                    continue
-                seen.add(family)
-                records.append(Font(family=family, path=font_path, is_system=is_system))
-
-        return tuple(records)
+        return _discover_fonts_with_appkit()
 
     @classmethod
     def _discover_installed_voices(cls) -> tuple[Voice, ...]:
@@ -247,6 +225,36 @@ class MacOSHostAdapter(HostFingerprintAdapter):
                 config.window.screen_y = min(max(screen_y, avail_top), max_screen_y)
 
 
+def _discover_fonts_with_appkit() -> tuple[Font, ...]:
+    try:
+        appkit = import_module("AppKit")
+    except ModuleNotFoundError as exc:
+        raise RuntimeError(
+            "macOS font discovery requires pyobjc-framework-Cocoa. "
+            "Install Rotunda with its macOS platform dependencies."
+        ) from exc
+
+    # PyObjC exposes AppKit symbols dynamically; direct attribute access makes ty
+    # rely on incomplete stubs, and Ruff rewrites literal getattr calls.
+    NSFontManager = getattr(appkit, _NS_FONT_MANAGER)
+    families = NSFontManager.sharedFontManager().availableFontFamilies()
+
+    baseline = {family.casefold() for family in default_families_for_target_os(MACOS)}
+    records: list[Font] = []
+    seen: set[str] = set()
+    for raw_family in families:
+        if not isinstance(raw_family, str):
+            continue
+        family = raw_family.strip()
+        key = family.casefold()
+        if not family or key in seen:
+            continue
+        seen.add(key)
+        records.append(Font(family=family, is_system=key in baseline))
+
+    return tuple(records)
+
+
 def _probe_gpu_family() -> tuple[str | None, str | None]:
     data = json.loads(run_host_text("system_profiler", "SPDisplaysDataType", "-json"))
     for entry in data.get("SPDisplaysDataType", []):
@@ -255,10 +263,6 @@ def _probe_gpu_family() -> tuple[str | None, str | None]:
         family = normalize_gpu_family(renderer)
         return vendor, family
     return None, None
-
-
-def _is_system_font(font_path: str) -> bool:
-    return any(font_path.startswith(prefix) for prefix in _SYSTEM_FONT_PREFIXES)
 
 
 def _is_bundled_voice(name: str) -> bool:

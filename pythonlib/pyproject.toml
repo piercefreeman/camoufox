@@ -35,6 +35,7 @@ dependencies = [
     "playwright",
     "pydantic>=2,<3",
     "pysocks",
+    "pyobjc-framework-Cocoa; sys_platform == 'darwin'",
     "pyyaml",
     "requests",
     "rich",
