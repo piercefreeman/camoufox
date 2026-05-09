@@ -614,7 +614,7 @@ class AgentDaemon:
             executable_path = resolve_installed_rotunda_executable()
 
             self.playwright = await async_playwright().start()
-            from rotunda.utils import launch_options
+            from rotunda.utils import launch_options, runtime_profile_init_script
 
             env: dict[str, str | int | float] = dict(os.environ)
             opts = await asyncio.to_thread(
@@ -628,6 +628,12 @@ class AgentDaemon:
                 str(user_data_dir),
                 **opts,
             )
+            profile_path = opts.get("env", {}).get("ROTUNDA_CONFIG_PATH")
+            if profile_path:
+                runtime_profile = json.loads(Path(str(profile_path)).read_text(encoding="utf-8"))
+                init_script = runtime_profile_init_script(runtime_profile)
+                if init_script:
+                    await self.context.add_init_script(init_script)
 
             def on_page(page: Page) -> None:
                 self._register_page(page)

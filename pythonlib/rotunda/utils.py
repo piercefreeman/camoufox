@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import configparser
+import json
 import os
 import tempfile
 from collections.abc import Iterable
@@ -144,6 +145,101 @@ def launch_options(
         virtual_display=virtual_display,
         extra_launch_options=launch_options,
     ).build()
+
+
+def runtime_profile_init_script(config: RotundaProfile | dict[str, Any]) -> str:
+    """
+    Build the page init script that transfers a launch runtime profile into
+    Rotunda's per-context spoofing storage.
+    """
+    profile = _coerce_profile(config)
+    lines = ["(function() {", "  var w = window;"]
+
+    def call(setter: str, *values: Any) -> None:
+        args = ", ".join(json.dumps(value) for value in values)
+        lines.append(f'  if (typeof w.{setter} === "function") w.{setter}({args});')
+
+    navigator = profile.navigator
+    if navigator is not None:
+        if navigator.platform:
+            call("setNavigatorPlatform", navigator.platform)
+        if navigator.oscpu:
+            call("setNavigatorOscpu", navigator.oscpu)
+        if isinstance(navigator.hardware_concurrency, int) and navigator.hardware_concurrency > 0:
+            call("setNavigatorHardwareConcurrency", navigator.hardware_concurrency)
+        if navigator.user_agent:
+            call("setNavigatorUserAgent", navigator.user_agent)
+
+    window = profile.window
+    if (
+        window is not None
+        and isinstance(window.outer_width, int)
+        and window.outer_width > 0
+        and isinstance(window.outer_height, int)
+        and window.outer_height > 0
+        and isinstance(window.inner_width, int)
+        and window.inner_width > 0
+        and isinstance(window.inner_height, int)
+        and window.inner_height > 0
+    ):
+        call(
+            "setWindowDimensions",
+            window.outer_width,
+            window.outer_height,
+            window.inner_width,
+            window.inner_height,
+            window.screen_x if isinstance(window.screen_x, int) else 0,
+            window.screen_y if isinstance(window.screen_y, int) else 0,
+        )
+
+    screen = profile.screen
+    if screen is not None:
+        if (
+            isinstance(screen.avail_width, int)
+            and screen.avail_width > 0
+            and isinstance(screen.avail_height, int)
+            and screen.avail_height > 0
+        ):
+            call(
+                "setScreenAvailableRect",
+                screen.avail_width,
+                screen.avail_height,
+                screen.avail_left if isinstance(screen.avail_left, int) else 0,
+                screen.avail_top if isinstance(screen.avail_top, int) else 0,
+            )
+
+        if (
+            isinstance(screen.width, int)
+            and screen.width > 0
+            and isinstance(screen.height, int)
+            and screen.height > 0
+        ):
+            call("setScreenDimensions", screen.width, screen.height)
+
+        if isinstance(screen.color_depth, int) and screen.color_depth > 0:
+            call("setScreenColorDepth", screen.color_depth)
+
+    if profile.timezone:
+        call("setTimezone", profile.timezone)
+
+    if len(lines) == 2:
+        return ""
+
+    for setter in (
+        "setTimezone",
+        "setScreenDimensions",
+        "setScreenAvailableRect",
+        "setScreenColorDepth",
+        "setWindowDimensions",
+        "setNavigatorPlatform",
+        "setNavigatorOscpu",
+        "setNavigatorHardwareConcurrency",
+        "setNavigatorUserAgent",
+    ):
+        lines.append(f"  try {{ w.{setter} = undefined; delete w.{setter}; }} catch (e) {{}}")
+
+    lines.append("})();")
+    return "\n".join(lines)
 
 
 async def async_attach_vd(
@@ -575,9 +671,26 @@ class LaunchOptionBuilder:
             config.allow_main_world = True
 
     def _apply_firefox_preferences(self) -> None:
+        config = self._profile()
         firefox_user_prefs = self._firefox_prefs()
 
         _merge_missing(firefox_user_prefs, STEALTH_PREFS)
+
+        do_not_track = config.navigator.do_not_track if config.navigator else None
+        if hasattr(do_not_track, "value"):
+            do_not_track = do_not_track.value
+        if do_not_track == "1":
+            firefox_user_prefs["privacy.donottrackheader.enabled"] = True
+            firefox_user_prefs["privacy.donottrackheader.value"] = 1
+
+        global_privacy_control = (
+            config.navigator.global_privacy_control if config.navigator else None
+        )
+        if isinstance(global_privacy_control, bool):
+            firefox_user_prefs["privacy.globalprivacycontrol.functionality.enabled"] = True
+            firefox_user_prefs["privacy.globalprivacycontrol.enabled"] = global_privacy_control
+            if not global_privacy_control:
+                firefox_user_prefs["privacy.globalprivacycontrol.pbmode.enabled"] = False
 
         if self.block_images:
             LeakWarning.warn("block_images", self.i_know_what_im_doing)

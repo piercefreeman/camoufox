@@ -853,6 +853,41 @@ def test_launch_options_generates_full_config_payload(
     assert 1 <= payload["window"]["history"]["length"] <= 5
 
 
+def test_launch_options_applies_navigator_tracking_signal_prefs(
+    modules: tuple[Any, Any, Any],
+    fake_fingerprint: FakeFingerprint,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _, _, utils = modules
+    monkeypatch.setattr(utils, "generate_fingerprint", lambda **_: fake_fingerprint)
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        options = utils.launch_options(
+            config={
+                "navigator": {
+                    "doNotTrack": "1",
+                    "globalPrivacyControl": True,
+                }
+            },
+            env={"TEST_ENV": "1"},
+            headless=True,
+        )
+
+    prefs = options["firefox_user_prefs"]
+    payload = _decode_rotunda_config(options["env"])
+
+    assert prefs["privacy.donottrackheader.enabled"] is True
+    assert prefs["privacy.donottrackheader.value"] == 1
+    assert prefs["privacy.globalprivacycontrol.functionality.enabled"] is True
+    assert prefs["privacy.globalprivacycontrol.enabled"] is True
+    assert payload["navigator"]["doNotTrack"] == "1"
+    assert payload["navigator"]["globalPrivacyControl"] is True
+    assert not [
+        warning for warning in caught if "Pydantic serializer warnings" in str(warning.message)
+    ]
+
+
 def test_launch_options_allows_explicit_asyncstack_override(
     modules: tuple[Any, Any, Any],
     fake_fingerprint: FakeFingerprint,
