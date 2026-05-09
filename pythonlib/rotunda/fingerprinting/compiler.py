@@ -15,6 +15,7 @@ from browserforge.fingerprints import (
 from .._generated_profile import (
     AudioProfile,
     ColorGamut,
+    DoNotTrack,
     DynamicRange,
     FontsProfile,
     NavigatorProfile,
@@ -682,9 +683,11 @@ def _derive_app_version(user_agent: str) -> str:
     return f"5.0 ({match.group(1)})"
 
 
-def _normalize_do_not_track(value: Any) -> Any:
-    if value in {"0", "1", "unspecified"}:
+def _normalize_do_not_track(value: Any) -> DoNotTrack | None:
+    if isinstance(value, DoNotTrack):
         return value
+    if value in {"0", "1", "unspecified"}:
+        return DoNotTrack(value)
     return None
 
 

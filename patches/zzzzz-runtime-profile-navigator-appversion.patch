@@ -1,0 +1,33 @@
+diff --git a/dom/base/Navigator.cpp b/dom/base/Navigator.cpp
+index 854f0f8b0b..4a92fb85cd 100644
+--- a/dom/base/Navigator.cpp
++++ b/dom/base/Navigator.cpp
+@@ -339,6 +339,28 @@ void Navigator::GetAppCodeName(nsAString& aAppCodeName, ErrorResult& aRv) {
+ 
+ void Navigator::GetAppVersion(nsAString& aAppVersion, CallerType aCallerType,
+                               ErrorResult& aRv) const {
++  if (mWindow) {
++    uint32_t userContextId = 0;
++    if (BrowsingContext* bc = mWindow->GetBrowsingContext()) {
++      userContextId = bc->OriginAttributesRef().mUserContextId;
++    }
++    nsAutoString userAgent;
++    if (NavigatorManager::GetUserAgent(userContextId, userAgent)) {
++      constexpr auto prefix = u"Mozilla/"_ns;
++      if (StringBeginsWith(userAgent, prefix)) {
++        const nsAString& withoutPrefix =
++            Substring(userAgent, prefix.Length());
++        int32_t geckoIndex = withoutPrefix.Find(u" Gecko/"_ns);
++        if (geckoIndex >= 0) {
++          aAppVersion = Substring(withoutPrefix, 0, geckoIndex);
++          return;
++        }
++        aAppVersion = withoutPrefix;
++        return;
++      }
++    }
++  }
++
+   // Rotunda: global config fallback for appVersion
+   if (auto navigator = MaskConfig::Profile().getNavigator()) {
+     if (auto value = navigator->getAppVersion()) {

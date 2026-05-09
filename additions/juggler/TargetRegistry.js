@@ -25,6 +25,103 @@ let globalTabAndWindowActivationChain = Promise.resolve();
 let didCreateFirstPage = false;
 let globalNewPageChain = Promise.resolve();
 
+function rotundaConfigInt(name, allowZero = false) {
+  try {
+    const value = ChromeUtils.rotundaGetInt(name);
+    return Number.isInteger(value) && (value > 0 || (allowZero && value === 0)) ? value : undefined;
+  } catch (e) {
+    return undefined;
+  }
+}
+
+function rotundaConfigDouble(name) {
+  try {
+    const value = ChromeUtils.rotundaGetDouble(name, 0);
+    return Number.isFinite(value) && value > 0 ? value : undefined;
+  } catch (e) {
+    return undefined;
+  }
+}
+
+function rotundaConfigString(name) {
+  try {
+    const value = ChromeUtils.rotundaGetString(name);
+    return value ? value : undefined;
+  } catch (e) {
+    return undefined;
+  }
+}
+
+function rotundaRuntimeInitScripts() {
+  const lines = ['(function() {', '  var w = window;'];
+  const call = (setter, ...args) => {
+    lines.push(`  if (typeof w.${setter} === "function") w.${setter}(${args.map(arg => JSON.stringify(arg)).join(', ')});`);
+  };
+
+  const platform = rotundaConfigString('navigator.platform');
+  if (platform)
+    call('setNavigatorPlatform', platform);
+  const oscpu = rotundaConfigString('navigator.oscpu');
+  if (oscpu)
+    call('setNavigatorOscpu', oscpu);
+  const hardwareConcurrency = rotundaConfigInt('navigator.hardwareConcurrency');
+  if (hardwareConcurrency)
+    call('setNavigatorHardwareConcurrency', hardwareConcurrency);
+  const userAgent = rotundaConfigString('navigator.userAgent');
+  if (userAgent)
+    call('setNavigatorUserAgent', userAgent);
+
+  const outerWidth = rotundaConfigInt('window.outerWidth');
+  const outerHeight = rotundaConfigInt('window.outerHeight');
+  const innerWidth = rotundaConfigInt('window.innerWidth');
+  const innerHeight = rotundaConfigInt('window.innerHeight');
+  if (outerWidth && outerHeight && innerWidth && innerHeight) {
+    call('setWindowDimensions', outerWidth, outerHeight, innerWidth, innerHeight,
+      rotundaConfigInt('window.screenX', true) || 0,
+      rotundaConfigInt('window.screenY', true) || 0);
+  }
+
+  const availWidth = rotundaConfigInt('screen.availWidth');
+  const availHeight = rotundaConfigInt('screen.availHeight');
+  if (availWidth && availHeight) {
+    call('setScreenAvailableRect', availWidth, availHeight,
+      rotundaConfigInt('screen.availLeft', true) || 0,
+      rotundaConfigInt('screen.availTop', true) || 0);
+  }
+
+  const screenWidth = rotundaConfigInt('screen.width');
+  const screenHeight = rotundaConfigInt('screen.height');
+  if (screenWidth && screenHeight)
+    call('setScreenDimensions', screenWidth, screenHeight);
+
+  const colorDepth = rotundaConfigInt('screen.colorDepth');
+  if (colorDepth)
+    call('setScreenColorDepth', colorDepth);
+
+  const timezone = rotundaConfigString('timezone');
+  if (timezone)
+    call('setTimezone', timezone);
+
+  if (lines.length === 2)
+    return '';
+
+  for (const setter of [
+    'setTimezone',
+    'setScreenDimensions',
+    'setScreenAvailableRect',
+    'setScreenColorDepth',
+    'setWindowDimensions',
+    'setNavigatorPlatform',
+    'setNavigatorOscpu',
+    'setNavigatorHardwareConcurrency',
+    'setNavigatorUserAgent',
+  ])
+    lines.push(`  try { w.${setter} = undefined; delete w.${setter}; } catch (e) {}`);
+
+  lines.push('})();');
+  return lines.join('\n');
+}
+
 class DownloadInterceptor {
   constructor(registry) {
     this._registry = registry
@@ -164,6 +261,7 @@ export class TargetRegistry {
         throw new Error(`Internal error: cannot find context for userContextId=${userContextId}`);
       const target = new PageTarget(this, window, tab, browserContext, openerTarget);
       target.updateOverridesForBrowsingContext(tab.linkedBrowser.browsingContext);
+      target.pushInitScripts();
       if (!hasExplicitSize)
         target.updateViewportSize();
       if (browserContext.videoRecordingOptions)
@@ -989,12 +1087,14 @@ class BrowserContext {
     this.reducedMotion = 'none';
     this.contrast = 'none';
     this.videoRecordingOptions = undefined;
+    this._runtimeInitScript = rotundaRuntimeInitScripts();
     this.crossProcessCookie = {
-      initScripts: [],
+      initScripts: this._runtimeInitScript ? [{ script: this._runtimeInitScript }] : [],
       bindings: [],
       settings: {},
     };
     this.pages = new Set();
+    this._updateCrossProcessCookie();
   }
 
   _updateCrossProcessCookie() {
@@ -1101,13 +1201,27 @@ class BrowserContext {
   }
 
   async setDefaultViewport(viewport) {
+    if (viewport) {
+      const width = rotundaConfigInt('window.innerWidth');
+      const height = rotundaConfigInt('window.innerHeight');
+      if (width && height)
+        viewport = { ...viewport, viewportSize: { width, height } };
+
+      const deviceScaleFactor = rotundaConfigDouble('window.devicePixelRatio');
+      if (deviceScaleFactor)
+        viewport = { ...viewport, deviceScaleFactor };
+    }
+
     this.defaultViewportSize = viewport ? viewport.viewportSize : undefined;
     this.deviceScaleFactor = viewport ? viewport.deviceScaleFactor : undefined;
-    await Promise.all(Array.from(this.pages).map(page => page.updateViewportSize()));
+    await Promise.all(Array.from(this.pages).map(async page => {
+      await page.pushInitScripts();
+      await page.updateViewportSize();
+    }));
   }
 
   async setInitScripts(scripts) {
-    this.crossProcessCookie.initScripts = scripts;
+    this.crossProcessCookie.initScripts = this._runtimeInitScript ? [{ script: this._runtimeInitScript }, ...scripts] : scripts;
     this._updateCrossProcessCookie();
     await Promise.all(Array.from(this.pages).map(page => page.pushInitScripts()));
   }
