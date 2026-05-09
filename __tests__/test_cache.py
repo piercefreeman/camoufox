@@ -3,7 +3,6 @@ from __future__ import annotations
 from importlib.metadata import version as package_version
 
 from pydantic import BaseModel
-
 from rotunda.cache import PydanticDiskCache
 
 

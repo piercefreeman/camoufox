@@ -5,7 +5,7 @@ import shutil
 import sys
 import tempfile
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from functools import total_ordering
 from io import BufferedWriter, BytesIO
 from pathlib import Path
@@ -28,7 +28,6 @@ from rich.progress import (
 )
 from yaml import CLoader, load
 
-from .__version__ import CONSTRAINTS
 from .assets import get_asset_by_name
 from .exceptions import (
     MissingRelease,
@@ -86,22 +85,6 @@ def rprint(msg: str, fg: str | None = None, nl: bool = True) -> None:
     console.print(msg, style=style, end="\n" if nl else "", highlight=False)
 
 
-def _parse_semver(version: str) -> tuple[int, ...]:
-    """
-    Parse a semver string into a comparable tuple
-    """
-    version = version.lstrip('^~')
-    parts = []
-    for part in version.split('.'):
-        try:
-            parts.append(int(part))
-        except ValueError:
-            parts.append(0)
-    while len(parts) < 3:
-        parts.append(0)
-    return tuple(parts)
-
-
 def _get_library_version() -> str:
     """
     Get the current library version
@@ -112,23 +95,6 @@ def _get_library_version() -> str:
         return version('rotunda')
     except Exception:
         return '0.0.0'
-
-
-def _find_version_constraints(
-    versions: list[dict[str, Any]], library_version: str
-) -> dict[str, Any] | None:
-    """
-    Find browser build constraints for the current library version.
-    Each entry has python_library {min, max} and browser {min, max}.
-    """
-    lib_parts = _parse_semver(library_version)
-    for entry in versions:
-        py_lib = entry.get('python_library', {})
-        lib_min = _parse_semver(py_lib.get('min', '0'))
-        lib_max = _parse_semver(py_lib.get('max', '999'))
-        if lib_min <= lib_parts < lib_max:
-            return entry.get('browser')
-    return None
 
 
 @dataclass
@@ -142,8 +108,7 @@ class RepoConfig:
     pattern: str
     os_map: dict[str, Literal['mac', 'win', 'lin']]
     arch_map: dict[str, str]
-    build_min: str | None = None
-    build_max: str | None = None
+    python_library_version: str = field(default_factory=_get_library_version)
 
     @property
     def repo(self) -> str:
@@ -178,14 +143,7 @@ class RepoConfig:
         if 'pattern' not in d:
             raise ValueError(f"Repo '{d.get('name', 'unknown')}' missing required pattern")
 
-        build_min: str | None = None
-        build_max: str | None = None
-        if d.get('versions'):
-            library_version = spoof_library_version or _get_library_version()
-            browser = _find_version_constraints(d['versions'], library_version)
-            if browser:
-                build_min = browser.get('min')
-                build_max = browser.get('max')
+        library_version = spoof_library_version or _get_library_version()
 
         # Parse comma separated repos list (primary + fallbacks)
         raw_repo = d['repo']
@@ -197,8 +155,7 @@ class RepoConfig:
             pattern=d['pattern'],
             os_map=OS_MAP,
             arch_map=ARCH_MAP,
-            build_min=build_min,
-            build_max=build_max,
+            python_library_version=library_version,
         )
 
     @staticmethod
@@ -265,13 +222,9 @@ class RepoConfig:
 
     def is_version_supported(self, version: 'Version') -> bool:
         """
-        Check if a version is within the repo's supported build range
+        Check if a browser asset belongs to this installed Python package version.
         """
-        if self.build_min is None or self.build_max is None:
-            return True
-        build_min = Version(build=self.build_min)
-        build_max = Version(build=self.build_max)
-        return build_min <= version <= build_max
+        return version.version == self.python_library_version
 
 
 @total_ordering
@@ -303,7 +256,7 @@ class Version:
         return self.sorted_rel < other.sorted_rel
 
     def is_supported(self) -> bool:
-        return VERSION_MIN <= self < VERSION_MAX
+        return self.version == _get_library_version()
 
     @staticmethod
     def from_path(path: Path | None = None) -> 'Version':
@@ -332,14 +285,7 @@ class Version:
         """
         Check if the version at the given path is supported
         """
-        return Version.from_path(path) >= VERSION_MIN
-
-    @staticmethod
-    def build_minmax() -> tuple['Version', 'Version']:
-        return Version(build=CONSTRAINTS.MIN_VERSION), Version(build=CONSTRAINTS.MAX_VERSION)
-
-
-VERSION_MIN, VERSION_MAX = Version.build_minmax()
+        return Version.from_path(path).is_supported()
 
 
 class GitHubDownloader:
@@ -480,8 +426,8 @@ class RotundaFetcher(GitHubDownloader):
 
     def missing_asset_error(self) -> None:
         raise MissingRelease(
-            f"No matching release found for {OS_NAME} {self.arch} in the "
-            f"supported range. Please update the Python library."
+            f"No matching release found for Rotunda {self.repo_config.python_library_version} "
+            f"on {OS_NAME} {self.arch}. Please update the Python library."
         )
 
     def get_platform_arch(self) -> str:
