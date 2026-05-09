@@ -554,7 +554,6 @@ def _macos_inventory_cache(host_macos: Any, tmp_path: Path) -> Any:
     return host_macos.PydanticDiskCache(
         tmp_path / "macos-host-inventory.json",
         payload_model=host_macos.MacOSHostInventory,
-        cache_version=host_macos._HOST_INVENTORY_CACHE_VERSION,
         max_age_seconds=host_macos._HOST_INVENTORY_CACHE_MAX_AGE_SECONDS,
     )
 

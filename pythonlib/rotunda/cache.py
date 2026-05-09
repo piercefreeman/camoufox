@@ -4,6 +4,8 @@ import json
 import time
 from collections.abc import Callable, Mapping
 from datetime import datetime, timezone
+from importlib.metadata import PackageNotFoundError
+from importlib.metadata import version as package_version
 from pathlib import Path
 from typing import Generic, TypeVar
 
@@ -16,7 +18,7 @@ ROTUNDA_CACHE_DIR = Path(user_cache_dir("rotunda"))
 
 
 class CachedModel(BaseModel, Generic[TModel]):
-    cache_version: int
+    cache_version: str
     cached_at: float = Field(default_factory=time.time)
     payload: TModel
     metadata: dict[str, str] = Field(default_factory=dict)
@@ -34,7 +36,7 @@ class CachedModel(BaseModel, Generic[TModel]):
     def is_fresh(
         self,
         *,
-        cache_version: int,
+        cache_version: str,
         max_age_seconds: float,
         now: float | None = None,
     ) -> bool:
@@ -47,12 +49,12 @@ class PydanticDiskCache(Generic[TModel]):
         path: Path,
         *,
         payload_model: type[TModel],
-        cache_version: int,
         max_age_seconds: float,
+        cache_version: str | None = None,
     ) -> None:
         self.path = path
         self.payload_model = payload_model
-        self.cache_version = cache_version
+        self.cache_version = cache_version or installed_library_version()
         self.max_age_seconds = max_age_seconds
 
     def read_envelope(self, *, now: float | None = None) -> CachedModel[TModel] | None:
@@ -66,7 +68,7 @@ class PydanticDiskCache(Generic[TModel]):
         try:
             payload = self.payload_model.model_validate(raw.get("payload"))
             envelope = CachedModel(
-                cache_version=int(raw.get("cache_version") or 0),
+                cache_version=str(raw.get("cache_version") or ""),
                 cached_at=float(raw.get("cached_at") or 0),
                 payload=payload,
                 metadata=_metadata(raw.get("metadata")),
@@ -119,6 +121,13 @@ class PydanticDiskCache(Generic[TModel]):
 
 def cache_path(*parts: str) -> Path:
     return ROTUNDA_CACHE_DIR.joinpath(*parts)
+
+
+def installed_library_version() -> str:
+    try:
+        return package_version("rotunda")
+    except PackageNotFoundError:
+        return "0+unknown"
 
 
 def _metadata(value: object) -> dict[str, str]:

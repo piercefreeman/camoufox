@@ -29,7 +29,6 @@ from .hosts import (
 )
 from .voices import Voice, dedupe_voices, voice_definitions_for_target_os
 
-_HOST_INVENTORY_CACHE_VERSION = 1
 _HOST_INVENTORY_CACHE_MAX_AGE_SECONDS = 7 * 24 * 60 * 60
 _HOST_INVENTORY_CACHE_PATH = cache_path("fingerprinting", "macos-host-inventory.json")
 _NS_FONT_MANAGER = "NSFontManager"
@@ -256,7 +255,6 @@ def _host_inventory_cache() -> PydanticDiskCache[MacOSHostInventory]:
     return PydanticDiskCache(
         _HOST_INVENTORY_CACHE_PATH,
         payload_model=MacOSHostInventory,
-        cache_version=_HOST_INVENTORY_CACHE_VERSION,
         max_age_seconds=_HOST_INVENTORY_CACHE_MAX_AGE_SECONDS,
     )
 
