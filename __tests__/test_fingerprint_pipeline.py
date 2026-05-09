@@ -1298,6 +1298,60 @@ def test_launch_options_reads_version_from_macos_bundle(
     assert payload["navigator"]["userAgent"].endswith("Firefox/150.0")
 
 
+def test_launch_options_reads_version_from_linux_bundle_browser_dir(
+    modules: tuple[Any, Any, Any],
+    fake_fingerprint: FakeFingerprint,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _, _, utils = modules
+    monkeypatch.setattr(utils, "generate_fingerprint", lambda **_: fake_fingerprint)
+    monkeypatch.setattr(
+        utils,
+        "installed_verstr",
+        lambda: (_ for _ in ()).throw(AssertionError("should not use installed version")),
+    )
+
+    executable_path = tmp_path / "rotunda-bin"
+    executable_path.write_text("", encoding="utf-8")
+    browser_dir = executable_path.parent / "browser"
+    browser_dir.mkdir()
+    (browser_dir / "application.ini").write_text(
+        "[App]\nVersion=150.0.1-beta.25\n",
+        encoding="utf-8",
+    )
+
+    options = utils.launch_options(executable_path=executable_path, env={"TEST_ENV": "1"}, headless=True)
+    payload = _decode_rotunda_config(options["env"])
+
+    assert options["executable_path"] == str(executable_path)
+    assert payload["navigator"]["userAgent"].endswith("Firefox/150.0")
+
+
+def test_launch_options_does_not_fetch_installed_version_for_explicit_executable(
+    modules: tuple[Any, Any, Any],
+    fake_fingerprint: FakeFingerprint,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _, _, utils = modules
+    monkeypatch.setattr(utils, "generate_fingerprint", lambda **_: fake_fingerprint)
+    monkeypatch.setattr(
+        utils,
+        "installed_verstr",
+        lambda: (_ for _ in ()).throw(AssertionError("should not use installed version")),
+    )
+
+    executable_path = tmp_path / "rotunda-bin"
+    executable_path.write_text("", encoding="utf-8")
+
+    options = utils.launch_options(executable_path=executable_path, env={"TEST_ENV": "1"}, headless=True)
+    payload = _decode_rotunda_config(options["env"])
+
+    assert options["executable_path"] == str(executable_path)
+    assert payload["navigator"]["userAgent"].endswith("Firefox/145.0")
+
+
 def test_get_asset_by_name_returns_packaged_path(modules: tuple[Any, Any, Any]) -> None:
     assets, _, _ = modules
 
