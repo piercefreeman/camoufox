@@ -4,6 +4,7 @@ import json
 import platform
 import re
 from dataclasses import dataclass
+from importlib import import_module
 from typing import ClassVar
 
 from typing_extensions import Self
@@ -25,6 +26,8 @@ from .hosts import (
     run_host_text,
 )
 from .voices import Voice, dedupe_voices, voice_definitions_for_target_os
+
+_NS_FONT_MANAGER = "NSFontManager"
 
 
 @dataclass(frozen=True)
@@ -224,13 +227,16 @@ class MacOSHostAdapter(HostFingerprintAdapter):
 
 def _discover_fonts_with_appkit() -> tuple[Font, ...]:
     try:
-        from AppKit import NSFontManager
+        appkit = import_module("AppKit")
     except ModuleNotFoundError as exc:
         raise RuntimeError(
             "macOS font discovery requires pyobjc-framework-Cocoa. "
             "Install Rotunda with its macOS platform dependencies."
         ) from exc
 
+    # PyObjC exposes AppKit symbols dynamically; direct attribute access makes ty
+    # rely on incomplete stubs, and Ruff rewrites literal getattr calls.
+    NSFontManager = getattr(appkit, _NS_FONT_MANAGER)
     families = NSFontManager.sharedFontManager().availableFontFamilies()
 
     baseline = {family.casefold() for family in default_families_for_target_os(MACOS)}
