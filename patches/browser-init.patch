@@ -51,7 +51,7 @@ index 1cfa4b8497..bdf8d7202e 100644
      // If we are given a tab to swap in, take care of it before first paint to
      // avoid an about:blank flash.
      let tabToAdopt = this.getTabToAdopt();
-@@ -345,6 +371,207 @@ var gBrowserInit = {
+@@ -345,6 +371,239 @@ var gBrowserInit = {
        }
      }
  
@@ -105,6 +105,7 @@ index 1cfa4b8497..bdf8d7202e 100644
 +      let visible = false;
 +      let cursorAngle = 0;
 +      let cursorPressed = false;
++      let clickSettleUntil = 0;
 +      const renderCursor = () => {
 +        cursorFollower.style.transform = `translate3d(${currentX}px, ${currentY}px, 0) translate(-50%, -50%)`;
 +        cursorFollower.style.opacity = "1";
@@ -139,11 +140,30 @@ index 1cfa4b8497..bdf8d7202e 100644
 +        const scale = maxLength / length;
 +        return [x * scale, y * scale];
 +      };
++      const shortestAngleDelta = (fromAngle, toAngle) => {
++        return ((toAngle - fromAngle + 540) % 360) - 180;
++      };
++      const settleCursorForClick = snap => {
++        clickSettleUntil = performance.now() + 180;
++        headingX = 0;
++        headingY = -1;
++        if (snap) {
++          cursorAngle = 0;
++        } else {
++          const delta = shortestAngleDelta(cursorAngle, 0);
++          cursorAngle = Math.abs(delta) < 1 ? 0 : cursorAngle + delta * 0.38;
++        }
++        renderCursorGlyph();
++      };
 +      const updateCursorHeading = () => {
 +        const dx = currentX - lastRenderedX;
 +        const dy = currentY - lastRenderedY;
 +        lastRenderedX = currentX;
 +        lastRenderedY = currentY;
++        if (performance.now() < clickSettleUntil) {
++          settleCursorForClick(false);
++          return;
++        }
 +        if (Math.hypot(dx, dy) < 0.2) {
 +          return;
 +        }
@@ -161,11 +181,14 @@ index 1cfa4b8497..bdf8d7202e 100644
 +        currentX = inverse2 * inverse * startX + 3 * inverse2 * t * control1X + 3 * inverse * t2 * control2X + t2 * t * targetX;
 +        currentY = inverse2 * inverse * startY + 3 * inverse2 * t * control1Y + 3 * inverse * t2 * control2Y + t2 * t * targetY;
 +      };
-+      const moveCursorTo = (x, y) => {
++      const moveCursorTo = (x, y, settleForClick = false) => {
 +        if (!Number.isFinite(x) || !Number.isFinite(y)) {
 +          return;
 +        }
 +        const now = performance.now();
++        if (settleForClick) {
++          clickSettleUntil = now + 180;
++        }
 +        if (!visible) {
 +          currentX = x;
 +          currentY = y;
@@ -180,6 +203,9 @@ index 1cfa4b8497..bdf8d7202e 100644
 +          return;
 +        }
 +        if (Math.hypot(x - targetX, y - targetY) < 0.5) {
++          if (settleForClick) {
++            settleCursorForClick(false);
++          }
 +          return;
 +        }
 +        startX = currentX;
@@ -243,10 +269,16 @@ index 1cfa4b8497..bdf8d7202e 100644
 +        setCursorPressed(false);
 +      }, true);
 +      window.__rotundaSetCursorOverlay = (x, y, type) => {
-+        moveCursorTo(x, y);
++        const settleForClick = type === "clicksettle" || type === "mousedown" || type === "mouseup";
++        moveCursorTo(x, y, settleForClick);
++        if (type === "clicksettle") {
++          settleCursorForClick(false);
++        }
 +        if (type === "mousedown") {
++          settleCursorForClick(true);
 +          setCursorPressed(true);
 +        } else if (type === "mouseup") {
++          settleCursorForClick(true);
 +          setCursorPressed(false);
 +        }
 +      };
@@ -259,7 +291,7 @@ index 1cfa4b8497..bdf8d7202e 100644
      // Wait until chrome is painted before executing code not critical to making the window visible
      this._boundDelayedStartup = this._delayedStartup.bind(this);
      window.addEventListener("MozAfterPaint", this._boundDelayedStartup);
-@@ -366,9 +573,152 @@ var gBrowserInit = {
+@@ -366,9 +605,152 @@ var gBrowserInit = {
        )?.removeAttribute("key");
      }
  

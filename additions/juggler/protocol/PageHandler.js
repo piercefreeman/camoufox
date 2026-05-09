@@ -551,7 +551,7 @@ export class PageHandler {
         // Cursor overlay is optional; never block input dispatch.
       }
     };
-    const sendEvents = async (types, eventX = x, eventY = y) => {
+    const sendEvents = async (types, eventX = x, eventY = y, overlayType = null) => {
       // 1. Scroll element to the desired location first; the coordinates are relative to the element.
       this._pageTarget._linkedBrowser.scrollRectIntoViewIfNeeded(eventX, eventY, 0, 0);
       // 2. Get element's bounding box in the browser after the scroll is completed.
@@ -565,7 +565,7 @@ export class PageHandler {
       for (const type of types) {
         const chromeX = eventX + boundingBox.left;
         const chromeY = eventY + boundingBox.top;
-        notifyCursorOverlay(type, chromeX, chromeY);
+        notifyCursorOverlay(overlayType || type, chromeX, chromeY);
         // This dispatches to the renderer synchronously.
         const jugglerEventId = win.windowUtils.jugglerSendMouseEvent(
           type,
@@ -630,10 +630,11 @@ export class PageHandler {
         await waitForHumanizedMouseInterval(points, i);
       }
     };
-    const sendMouseMovePath = async (points) => {
+    const sendMouseMovePath = async (points, settleForClick = false) => {
       for (let i = 0; i < points.length; ++i) {
         const point = points[i];
-        await sendEvents(['mousemove'], point.x, point.y);
+        const overlayType = settleForClick && i >= points.length - 3 ? 'clicksettle' : null;
+        await sendEvents(['mousemove'], point.x, point.y, overlayType);
         await waitForHumanizedMouseInterval(points, i);
       }
     };
@@ -679,7 +680,7 @@ export class PageHandler {
         const previousMousePosition = this._lastMousePosition || {x: 0, y: 0};
         const points = humanizedMousePlan(previousMousePosition.x, previousMousePosition.y, x, y, boundingBox);
         if (points)
-          await sendMouseMovePath(points);
+          await sendMouseMovePath(points, true);
         this._lastMousePosition = { x, y };
         const eventNames = button === 2 ? ['mousedown', 'contextmenu'] : ['mousedown'];
         await sendEvents(eventNames);
