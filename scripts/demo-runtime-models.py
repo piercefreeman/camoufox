@@ -5,6 +5,7 @@ import json
 import os
 import socket
 import statistics
+import struct
 import threading
 import time
 from pathlib import Path
@@ -27,6 +28,7 @@ DEFAULT_PARAGRAPH = (
     "the pointer plans a path to each target, then the keyboard model types "
     "this longer paragraph as a sequence of timed edits."
 )
+DEFAULT_UNKNOWN_KEYBOARD_ACTION = "¤"
 
 BUTTONS = {
     "preview": "#preview",
@@ -77,6 +79,54 @@ def find_executable(explicit_path: Path | None) -> Path:
     raise click.ClickException(
         "Could not find a built Rotunda executable. Run `make build` first or pass --executable-path."
     )
+
+
+def bundled_model_candidates(executable: Path, file_name: str) -> list[Path]:
+    executable_dir = executable.parent
+    return [
+        executable_dir / "runtime-models" / file_name,
+        executable_dir.parent / "Resources" / "runtime-models" / file_name,
+        executable_dir.parent.parent / "runtime-models" / file_name,
+        executable_dir.parent.parent.parent.parent / "Resources" / "runtime-models" / file_name,
+    ]
+
+
+def resolve_bundled_model(executable: Path, file_name: str) -> Path | None:
+    for candidate in bundled_model_candidates(executable, file_name):
+        if candidate.is_file():
+            return candidate.resolve()
+    return None
+
+
+def read_runtime_metadata(model_path: Path) -> dict[str, Any]:
+    data = model_path.read_bytes()
+    if len(data) < 8:
+        raise click.ClickException(f"Runtime model is too small to be SafeTensors: {model_path}")
+    header_len = struct.unpack("<Q", data[:8])[0]
+    header = json.loads(data[8 : 8 + header_len].decode("utf-8"))
+    metadata_text = header.get("__metadata__", {}).get("rotunda_metadata")
+    if not metadata_text:
+        raise click.ClickException(f"Runtime model is missing rotunda metadata: {model_path}")
+    return json.loads(metadata_text)
+
+
+def assert_keyboard_text_supported(model_path: Path, texts: list[str]) -> None:
+    metadata = read_runtime_metadata(model_path)
+    action_to_id = metadata.get("actionToId")
+    if metadata.get("kind") != "keyboard_action_gru" or not isinstance(action_to_id, dict):
+        raise click.ClickException(f"Runtime model is not a keyboard action model: {model_path}")
+    unknown_action = metadata.get("unknownAction", DEFAULT_UNKNOWN_KEYBOARD_ACTION)
+    has_unknown_action = isinstance(unknown_action, str) and unknown_action in action_to_id
+    missing = sorted(
+        {char for text in texts for char in text if char not in action_to_id and not has_unknown_action},
+        key=ord,
+    )
+    if missing:
+        labels = ", ".join(repr(char) for char in missing)
+        raise click.ClickException(
+            f"Keyboard runtime model cannot emit required characters: {labels}. "
+            f"Regenerate {model_path} with those concrete actions or the unknown-action stand-in."
+        )
 
 
 DEMO_HTML = """<!doctype html>
@@ -607,10 +657,30 @@ def main(
     executable = find_executable(executable_path)
     mouse_model = mouse_model.expanduser().resolve()
     keyboard_model = keyboard_model.expanduser().resolve()
-    if not use_bundled_models:
+    bundled_mouse_model: Path | None = None
+    bundled_keyboard_model: Path | None = None
+    if use_bundled_models:
+        bundled_mouse_model = resolve_bundled_model(executable, "mouse.safetensors")
+        bundled_keyboard_model = resolve_bundled_model(executable, "keyboard.safetensors")
+        missing = []
+        if bundled_mouse_model is None:
+            missing.append("mouse.safetensors")
+        if bundled_keyboard_model is None:
+            missing.append("keyboard.safetensors")
+        if missing:
+            labels = ", ".join(missing)
+            raise click.ClickException(
+                f"Bundled runtime model(s) not found for {executable}: {labels}. "
+                "Run without --use-bundled-models to pass explicit model paths, or package the app bundle first."
+            )
+        assert bundled_mouse_model is not None
+        assert bundled_keyboard_model is not None
+        assert_keyboard_text_supported(bundled_keyboard_model, [text, paragraph_text])
+    else:
         for model_path in [mouse_model, keyboard_model]:
             if not model_path.is_file():
                 raise click.ClickException(f"Model file does not exist: {model_path}")
+        assert_keyboard_text_supported(keyboard_model, [text, paragraph_text])
 
     output_dir = output_root.expanduser().resolve() / f"runtime-browser-demo-{time.strftime('%Y%m%d-%H%M%S')}"
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -691,8 +761,8 @@ def main(
         },
         "models": {
             "source": "bundled" if use_bundled_models else "profile",
-            "mouse": None if use_bundled_models else str(mouse_model),
-            "keyboard": None if use_bundled_models else str(keyboard_model),
+            "mouse": str(bundled_mouse_model or mouse_model),
+            "keyboard": str(bundled_keyboard_model or keyboard_model),
         },
         "summary": summary,
         "events": events,

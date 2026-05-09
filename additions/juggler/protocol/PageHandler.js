@@ -603,31 +603,39 @@ export class PageHandler {
       await Promise.all(promises);
       await watcher.dispose();
     };
-    const waitForHumanizedMouseInterval = async (points, index) => {
-      if (index + 1 < points.length) {
-        // The delay belongs to the upcoming segment: after sending this point,
-        // wait for the next point's modeled dt before dispatching it.
-        const delay = points[index + 1].dtMs || HUMANIZED_MOUSE_INTERVAL_MS;
-        await new Promise(resolve => setTimeout(resolve, delay));
-      }
+    const createHumanizedMouseScheduler = points => {
+      let nextDueTime = Date.now();
+      return async index => {
+        if (index === 0)
+          return;
+        // Schedule against the cumulative model timeline so renderer/APZ ack
+        // time does not get added to every modeled interval.
+        const delay = points[index].dtMs || HUMANIZED_MOUSE_INTERVAL_MS;
+        nextDueTime += delay;
+        const remaining = nextDueTime - Date.now();
+        if (remaining > 0)
+          await new Promise(resolve => setTimeout(resolve, remaining));
+      };
     };
     const sendDragOver = async (eventX, eventY) => {
       const watcher = new EventWatcher(this._pageEventSink, ['dragover'], this._pendingEventWatchers);
       await this._contentPage.send('dispatchDragEvent', {type: 'dragover', x: eventX, y: eventY, modifiers});
       await watcher.ensureEventsAndDispose(['dragover']);
     };
-    const sendDragOverPath = async (points, startIndex = 0) => {
+    const sendDragOverPath = async (points, startIndex = 0, waitForPoint = createHumanizedMouseScheduler(points)) => {
       for (let i = startIndex; i < points.length; ++i) {
         const point = points[i];
+        await waitForPoint(i);
         // Once Gecko has started a drag session, mousemove is no longer the
         // right event shape. Continue the same path as dragover events instead.
         await sendDragOver(point.x, point.y);
-        await waitForHumanizedMouseInterval(points, i);
       }
     };
     const sendPotentialDragPath = async (points) => {
+      const waitForPoint = createHumanizedMouseScheduler(points);
       for (let i = 0; i < points.length; ++i) {
         const point = points[i];
+        await waitForPoint(i);
         const watcher = new EventWatcher(this._pageEventSink, ['dragstart', 'juggler-drag-finalized'], this._pendingEventWatchers);
         try {
           // Button-held moves begin as normal mousemove events. If content turns
@@ -644,22 +652,20 @@ export class PageHandler {
         }
 
         if (this._isDragging) {
-          await waitForHumanizedMouseInterval(points, i);
-          await sendDragOverPath(points, i + 1);
+          await sendDragOverPath(points, i + 1, waitForPoint);
           return;
         }
-
-        await waitForHumanizedMouseInterval(points, i);
       }
     };
     const sendMouseMovePath = async (points, settleForClick = false) => {
+      const waitForPoint = createHumanizedMouseScheduler(points);
       for (let i = 0; i < points.length; ++i) {
         const point = points[i];
+        await waitForPoint(i);
         // For click-bound paths, start settling the visual cursor over the final
         // few move events so the arrow is upright before mousedown lands.
         const overlayType = settleForClick && i >= points.length - 3 ? 'clicksettle' : null;
         await sendEvents(['mousemove'], point.x, point.y, overlayType);
-        await waitForHumanizedMouseInterval(points, i);
       }
     };
 

@@ -17,7 +17,7 @@ debs := python3 python3-dev python3-pip p7zip-full msitools wget aria2 libsqlite
 rpms := python3 python3-devel p7zip msitools wget aria2 sqlite-devel
 pacman := python python-pip p7zip msitools wget aria2 sqlite
 
-.PHONY: help fetch setup setup-minimal clean set-target distclean build package \
+.PHONY: help fetch setup setup-minimal clean set-target distclean build bundle-runtime-models package \
         revert edits run bootstrap mozbootstrap dir \
         package-linux package-macos package-windows vcredist_arch patch unpatch \
         workspace check-arg edit-cfg ff-dbg lint lint-validate lint-pythonlib lint-pythonlib-validate lint-ml lint-ml-validate tests update-ubo-assets generate-assets-car \
@@ -52,6 +52,7 @@ help:
 	@echo "  clean           - Remove build artifacts"
 	@echo "  distclean       - Remove everything including downloads"
 	@echo "  build           - Build Rotunda"
+	@echo "  bundle-runtime-models - Copy runtime models into local dev dist builds"
 	@echo "  set-target      - Change the build target with BUILD_TARGET"
 	@echo "  package-linux   - Package Rotunda for Linux"
 	@echo "  package-macos   - Package Rotunda for macOS"
@@ -154,6 +155,30 @@ build: unbusy
 		make dir; \
 	fi
 	cd $(cf_source_dir) && ./mach build $(_ARGS)
+	$(MAKE) bundle-runtime-models
+
+bundle-runtime-models:
+	@set -e; \
+	copied=0; \
+	for resources in $(cf_source_dir)/obj-*/dist/Rotunda.app/Contents/Resources; do \
+		if [ -d "$$resources" ]; then \
+			mkdir -p "$$resources/runtime-models"; \
+			cp -R bundle/runtime-models/. "$$resources/runtime-models/"; \
+			echo "Bundled runtime models -> $$resources/runtime-models"; \
+			copied=1; \
+		fi; \
+	done; \
+	for bin in $(cf_source_dir)/obj-*/dist/bin; do \
+		if [ -d "$$bin" ]; then \
+			mkdir -p "$$bin/runtime-models"; \
+			cp -R bundle/runtime-models/. "$$bin/runtime-models/"; \
+			echo "Bundled runtime models -> $$bin/runtime-models"; \
+			copied=1; \
+		fi; \
+	done; \
+	if [ "$$copied" -eq 0 ]; then \
+		echo "No local dev dist found for runtime models."; \
+	fi
 
 edits:
 	python3 ./scripts/developer.py $(version) $(release)

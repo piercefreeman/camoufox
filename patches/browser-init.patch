@@ -163,8 +163,10 @@ index 1cfa4b8497..bdf8d7202e 100644
 +      // chasing path direction and return to its neutral upright shape. `snap`
 +      // is used at the actual button transition; intermediate clicksettle
 +      // events ease toward upright to avoid a sudden rotation jump.
-+      const settleCursorForClick = snap => {
++      const armClickSettle = () => {
 +        clickSettleUntil = performance.now() + 180;
++      };
++      const settleCursorForClick = snap => {
 +        headingX = 0;
 +        headingY = -1;
 +        if (snap) {
@@ -173,6 +175,30 @@ index 1cfa4b8497..bdf8d7202e 100644
 +          const delta = shortestAngleDelta(cursorAngle, 0);
 +          cursorAngle = Math.abs(delta) < 1 ? 0 : cursorAngle + delta * 0.38;
 +        }
++        renderCursorGlyph();
++      };
++      const snapCursorTo = (x, y) => {
++        if (animationFrame) {
++          cancelAnimationFrame(animationFrame);
++          animationFrame = 0;
++        }
++        currentX = x;
++        currentY = y;
++        startX = x;
++        startY = y;
++        targetX = x;
++        targetY = y;
++        control1X = x;
++        control1Y = y;
++        control2X = x;
++        control2Y = y;
++        velocityX = 0;
++        velocityY = 0;
++        visible = true;
++        lastRenderedX = x;
++        lastRenderedY = y;
++        lastMoveTime = performance.now();
++        renderCursor();
 +        renderCursorGlyph();
 +      };
 +      const updateCursorHeading = () => {
@@ -215,7 +241,7 @@ index 1cfa4b8497..bdf8d7202e 100644
 +        }
 +        const now = performance.now();
 +        if (settleForClick) {
-+          clickSettleUntil = now + 180;
++          armClickSettle();
 +        }
 +        // First observation: place the overlay immediately so it appears at the
 +        // correct coordinate without flying in from 0,0.
@@ -318,14 +344,20 @@ index 1cfa4b8497..bdf8d7202e 100644
 +      // tells the glyph to square up before mousedown/mouseup.
 +      window.__rotundaSetCursorOverlay = (x, y, type) => {
 +        const settleForClick = type === "clicksettle" || type === "mousedown" || type === "mouseup";
-+        moveCursorTo(x, y, settleForClick);
++        if (type === "mousedown" || type === "mouseup") {
++          snapCursorTo(x, y);
++        } else {
++          moveCursorTo(x, y, settleForClick);
++        }
 +        if (type === "clicksettle") {
 +          settleCursorForClick(false);
 +        }
 +        if (type === "mousedown") {
++          armClickSettle();
 +          settleCursorForClick(true);
 +          setCursorPressed(true);
 +        } else if (type === "mouseup") {
++          armClickSettle();
 +          settleCursorForClick(true);
 +          setCursorPressed(false);
 +        }

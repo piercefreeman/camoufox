@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import pytest
+from rotunda_models.constants import KEY_UNKNOWN_ACTION, PRINTABLE_ASCII
 from rotunda_models.training_utils import (
+    build_keyboard_vocabs,
     filter_keyboard_training_episodes,
     keyboard_sweep_score_metrics,
     keyboard_training_filter_counts,
@@ -51,6 +53,22 @@ def test_keyboard_training_filter_limits_condition_and_step_lengths() -> None:
     assert counts["output"] == 1
     assert counts["dropped_max_condition_length"] == 1
     assert counts["dropped_max_steps"] == 1
+
+
+def test_keyboard_vocabs_include_printable_ascii() -> None:
+    char_to_id, action_to_id = build_keyboard_vocabs([])
+
+    assert not [char for char in PRINTABLE_ASCII if char not in char_to_id]
+    assert not [char for char in PRINTABLE_ASCII if char not in action_to_id]
+    assert KEY_UNKNOWN_ACTION in char_to_id
+    assert KEY_UNKNOWN_ACTION in action_to_id
+
+
+def test_keyboard_vocabs_map_non_ascii_actions_to_unknown_stand_in() -> None:
+    _, action_to_id = build_keyboard_vocabs([keyboard_episode("", "Ω", ["Ω"])])
+
+    assert KEY_UNKNOWN_ACTION in action_to_id
+    assert "Ω" not in action_to_id
 
 
 def test_summarize_metric_observations_combines_epoch_values_exactly() -> None:

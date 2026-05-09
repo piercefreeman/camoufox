@@ -10,7 +10,14 @@ from torch import nn
 from torch.nn import functional as F
 from torch.utils.data import Dataset
 
-from ..constants import CHAR_EOS, CHAR_SEP, CHAR_UNK, KEY_BACKSPACE, KEY_STOP
+from ..constants import (
+    CHAR_EOS,
+    CHAR_SEP,
+    CHAR_UNK,
+    KEY_BACKSPACE,
+    KEY_STOP,
+    KEY_UNKNOWN_ACTION,
+)
 from ..keyboard_logic import (
     apply_keyboard_action,
     canonical_keyboard_steps,
@@ -57,6 +64,15 @@ def repaired_wrong_character_action(
         if final_string.startswith("".join(future_text)):
             return saw_backspace
     return False
+
+
+def keyboard_action_token(action: str, action_to_id: dict[str, int]) -> str:
+    """Map a concrete edit action to the model action vocabulary."""
+    if action in {KEY_BACKSPACE, KEY_STOP} or action in action_to_id:
+        return action
+    if KEY_UNKNOWN_ACTION in action_to_id:
+        return KEY_UNKNOWN_ACTION
+    return action
 
 
 class KeyboardSample(TypedDict):
@@ -174,7 +190,8 @@ class KeyboardTrajectoryDataset(Dataset):
         else:
             raise ValueError(f"Unknown keyboard sequence mode: {self.sequence_mode!r}")
 
-        action_tokens = [step.action for step in steps] + [KEY_STOP]
+        concrete_actions = [step.action for step in steps] + [KEY_STOP]
+        action_tokens = [keyboard_action_token(action, self.action_to_id) for action in concrete_actions]
         actions = [self.action_to_id[action] for action in action_tokens]
         dt = [dt_to_log(step.dt_ms) for step in steps] + [0.0]
         next_char_ids: list[int] = []
@@ -182,17 +199,17 @@ class KeyboardTrajectoryDataset(Dataset):
         typo_action_ids: list[int] = []
         current_text: list[str] = list(episode.initial_string)
 
-        for action_index, action in enumerate(action_tokens):
+        for action_index, action in enumerate(concrete_actions):
             next_char = keyboard_next_char(episode.final_string, current_text)
             next_char_ids.append(self.char_to_id.get(next_char, self.char_to_id[CHAR_UNK]))
             typo_action = repaired_wrong_character_action(
                 episode.final_string,
                 current_text,
-                action_tokens,
+                concrete_actions,
                 action_index,
             )
             typo_labels.append(1.0 if typo_action else 0.0)
-            typo_action_ids.append(self.action_to_id[action] if typo_action else -100)
+            typo_action_ids.append(self.action_to_id[action_tokens[action_index]] if typo_action else -100)
 
             if action == KEY_STOP:
                 continue

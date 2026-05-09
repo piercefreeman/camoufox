@@ -28,6 +28,13 @@ function isHumanizeEnabled() {
   return ChromeUtils.rotundaGetBool('humanize.enabled', false);
 }
 
+function rotundaDebug(message) {
+  if (typeof ChromeUtils.rotundaDebug === "function" &&
+      typeof ChromeUtils.isRotundaDebug === "function" &&
+      ChromeUtils.isRotundaDebug())
+    ChromeUtils.rotundaDebug(message);
+}
+
 function textInputUnits(text) {
   if (!text)
     return [];
@@ -103,6 +110,10 @@ async function commitTextInput(frame, text, keyEvent = undefined, humanizeEnable
     return;
   }
 
+  rotundaDebug(
+    `Keyboard trajectory unavailable; falling back to fixed cadence for ${text.length} inserted chars ` +
+    `(initial length ${initialText.length}).`
+  );
   const units = textInputUnits(text);
   for (let i = 0; i < units.length; ++i) {
     if (keyEvent)

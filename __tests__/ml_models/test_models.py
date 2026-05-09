@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import torch
-from rotunda_models.constants import MOUSE_ACTIONS
+from rotunda_models.constants import KEY_UNKNOWN_ACTION, MOUSE_ACTIONS
 from rotunda_models.models.keyboard import (
     KeyboardActionGRU,
     KeyboardTrajectoryDataset,
@@ -168,6 +168,27 @@ def test_keyboard_model_forward_backward_step_on_tiny_dataset() -> None:
     assert has_nonzero_gradient(model)
 
     optimizer.step()
+
+
+def test_keyboard_dataset_maps_non_ascii_action_to_unknown_stand_in() -> None:
+    episode = KeyboardEpisode(
+        source="fixture-unknown",
+        initial_string="",
+        final_string="Ω",
+        steps=(KeyStep(dt_ms=30.0, action="Ω"),),
+    )
+    char_to_id, action_to_id = build_keyboard_vocabs([episode])
+    dataset = KeyboardTrajectoryDataset(
+        [episode],
+        char_to_id=char_to_id,
+        action_to_id=action_to_id,
+        sequence_mode="raw",
+    )
+
+    sample = dataset[0]
+
+    assert "Ω" not in action_to_id
+    assert sample["actions"].tolist()[0] == action_to_id[KEY_UNKNOWN_ACTION]
 
 
 def test_keyboard_dataset_labels_raw_wrong_character_actions() -> None:
