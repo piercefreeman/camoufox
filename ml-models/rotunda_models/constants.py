@@ -8,11 +8,13 @@ MOUSE_ACTIONS = ["move", "left_click", "right_click", "center_click", "other_cli
 
 KEY_BACKSPACE = "<BACKSPACE>"
 KEY_STOP = "<STOP>"
+KEY_UNKNOWN_ACTION = "¤"
 KEY_BOS = "<BOS>"
 CHAR_PAD = "<PAD>"
 CHAR_UNK = "<UNK>"
 CHAR_EOS = "<EOS>"
 CHAR_SEP = "<SEP>"
+PRINTABLE_ASCII = tuple(chr(code) for code in range(32, 127))
 
 
 KEY_LAYOUT = [

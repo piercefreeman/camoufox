@@ -89,6 +89,10 @@ class KeyboardRuntimeModel {
   int charId(const std::string& token) const;
   int actionId(const std::string& action) const;
   std::string actionForId(int actionId) const;
+  std::string actionTokenFor(const std::string& action) const;
+  std::string materializeAction(const std::string& action,
+                                const std::string& finalString,
+                                const std::string& text) const;
   std::vector<int> encodeCondition(const std::string& initialString,
                                    const std::string& finalString) const;
   std::vector<double> embeddingRow(const std::string& tensorName,
@@ -131,6 +135,7 @@ class KeyboardRuntimeModel {
   std::unordered_map<std::string, int> m_charToId;
   std::unordered_map<int, std::string> m_idToAction;
   std::unordered_map<std::string, int> m_actionToId;
+  std::string m_unknownAction;
   int m_hiddenSize = 0;
   int m_layers = 1;
   int m_actionCount = 0;

@@ -15,6 +15,7 @@ from .constants import (
     CHAR_UNK,
     KEY_BACKSPACE,
     KEY_STOP,
+    KEY_UNKNOWN_ACTION,
 )
 from .keyboard_logic import (
     apply_keyboard_action,
@@ -24,7 +25,11 @@ from .keyboard_logic import (
     terminal_edit_actions,
 )
 from .models.common import sample_timing_log
-from .models.keyboard import KeyboardActionGRU, decode_press_count_logits
+from .models.keyboard import (
+    KeyboardActionGRU,
+    decode_press_count_logits,
+    keyboard_action_token,
+)
 from .models.mouse import MouseTrajectoryGRU
 from .types import MouseEpisode
 from .utils import log_to_dt, screen_position_from_goal_relative
@@ -263,16 +268,32 @@ def require_keyboard_target_supported(
     action_to_id: dict[str, int],
 ) -> None:
     """Raise if constrained keyboard decoding cannot emit required insertions."""
+    has_unknown_action = KEY_UNKNOWN_ACTION in action_to_id
     missing = sorted(
         {
             action
             for action in terminal_edit_actions(initial_string, final_string)
-            if action != KEY_BACKSPACE and action not in action_to_id
+            if action != KEY_BACKSPACE and action not in action_to_id and not has_unknown_action
         }
     )
     if missing:
         labels = ", ".join(repr(char) for char in missing)
-        raise SystemExit(f"Target edit requires characters outside the keyboard action vocabulary: {labels}")
+        raise SystemExit(
+            "Target edit requires characters outside the keyboard action vocabulary "
+            f"and no unknown-action stand-in is available: {labels}"
+        )
+
+
+def materialize_keyboard_action(action: str, final_string: str, text: list[str], action_to_id: dict[str, int]) -> str:
+    """Expand the unknown action token to the concrete requested target character."""
+    if action != KEY_UNKNOWN_ACTION:
+        return action
+    current = "".join(text)
+    if final_string.startswith(current) and len(current) < len(final_string):
+        next_char = final_string[len(current)]
+        if next_char not in action_to_id:
+            return next_char
+    return action
 
 
 def structured_keyboard_action_ids(
@@ -301,8 +322,13 @@ def structured_keyboard_action_ids(
             continue
         if action == KEY_BACKSPACE and (not text or final_string.startswith(current)):
             continue
+        if action == KEY_UNKNOWN_ACTION:
+            if not final_string.startswith(current) or len(current) >= len(final_string):
+                continue
+            if final_string[len(current)] in action_to_id and final_string[len(current)] != KEY_UNKNOWN_ACTION:
+                continue
         candidate = list(text)
-        apply_keyboard_action(candidate, action)
+        apply_keyboard_action(candidate, materialize_keyboard_action(action, final_string, text, action_to_id))
         if candidate == text:
             continue
         if minimum_terminal_edit_steps(final_string, candidate) <= remaining_steps_after_action:
@@ -310,7 +336,7 @@ def structured_keyboard_action_ids(
 
     if not valid:
         fallback = constrained_keyboard_action(final_string, text)
-        return [int(action_to_id[fallback])]
+        return [int(action_to_id[keyboard_action_token(fallback, action_to_id)])]
     return sorted(set(valid))
 
 
@@ -362,7 +388,7 @@ def choose_learned_keyboard_typo(
         int(action_id)
         for action_id in valid_action_ids
         if int(action_id) != int(preferred_action_id)
-        and id_to_action[int(action_id)] not in {KEY_BACKSPACE, KEY_STOP}
+        and id_to_action[int(action_id)] not in {KEY_BACKSPACE, KEY_STOP, KEY_UNKNOWN_ACTION}
     ]
     if not candidate_ids_list:
         return None
@@ -593,7 +619,7 @@ def _decode_keyboard_rows_impl(
                     # Canonical mode is deterministic shortest-path editing. It
                     # still uses model timing, but not model action preferences.
                     action = constrained_keyboard_action(final_string, text)
-                    action_id = int(action_to_id[action])
+                    action_id = int(action_to_id[keyboard_action_token(action, action_to_id)])
                     step_kind = "repair" if action == KEY_BACKSPACE else "target"
                 else:
                     # Constrained mode lets the model choose among all reachable
@@ -608,7 +634,7 @@ def _decode_keyboard_rows_impl(
                         remaining_steps_after_action=remaining_steps_after_action,
                     )
                     preferred_action = constrained_keyboard_action(final_string, text)
-                    preferred_action_id = int(action_to_id[preferred_action])
+                    preferred_action_id = int(action_to_id[keyboard_action_token(preferred_action, action_to_id)])
                     learned_typo = None
                     selected_from_structured_head = False
                     if (
@@ -633,6 +659,7 @@ def _decode_keyboard_rows_impl(
                         )
                     if learned_typo is not None:
                         action, action_id, _ = learned_typo
+                        action = materialize_keyboard_action(action, final_string, text, action_to_id)
                         typos_used += 1
                         non_canonical_prefixes.add(current)
                         step_kind = "learned_typo"
@@ -651,6 +678,7 @@ def _decode_keyboard_rows_impl(
                                 preferred_action_id=preferred_action_id,
                                 preferred_bias=canonical_bias,
                             )
+                            action = materialize_keyboard_action(action, final_string, text, action_to_id)
                         selected_from_structured_head = True
                     if selected_from_structured_head and action == KEY_STOP:
                         step_kind = "model_stop"

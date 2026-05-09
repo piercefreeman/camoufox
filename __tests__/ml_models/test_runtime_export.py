@@ -8,7 +8,7 @@ import pytest
 import torch
 from click.testing import CliRunner
 from rotunda_models.cli.runtime import export_runtime_command
-from rotunda_models.constants import MOUSE_ACTIONS
+from rotunda_models.constants import KEY_UNKNOWN_ACTION, MOUSE_ACTIONS
 from rotunda_models.models.keyboard import KeyboardActionGRU
 from rotunda_models.models.mouse import MouseTrajectoryGRU
 from rotunda_models.runtime_export import METADATA_KEY, export_runtime_checkpoint
@@ -93,6 +93,7 @@ def test_exports_keyboard_checkpoint_as_safetensors(tmp_path: Path) -> None:
     assert result["kind"] == "keyboard_action_gru"
     assert metadata["charToId"]["h"] == 4
     assert metadata["idToAction"]["2"] == "<STOP>"
+    assert metadata["unknownAction"] == KEY_UNKNOWN_ACTION
     assert metadata["learnedTypoHead"] is False
     assert metadata["decodeDefaults"]["canonicalBias"] == 1.5
     assert metadata["decodeDefaults"]["maxTypos"] == -1

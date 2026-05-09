@@ -28,6 +28,13 @@ function isHumanizeEnabled() {
   return ChromeUtils.rotundaGetBool('humanize.enabled', false);
 }
 
+function rotundaDebug(message) {
+  if (typeof ChromeUtils.rotundaDebug === "function" &&
+      typeof ChromeUtils.isRotundaDebug === "function" &&
+      ChromeUtils.isRotundaDebug())
+    ChromeUtils.rotundaDebug(message);
+}
+
 function textInputUnits(text) {
   if (!text)
     return [];
@@ -103,6 +110,10 @@ async function commitTextInput(frame, text, keyEvent = undefined, humanizeEnable
     return;
   }
 
+  rotundaDebug(
+    `Keyboard trajectory unavailable; falling back to fixed cadence for ${text.length} inserted chars ` +
+    `(initial length ${initialText.length}).`
+  );
   const units = textInputUnits(text);
   for (let i = 0; i < units.length; ++i) {
     if (keyEvent)
@@ -540,6 +551,9 @@ export class PageAgent {
     const quads = unsafeObject.getBoxQuads({relativeTo: this._frameTree.mainFrame().domWindow().document});
     if (!quads.length)
       return;
+    // Nodes can fragment into multiple layout quads. Collapse them into one
+    // axis-aligned box in main-frame coordinates so the protocol has a single
+    // target rectangle for scrolling and pointer planning.
     let x1 = Infinity;
     let y1 = Infinity;
     let x2 = -Infinity;
@@ -632,6 +646,9 @@ export class PageAgent {
 
     if ((type === 'drop' && dropEffect !== 'none') || type ===  'dragover') {
       const win = this._frameTree.mainFrame().domWindow();
+      // Dragover/drop travel through the mouse synthesizer because Gecko's drag
+      // pipeline expects widget mouse coordinates plus the active drag session,
+      // not a plain DOM DragEvent constructed in JS.
       win.windowUtils.jugglerSendMouseEvent(
         type,
         x,
@@ -651,6 +668,8 @@ export class PageAgent {
       return;
     }
     if (type === 'dragend') {
+      // The source-side dragend is session cleanup, so finish the platform drag
+      // session directly after drop handling has had its chance to run.
       const session = this._getCurrentDragSession();
       session?.endDragSession(true);
       return;
