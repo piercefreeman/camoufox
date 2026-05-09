@@ -114,6 +114,7 @@ class SyncWorker(Worker):
                     {
                         'name': rc.name,
                         'repo': rc.repo,
+                        'python_library': rc.python_library_version,
                         'versions': [
                             {
                                 'version': v.version.version,
