@@ -634,17 +634,21 @@ export class PageTarget {
     const viewportSize = this._viewportSize || this._browserContext.defaultViewportSize;
     if (viewportSize) {
       const {width, height} = viewportSize;
+      const browserStack = this._linkedBrowser.closest('.browserStack');
+      // Measure the actual chrome layout before applying viewport styles. Rotunda
+      // may spoof window geometry getters for page fingerprints, and those values
+      // must not feed back into physical browser-window resizing.
+      const currentBrowserRect = this._linkedBrowser.getBoundingClientRect();
       this._linkedBrowser.style.setProperty('width', width + 'px');
       this._linkedBrowser.style.setProperty('height', height + 'px');
       this._linkedBrowser.style.setProperty('box-sizing', 'content-box');
-      this._linkedBrowser.closest('.browserStack').style.setProperty('overflow', 'auto');
-      this._linkedBrowser.closest('.browserStack').style.setProperty('contain', 'size');
-      this._linkedBrowser.closest('.browserStack').style.setProperty('scrollbar-width', 'none');
+      browserStack.style.setProperty('overflow', 'auto');
+      browserStack.style.setProperty('contain', 'size');
+      browserStack.style.setProperty('scrollbar-width', 'none');
       this._linkedBrowser.browsingContext.inRDMPane = true;
 
-      const stackRect = this._linkedBrowser.closest('.browserStack').getBoundingClientRect();
-      const toolbarTop = stackRect.y;
-      this._window.resizeBy(width - this._window.innerWidth, height + toolbarTop - this._window.innerHeight);
+      if (currentBrowserRect.width > 0 && currentBrowserRect.height > 0)
+        this._window.resizeBy(width - currentBrowserRect.width, height - currentBrowserRect.height);
 
       await this._channel.connect('').send('awaitViewportDimensions', { width: width / this._zoom, height: height / this._zoom });
     } else {
