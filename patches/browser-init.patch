@@ -51,7 +51,7 @@ index 1cfa4b8497..bdf8d7202e 100644
      // If we are given a tab to swap in, take care of it before first paint to
      // avoid an about:blank flash.
      let tabToAdopt = this.getTabToAdopt();
-@@ -345,6 +371,289 @@ var gBrowserInit = {
+@@ -345,6 +371,321 @@ var gBrowserInit = {
        }
      }
  

@@ -16,6 +16,7 @@ const Cu = Components.utils;
 const XUL_NS = 'http://www.mozilla.org/keymaster/gatekeeper/there.is.only.xul';
 const helper = new Helper();
 const HUMANIZED_MOUSE_INTERVAL_MS = 10;
+const HUMANIZED_MOUSEMOVE_ACK_TIMEOUT_MS = 250;
 
 function hashConsoleMessage(params) {
   return params.location.lineNumber + ':' + params.location.columnNumber + ':' + params.location.url;
@@ -51,8 +52,8 @@ function humanizedMousePlan(fromX, fromY, toX, toY, bounds, clickAtEnd = false) 
     if (bounds) {
       // The model can generate tiny excursions outside the viewport. Clamp here
       // so the renderer still receives legal content coordinates.
-      x = Math.max(0, Math.min(bounds.width, x));
-      y = Math.max(0, Math.min(bounds.height, y));
+      x = Math.max(1, Math.min(Math.max(1, bounds.width - 1), x));
+      y = Math.max(1, Math.min(Math.max(1, bounds.height - 1), y));
     }
     // Back-to-back duplicate points produce no visual or DOM value but do add
     // waits, so drop them before dispatching.
@@ -560,7 +561,7 @@ export class PageHandler {
         // Cursor overlay is optional; never block input dispatch.
       }
     };
-    const sendEvents = async (types, eventX = x, eventY = y, overlayType = null) => {
+    const sendEvents = async (types, eventX = x, eventY = y, overlayType = null, options = {}) => {
       // 1. Scroll element to the desired location first; the coordinates are relative to the element.
       this._pageTarget._linkedBrowser.scrollRectIntoViewIfNeeded(eventX, eventY, 0, 0);
       // 2. Get element's bounding box in the browser after the scroll is completed.
@@ -598,10 +599,21 @@ export class PageHandler {
           win.windowUtils.DEFAULT_MOUSE_POINTER_ID /* pointerIdentifier */,
           false /* disablePointerEvent */
         );
-        promises.push(watcher.ensureEvent(type, eventObject => eventObject.jugglerEventId === jugglerEventId));
+        const eventPromise = watcher.ensureEvent(type, eventObject => eventObject.jugglerEventId === jugglerEventId);
+        if (options.timeoutMs) {
+          promises.push(Promise.race([
+            eventPromise.catch(() => null),
+            new Promise(resolve => setTimeout(() => resolve(null), options.timeoutMs)),
+          ]));
+        } else {
+          promises.push(eventPromise);
+        }
       }
-      await Promise.all(promises);
-      await watcher.dispose();
+      try {
+        await Promise.all(promises);
+      } finally {
+        watcher.dispose();
+      }
     };
     const createHumanizedMouseScheduler = points => {
       let nextDueTime = Date.now();
@@ -665,7 +677,7 @@ export class PageHandler {
         // For click-bound paths, start settling the visual cursor over the final
         // few move events so the arrow is upright before mousedown lands.
         const overlayType = settleForClick && i >= points.length - 3 ? 'clicksettle' : null;
-        await sendEvents(['mousemove'], point.x, point.y, overlayType);
+        await sendEvents(['mousemove'], point.x, point.y, overlayType, {timeoutMs: HUMANIZED_MOUSEMOVE_ACK_TIMEOUT_MS});
       }
     };
 
@@ -708,7 +720,7 @@ export class PageHandler {
           return;
 
         const previousMousePosition = this._lastMousePosition || {x: 0, y: 0};
-        const points = humanizedMousePlan(previousMousePosition.x, previousMousePosition.y, x, y, boundingBox);
+        const points = humanizedMousePlan(previousMousePosition.x, previousMousePosition.y, x, y, boundingBox, true);
         // Humanized click movement is split from the actual press: first walk the
         // pointer to the target, then send mousedown/contextmenu at the final
         // coordinate once the overlay has had a chance to settle.

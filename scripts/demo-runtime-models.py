@@ -500,7 +500,6 @@ def click_selector(page: Any, selector: str, label: str) -> None:
         raise click.ClickException(f"Demo target has no bounding box: {label}")
     x = box["x"] + box["width"] / 2
     y = box["y"] + box["height"] / 2
-    page.mouse.move(72, 96)
     page.mouse.click(x, y)
 
 
