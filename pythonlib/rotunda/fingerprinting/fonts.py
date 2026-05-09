@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from functools import cache
 
 from .common import LINUX, MACOS, WINDOWS, TargetOS, empty_target_os_set, target_os_set
 
@@ -394,6 +395,7 @@ def marker_families_for_target_os(target_os: TargetOS) -> tuple[str, ...]:
     return tuple(font.family for font in font_definitions_for_target_os(target_os) if font.marker)
 
 
+@cache
 def blocked_families_for_target_os(target_os: TargetOS) -> frozenset[str]:
     return frozenset(
         font.family
@@ -410,13 +412,32 @@ def is_blocked_family_for_target_os(family: str, target_os: TargetOS) -> bool:
     variant families from app bundles, developer font dumps, and patched names
     such as "Ubuntu Mono derivative Powerline" or "Segoe Fluent Icons".
     """
-    normalized = " ".join(family.casefold().split())
-    if normalized in {name.casefold() for name in blocked_families_for_target_os(target_os)}:
+    normalized = _normalized_font_family(family)
+    if normalized in _blocked_family_keys_for_target_os(target_os):
         return True
-    for prefix in _BLOCKED_FONT_FAMILY_PREFIXES.get(target_os, ()):
+    for prefix in _blocked_family_prefixes_for_target_os(target_os):
         if normalized == prefix or normalized.startswith(prefix):
             return True
     return False
+
+
+@cache
+def _blocked_family_keys_for_target_os(target_os: TargetOS) -> frozenset[str]:
+    return frozenset(
+        _normalized_font_family(family) for family in blocked_families_for_target_os(target_os)
+    )
+
+
+@cache
+def _blocked_family_prefixes_for_target_os(target_os: TargetOS) -> tuple[str, ...]:
+    return tuple(
+        _normalized_font_family(prefix)
+        for prefix in _BLOCKED_FONT_FAMILY_PREFIXES.get(target_os, ())
+    )
+
+
+def _normalized_font_family(family: str) -> str:
+    return " ".join(family.casefold().split())
 
 
 def default_families_for_target_os(target_os: TargetOS) -> frozenset[str]:
