@@ -495,6 +495,20 @@ def test_macos_font_probe_prefers_fast_appkit_inventory(
     assert discovered[1].is_system is False
 
 
+@pytest.mark.skipif(sys.platform != "darwin", reason="requires macOS AppKit")
+def test_macos_appkit_font_probe_returns_real_families(
+    modules: tuple[Any, Any, Any],
+) -> None:
+    _ = modules
+    host_macos = importlib.import_module("rotunda.fingerprinting.host_macos")
+
+    discovered = host_macos._discover_fonts_with_appkit()
+    families = {font.family for font in discovered}
+
+    assert families
+    assert {"Arial", "Helvetica"}.intersection(families)
+
+
 def test_macos_font_blocklist_keeps_legitimate_mac_families(
     modules: tuple[Any, Any, Any],
 ) -> None:
