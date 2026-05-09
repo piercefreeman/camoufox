@@ -28,6 +28,7 @@ from rich.progress import (
 )
 from yaml import CLoader, load
 
+from .__version__ import installed_library_version
 from .assets import get_asset_by_name
 from .exceptions import (
     MissingRelease,
@@ -85,18 +86,6 @@ def rprint(msg: str, fg: str | None = None, nl: bool = True) -> None:
     console.print(msg, style=style, end="\n" if nl else "", highlight=False)
 
 
-def _get_library_version() -> str:
-    """
-    Get the current library version
-    """
-    from importlib.metadata import version
-
-    try:
-        return version('rotunda')
-    except Exception:
-        return '0.0.0'
-
-
 @dataclass
 class RepoConfig:
     """
@@ -108,7 +97,7 @@ class RepoConfig:
     pattern: str
     os_map: dict[str, Literal['mac', 'win', 'lin']]
     arch_map: dict[str, str]
-    python_library_version: str = field(default_factory=_get_library_version)
+    python_library_version: str = field(default_factory=installed_library_version)
 
     @property
     def repo(self) -> str:
@@ -143,7 +132,7 @@ class RepoConfig:
         if 'pattern' not in d:
             raise ValueError(f"Repo '{d.get('name', 'unknown')}' missing required pattern")
 
-        library_version = spoof_library_version or _get_library_version()
+        library_version = spoof_library_version or installed_library_version()
 
         # Parse comma separated repos list (primary + fallbacks)
         raw_repo = d['repo']
@@ -256,7 +245,7 @@ class Version:
         return self.sorted_rel < other.sorted_rel
 
     def is_supported(self) -> bool:
-        return self.version == _get_library_version()
+        return self.version == installed_library_version()
 
     @staticmethod
     def from_path(path: Path | None = None) -> 'Version':

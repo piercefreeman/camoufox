@@ -4,13 +4,13 @@ import json
 import time
 from collections.abc import Callable, Mapping
 from datetime import datetime, timezone
-from importlib.metadata import PackageNotFoundError
-from importlib.metadata import version as package_version
 from pathlib import Path
 from typing import Generic, TypeVar
 
 from platformdirs import user_cache_dir
 from pydantic import BaseModel, Field, ValidationError
+
+from .__version__ import installed_library_version
 
 TModel = TypeVar("TModel", bound=BaseModel)
 
@@ -44,6 +44,28 @@ class CachedModel(BaseModel, Generic[TModel]):
 
 
 class PydanticDiskCache(Generic[TModel]):
+    """
+    Persist a Pydantic payload model inside a small versioned JSON cache envelope.
+
+    Cache files should be placed under `cache_path(...)`, which resolves inside
+    the user cache directory for Rotunda, for example
+    `~/Library/Caches/rotunda` on macOS and the platformdirs equivalent on other
+    operating systems. The cache envelope stores the payload alongside the
+    installed Rotunda package version, the write timestamp, and optional metadata,
+    so callers can invalidate stale data without each feature inventing its own
+    file format.
+
+    ```python
+    cache = PydanticDiskCache(
+        cache_path("fingerprinting", "macos-host-inventory.json"),
+        payload_model=MacOSHostInventory,
+        max_age_seconds=7 * 24 * 60 * 60,
+    )
+
+    inventory = cache.get_or_create(probe_macos_host_inventory)
+    ```
+    """
+
     def __init__(
         self,
         path: Path,
@@ -121,13 +143,6 @@ class PydanticDiskCache(Generic[TModel]):
 
 def cache_path(*parts: str) -> Path:
     return ROTUNDA_CACHE_DIR.joinpath(*parts)
-
-
-def installed_library_version() -> str:
-    try:
-        return package_version("rotunda")
-    except PackageNotFoundError:
-        return "0+unknown"
 
 
 def _metadata(value: object) -> dict[str, str]:

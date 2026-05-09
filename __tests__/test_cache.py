@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from importlib.metadata import version as package_version
-
 from pydantic import BaseModel
+
+from rotunda.__version__ import installed_library_version
 from rotunda.cache import PydanticDiskCache
 
 
@@ -78,4 +78,4 @@ def test_pydantic_disk_cache_defaults_version_to_installed_rotunda_package(tmp_p
 
     envelope = cache.write(Payload(value="ready"), now=100)
 
-    assert envelope.cache_version == package_version("rotunda")
+    assert envelope.cache_version == installed_library_version()

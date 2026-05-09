@@ -6,7 +6,7 @@ from typing import Any
 
 def test_repo_config_autopopulates_python_library_version(monkeypatch) -> None:
     pkgman = importlib.import_module("rotunda.pkgman")
-    monkeypatch.setattr(pkgman, "_get_library_version", lambda: "0.7.0")
+    monkeypatch.setattr(pkgman, "installed_library_version", lambda: "0.7.0")
 
     config = pkgman.RepoConfig.load_repos()[0]
 
@@ -70,7 +70,7 @@ def test_list_available_versions_filters_to_current_python_library_version(
 
 def test_installed_browser_version_must_match_python_library_version(monkeypatch) -> None:
     pkgman = importlib.import_module("rotunda.pkgman")
-    monkeypatch.setattr(pkgman, "_get_library_version", lambda: "0.7.0")
+    monkeypatch.setattr(pkgman, "installed_library_version", lambda: "0.7.0")
 
     assert pkgman.Version(build="beta.1", version="0.7.0").is_supported()
     assert not pkgman.Version(build="beta.1", version="0.7.1").is_supported()
