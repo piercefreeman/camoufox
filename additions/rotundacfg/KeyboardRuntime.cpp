@@ -21,6 +21,7 @@ constexpr const char* kStop = "<STOP>";
 constexpr const char* kUnk = "<UNK>";
 constexpr const char* kEos = "<EOS>";
 constexpr const char* kSep = "<SEP>";
+constexpr const char* kUnknownAction = "\xC2\xA4";
 constexpr double kMaxPredictedPressCount = 1024.0;
 constexpr double kMinSampledDtMs = 6.0;
 constexpr double kMaxSampledDtMs = 650.0;
@@ -152,19 +153,54 @@ bool startsWith(const std::string& value, const std::string& prefix) {
          value.compare(0, prefix.size(), prefix) == 0;
 }
 
-size_t commonPrefixLength(const std::string& left, const std::string& right) {
-  size_t limit = std::min(left.size(), right.size());
-  for (size_t i = 0; i < limit; ++i) {
-    if (left[i] != right[i]) return i;
-  }
-  return limit;
+size_t utf8TokenLength(const std::string& value, size_t offset) {
+  if (offset >= value.size()) return 0;
+  unsigned char lead = static_cast<unsigned char>(value[offset]);
+  if ((lead & 0x80) == 0) return 1;
+  if ((lead & 0xE0) == 0xC0 && offset + 1 < value.size()) return 2;
+  if ((lead & 0xF0) == 0xE0 && offset + 2 < value.size()) return 3;
+  if ((lead & 0xF8) == 0xF0 && offset + 3 < value.size()) return 4;
+  return 1;
 }
 
-std::vector<std::string> byteTokens(const std::string& value) {
+std::string utf8TokenAt(const std::string& value, size_t offset) {
+  size_t length = utf8TokenLength(value, offset);
+  return length == 0 ? std::string() : value.substr(offset, length);
+}
+
+std::vector<std::string> utf8Tokens(const std::string& value) {
   std::vector<std::string> tokens;
-  tokens.reserve(value.size());
-  for (char ch : value) tokens.emplace_back(1, ch);
+  for (size_t offset = 0; offset < value.size();) {
+    size_t length = utf8TokenLength(value, offset);
+    if (length == 0) break;
+    tokens.push_back(value.substr(offset, length));
+    offset += length;
+  }
   return tokens;
+}
+
+size_t utf8TokenCount(const std::string& value) {
+  size_t count = 0;
+  for (size_t offset = 0; offset < value.size();) {
+    size_t length = utf8TokenLength(value, offset);
+    if (length == 0) break;
+    offset += length;
+    ++count;
+  }
+  return count;
+}
+
+size_t commonPrefixLength(const std::string& left, const std::string& right) {
+  size_t limit = std::min(left.size(), right.size());
+  size_t prefix = 0;
+  for (size_t i = 0; i < limit;) {
+    size_t length = utf8TokenLength(left, i);
+    if (length == 0 || i + length > limit) return prefix;
+    if (left.compare(i, length, right, i, length) != 0) return prefix;
+    prefix = i + length;
+    i += length;
+  }
+  return prefix;
 }
 
 }  // namespace
@@ -192,6 +228,7 @@ KeyboardRuntimeModel::KeyboardRuntimeModel(RuntimeWeights weights)
         m_actionToId[it.key()] = it.value().get<int>();
       }
     }
+    m_unknownAction = m_metadata.value("unknownAction", std::string(kUnknownAction));
     if (m_actionToId.empty()) {
       for (const auto& [id, action] : m_idToAction) m_actionToId[action] = id;
     }
@@ -328,15 +365,33 @@ std::string KeyboardRuntimeModel::actionForId(int actionId) const {
   return it == m_idToAction.end() ? std::string(kStop) : it->second;
 }
 
+std::string KeyboardRuntimeModel::actionTokenFor(const std::string& action) const {
+  if (action == kBackspace || action == kStop || actionId(action) >= 0) {
+    return action;
+  }
+  return actionId(m_unknownAction) >= 0 ? m_unknownAction : action;
+}
+
+std::string KeyboardRuntimeModel::materializeAction(
+    const std::string& action, const std::string& finalString,
+    const std::string& text) const {
+  if (action != m_unknownAction) return action;
+  if (startsWith(finalString, text) && text.size() < finalString.size()) {
+    std::string next = utf8TokenAt(finalString, text.size());
+    if (!next.empty() && actionId(next) < 0) return next;
+  }
+  return action;
+}
+
 std::vector<int> KeyboardRuntimeModel::encodeCondition(
     const std::string& initialString, const std::string& finalString) const {
   std::vector<int> ids;
   if (m_charToId.find(kSep) != m_charToId.end()) {
-    for (const auto& token : byteTokens(initialString)) ids.push_back(charId(token));
+    for (const auto& token : utf8Tokens(initialString)) ids.push_back(charId(token));
     ids.push_back(charId(kSep));
-    for (const auto& token : byteTokens(finalString)) ids.push_back(charId(token));
+    for (const auto& token : utf8Tokens(finalString)) ids.push_back(charId(token));
   } else {
-    for (const auto& token : byteTokens(finalString)) ids.push_back(charId(token));
+    for (const auto& token : utf8Tokens(finalString)) ids.push_back(charId(token));
   }
   ids.push_back(charId(kEos));
   return ids;
@@ -456,7 +511,7 @@ std::optional<double> KeyboardRuntimeModel::predictPressCount(
 std::string KeyboardRuntimeModel::nextChar(
     const std::string& finalString, const std::string& text) const {
   if (startsWith(finalString, text) && text.size() < finalString.size()) {
-    return finalString.substr(text.size(), 1);
+    return utf8TokenAt(finalString, text.size());
   }
   return kEos;
 }
@@ -465,7 +520,7 @@ std::string KeyboardRuntimeModel::constrainedAction(
     const std::string& finalString, const std::string& text) const {
   if (text == finalString) return kStop;
   if (startsWith(finalString, text) && text.size() < finalString.size()) {
-    return finalString.substr(text.size(), 1);
+    return utf8TokenAt(finalString, text.size());
   }
   return kBackspace;
 }
@@ -474,7 +529,10 @@ std::string KeyboardRuntimeModel::applyActionCopy(
     const std::string& text, const std::string& action) const {
   std::string result = text;
   if (action == kBackspace) {
-    if (!result.empty()) result.pop_back();
+    if (!result.empty()) {
+      auto tokens = utf8Tokens(result);
+      if (!tokens.empty()) result.resize(result.size() - tokens.back().size());
+    }
   } else if (action != kStop) {
     result += action;
   }
@@ -484,7 +542,8 @@ std::string KeyboardRuntimeModel::applyActionCopy(
 int KeyboardRuntimeModel::minimumTerminalEditSteps(
     const std::string& finalString, const std::string& text) const {
   size_t prefix = commonPrefixLength(text, finalString);
-  return static_cast<int>((text.size() - prefix) + (finalString.size() - prefix));
+  return static_cast<int>(utf8TokenCount(text.substr(prefix)) +
+                          utf8TokenCount(finalString.substr(prefix)));
 }
 
 std::vector<int> KeyboardRuntimeModel::structuredActionIds(
@@ -501,7 +560,16 @@ std::vector<int> KeyboardRuntimeModel::structuredActionIds(
     if (action == kBackspace && (text.empty() || startsWith(finalString, text))) {
       continue;
     }
-    std::string candidate = applyActionCopy(text, action);
+    if (action == m_unknownAction) {
+      if (!startsWith(finalString, text) || text.size() >= finalString.size()) {
+        continue;
+      }
+      std::string next = utf8TokenAt(finalString, text.size());
+      if (next.empty() || (next != m_unknownAction && actionId(next) >= 0)) {
+        continue;
+      }
+    }
+    std::string candidate = applyActionCopy(text, materializeAction(action, finalString, text));
     if (candidate == text) continue;
     if (minimumTerminalEditSteps(finalString, candidate) <=
         remainingStepsAfterAction) {
@@ -509,7 +577,7 @@ std::vector<int> KeyboardRuntimeModel::structuredActionIds(
     }
   }
   if (valid.empty()) {
-    int fallback = actionId(constrainedAction(finalString, text));
+    int fallback = actionId(actionTokenFor(constrainedAction(finalString, text)));
     if (fallback >= 0) valid.insert(fallback);
   }
   return {valid.begin(), valid.end()};
@@ -519,10 +587,14 @@ bool KeyboardRuntimeModel::targetSupported(
     const std::string& initialString, const std::string& finalString) const {
   size_t prefix = commonPrefixLength(initialString, finalString);
   if (initialString.size() > prefix && actionId(kBackspace) < 0) return false;
-  for (size_t i = prefix; i < finalString.size(); ++i) {
-    if (m_actionToId.find(finalString.substr(i, 1)) == m_actionToId.end()) {
+  for (size_t i = prefix; i < finalString.size();) {
+    std::string token = utf8TokenAt(finalString, i);
+    if (token.empty()) return false;
+    if (m_actionToId.find(token) == m_actionToId.end() &&
+        actionId(m_unknownAction) < 0) {
       return false;
     }
+    i += token.size();
   }
   return true;
 }
@@ -593,7 +665,7 @@ KeyboardRuntimeTrace KeyboardRuntimeModel::decodeInternal(
     predictedPressCount = predictPressCount(condition);
     if (!predictedPressCount) return {};
     int floorBudget =
-        std::max(minSteps, static_cast<int>(finalString.size()) + structuredExtraSteps);
+        std::max(minSteps, static_cast<int>(utf8TokenCount(finalString)) + structuredExtraSteps);
     int predictedBudget =
         std::max(minSteps, static_cast<int>(std::ceil(std::max(0.0, *predictedPressCount - 1e-6))));
     effectiveMaxSteps = std::min(maxSteps, std::max(floorBudget, predictedBudget));
@@ -691,14 +763,14 @@ KeyboardRuntimeTrace KeyboardRuntimeModel::decodeInternal(
     std::string stepKind = "target";
     if (decodeMode == "canonical") {
       action = constrainedAction(finalString, text);
-      selectedActionId = actionId(action);
+      selectedActionId = actionId(actionTokenFor(action));
       preferredId = selectedActionId;
       stepKind = action == kBackspace ? "repair" : "target";
     } else {
       int remaining = std::max(0, effectiveMaxSteps - static_cast<int>(rows.size()) - 1);
       std::vector<int> valid = structuredActionIds(finalString, text, remaining);
       std::string preferred = constrainedAction(finalString, text);
-      preferredId = actionId(preferred);
+      preferredId = actionId(actionTokenFor(preferred));
       if (collectTrace) traceStep.validActionIds = valid;
       if (m_hasLearnedTypoHead && learnedTyposUsed < learnedTypoLimit &&
           nonCanonicalPrefixes.find(text) == nonCanonicalPrefixes.end() &&
@@ -719,7 +791,8 @@ KeyboardRuntimeTrace KeyboardRuntimeModel::decodeInternal(
               continue;
             }
             std::string candidateAction = actionForId(id);
-            if (candidateAction == kBackspace || candidateAction == kStop) {
+            if (candidateAction == kBackspace || candidateAction == kStop ||
+                candidateAction == m_unknownAction) {
               continue;
             }
             typoCandidates.push_back(id);
@@ -767,7 +840,8 @@ KeyboardRuntimeTrace KeyboardRuntimeModel::decodeInternal(
           }
         }
       }
-      action = actionForId(selectedActionId);
+      std::string actionToken = actionForId(selectedActionId);
+      action = materializeAction(actionToken, finalString, text);
       if (stepKind == "learned_typo") {
         // The learned typo head selected a wrong character. The next steps go
         // back through normal structured decoding, which decides the repair.
@@ -776,7 +850,7 @@ KeyboardRuntimeTrace KeyboardRuntimeModel::decodeInternal(
       } else if (action == kBackspace) {
         stepKind = "model_repair";
       } else if (startsWith(finalString, text) && text.size() < finalString.size() &&
-                 action == finalString.substr(text.size(), 1)) {
+                 action == utf8TokenAt(finalString, text.size())) {
         stepKind = "model_target";
       } else {
         stepKind = "model_edit";

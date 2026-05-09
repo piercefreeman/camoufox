@@ -51,22 +51,26 @@ index 1cfa4b8497..bdf8d7202e 100644
      // If we are given a tab to swap in, take care of it before first paint to
      // avoid an about:blank flash.
      let tabToAdopt = this.getTabToAdopt();
-@@ -345,6 +371,67 @@ var gBrowserInit = {
+@@ -345,6 +371,321 @@ var gBrowserInit = {
        }
      }
  
++    // Rotunda draws its own browser-chrome cursor overlay so synthetic input
++    // has a visible pointer independent of the host OS cursor position.
 +    if (ChromeUtils.rotundaGetBool("showcursor", true)) {
 +      let cursorFollower = document.createElement("div");
 +      cursorFollower.id = "cursor-highlighter";
 +      cursorFollower.style.cssText = `
 +      position: fixed;
-+      width: 20px;
-+      height: 20px;
++      left: 0;
++      top: 0;
++      width: 32px;
++      height: 32px;
 +      pointer-events: none;
 +      z-index: 2147483647;
++      opacity: 0;
 +      transform: translate(-50%, -50%);
-+      transition: left 45ms linear, top 45ms linear;
-+      will-change: left, top;
++      will-change: transform;
 +      `;
 +      let cursorGlyph = document.createElement("div");
 +      cursorGlyph.style.cssText = `
@@ -75,51 +79,301 @@ index 1cfa4b8497..bdf8d7202e 100644
 +      background: url("chrome://juggler/content/cursor-indicator.svg") center / contain no-repeat;
 +      opacity: 0.96;
 +      transform-origin: 50% 50%;
-+      transition: transform 90ms cubic-bezier(.2, .8, .2, 1), opacity 90ms ease;
 +      will-change: transform;
 +      `;
 +      cursorFollower.appendChild(cursorGlyph);
 +      document.documentElement.appendChild(cursorFollower);
 +      
-+      let lastX = null;
-+      let lastY = null;
-+      let lastAngle = 0;
++      // Motion state is kept in chrome coordinates. The active move is a
++      // cubic Bezier from start -> target, with control handles derived from
++      // smoothed velocity so adjacent mouse events feel like one continuous path.
++      // The heading state is separate: it rotates the cursor glyph toward the
++      // rendered direction, unless a click is about to land and we intentionally
++      // settle the glyph upright.
++      let currentX = 0;
++      let currentY = 0;
++      let startX = 0;
++      let startY = 0;
++      let targetX = 0;
++      let targetY = 0;
++      let control1X = 0;
++      let control1Y = 0;
++      let control2X = 0;
++      let control2Y = 0;
++      let velocityX = 0;
++      let velocityY = 0;
++      let headingX = 0;
++      let headingY = -1;
++      let lastRenderedX = 0;
++      let lastRenderedY = 0;
++      let moveStartTime = 0;
++      let moveDuration = 0;
++      let animationFrame = 0;
++      let lastMoveTime = 0;
++      let visible = false;
++      let cursorAngle = 0;
 +      let cursorPressed = false;
++      let clickSettleUntil = 0;
++      // The wrapper carries position only; the child glyph carries rotation and
++      // click compression so transform concerns do not fight each other.
++      const renderCursor = () => {
++        cursorFollower.style.transform = `translate3d(${currentX}px, ${currentY}px, 0) translate(-50%, -50%)`;
++        cursorFollower.style.opacity = "1";
++      };
 +      const renderCursorGlyph = () => {
 +        const clickScale = cursorPressed ? 0.88 : 1;
-+        cursorGlyph.style.transform = `rotate(${lastAngle}deg) scale(${clickScale})`;
++        cursorGlyph.style.transform = `rotate(${cursorAngle}deg) scale(${clickScale})`;
 +        cursorGlyph.style.opacity = cursorPressed ? "1" : "0.96";
 +      };
-+      window.addEventListener('mousemove', e => {
-+        if (lastX !== null && lastY !== null) {
-+          const dx = e.clientX - lastX;
-+          const dy = e.clientY - lastY;
-+          if (Math.hypot(dx, dy) > 0.5) {
-+            lastAngle = Math.atan2(dy, dx) * 180 / Math.PI + 90;
-+            renderCursorGlyph();
-+          }
++      // Each animation frame samples the Bezier, updates orientation from the
++      // rendered delta, then either schedules the next frame or marks the move done.
++      const animateCursor = timestamp => {
++        let progress = 1;
++        if (moveDuration <= 0) {
++          currentX = targetX;
++          currentY = targetY;
 +        } else {
++          progress = Math.min(1, (timestamp - moveStartTime) / moveDuration);
++          sampleBezier(progress);
++        }
++        updateCursorHeading();
++        renderCursor();
++        if (progress < 1) {
++          animationFrame = requestAnimationFrame(animateCursor);
++        } else {
++          animationFrame = 0;
++        }
++      };
++      // Keep Bezier handles proportional to the current hop. Without this cap,
++      // a burst of large velocity can overshoot short final movements.
++      const clampVector = (x, y, maxLength) => {
++        const length = Math.hypot(x, y);
++        if (!length || length <= maxLength) {
++          return [x, y];
++        }
++        const scale = maxLength / length;
++        return [x * scale, y * scale];
++      };
++      // Rotate by the shortest path so settling from 350deg to 0deg does not
++      // spin the long way around.
++      const shortestAngleDelta = (fromAngle, toAngle) => {
++        return ((toAngle - fromAngle + 540) % 360) - 180;
++      };
++      // During the final approach to a click, the visual cursor should stop
++      // chasing path direction and return to its neutral upright shape. `snap`
++      // is used at the actual button transition; intermediate clicksettle
++      // events ease toward upright to avoid a sudden rotation jump.
++      const armClickSettle = () => {
++        clickSettleUntil = performance.now() + 180;
++      };
++      const settleCursorForClick = snap => {
++        headingX = 0;
++        headingY = -1;
++        if (snap) {
++          cursorAngle = 0;
++        } else {
++          const delta = shortestAngleDelta(cursorAngle, 0);
++          cursorAngle = Math.abs(delta) < 1 ? 0 : cursorAngle + delta * 0.38;
++        }
++        renderCursorGlyph();
++      };
++      const snapCursorTo = (x, y) => {
++        if (animationFrame) {
++          cancelAnimationFrame(animationFrame);
++          animationFrame = 0;
++        }
++        currentX = x;
++        currentY = y;
++        startX = x;
++        startY = y;
++        targetX = x;
++        targetY = y;
++        control1X = x;
++        control1Y = y;
++        control2X = x;
++        control2Y = y;
++        velocityX = 0;
++        velocityY = 0;
++        visible = true;
++        lastRenderedX = x;
++        lastRenderedY = y;
++        lastMoveTime = performance.now();
++        renderCursor();
++        renderCursorGlyph();
++      };
++      const updateCursorHeading = () => {
++        const dx = currentX - lastRenderedX;
++        const dy = currentY - lastRenderedY;
++        lastRenderedX = currentX;
++        lastRenderedY = currentY;
++        // A settle window wins over normal heading updates. This keeps tiny
++        // end-of-path move deltas from tilting the cursor right before click.
++        if (performance.now() < clickSettleUntil) {
++          settleCursorForClick(false);
++          return;
++        }
++        if (Math.hypot(dx, dy) < 0.2) {
++          return;
++        }
++        // Smooth heading over time instead of pointing at one noisy frame delta.
++        headingX = headingX * 0.82 + dx * 0.18;
++        headingY = headingY * 0.82 + dy * 0.18;
++        if (Math.hypot(headingX, headingY) > 0.15) {
++          cursorAngle = Math.atan2(headingY, headingX) * 180 / Math.PI + 90;
 +          renderCursorGlyph();
 +        }
-+        lastX = e.clientX;
-+        lastY = e.clientY;
-+        cursorFollower.style.left = `${e.clientX}px`;
-+        cursorFollower.style.top = `${e.clientY}px`;
++      };
++      // Cubic Bezier sampler for the active move planned in moveCursorTo().
++      const sampleBezier = t => {
++        const inverse = 1 - t;
++        const inverse2 = inverse * inverse;
++        const t2 = t * t;
++        currentX = inverse2 * inverse * startX + 3 * inverse2 * t * control1X + 3 * inverse * t2 * control2X + t2 * t * targetX;
++        currentY = inverse2 * inverse * startY + 3 * inverse2 * t * control1Y + 3 * inverse * t2 * control2Y + t2 * t * targetY;
++      };
++      // Main entry point for both real chrome mouse activity and synthetic
++      // Juggler events. It validates the new target, primes click settling when
++      // requested, then either snaps the first frame or animates from current
++      // position to the next target.
++      const moveCursorTo = (x, y, settleForClick = false) => {
++        if (!Number.isFinite(x) || !Number.isFinite(y)) {
++          return;
++        }
++        const now = performance.now();
++        if (settleForClick) {
++          armClickSettle();
++        }
++        // First observation: place the overlay immediately so it appears at the
++        // correct coordinate without flying in from 0,0.
++        if (!visible) {
++          currentX = x;
++          currentY = y;
++          targetX = currentX;
++          targetY = currentY;
++          visible = true;
++          renderCursor();
++          renderCursorGlyph();
++          lastRenderedX = currentX;
++          lastRenderedY = currentY;
++          lastMoveTime = now;
++          return;
++        }
++        // Same-target events still matter when they mark a click phase; settle
++        // the glyph even if there is no positional animation to run.
++        if (Math.hypot(x - targetX, y - targetY) < 0.5) {
++          if (settleForClick) {
++            settleCursorForClick(false);
++          }
++          return;
++        }
++        // Begin a new hop from the current rendered position, not from the last
++        // target. This allows rapid mouse events to retarget an in-flight curve.
++        startX = currentX;
++        startY = currentY;
++        targetX = x;
++        targetY = y;
++        moveStartTime = now;
++        moveDuration = Math.max(24, Math.min(90, now - lastMoveTime));
++        lastMoveTime = now;
++        const dx = targetX - startX;
++        const dy = targetY - startY;
++        const distance = Math.hypot(dx, dy);
++        // Derive Bezier handles from previous and current velocity. The first
++        // handle preserves incoming momentum; the second points into the target
++        // based on the latest raw velocity, then both are clamped to avoid loops.
++        if (distance > 0) {
++          const unitX = dx / distance;
++          const unitY = dy / distance;
++          const rawVelocityX = dx / moveDuration;
++          const rawVelocityY = dy / moveDuration;
++          let [c1Dx, c1Dy] = clampVector(
++            velocityX * moveDuration * 0.34,
++            velocityY * moveDuration * 0.34,
++            distance * 0.42
++          );
++          if (Math.hypot(c1Dx, c1Dy) < 0.5) {
++            c1Dx = unitX * distance * 0.24;
++            c1Dy = unitY * distance * 0.24;
++          }
++          const [c2Dx, c2Dy] = clampVector(
++            rawVelocityX * moveDuration * 0.24,
++            rawVelocityY * moveDuration * 0.24,
++            distance * 0.42
++          );
++          control1X = startX + c1Dx;
++          control1Y = startY + c1Dy;
++          control2X = targetX - c2Dx;
++          control2Y = targetY - c2Dy;
++          // Blend velocity forward so the next segment inherits momentum without
++          // permanently carrying one large spike.
++          velocityX = velocityX * 0.72 + rawVelocityX * 0.28;
++          velocityY = velocityY * 0.72 + rawVelocityY * 0.28;
++        } else {
++          // No distance means no real motion; decay velocity so the next real
++          // segment does not inherit stale speed.
++          control1X = startX;
++          control1Y = startY;
++          control2X = targetX;
++          control2Y = targetY;
++          velocityX *= 0.72;
++          velocityY *= 0.72;
++        }
++        // Reuse the active animation frame when retargeting; animateCursor()
++        // will pick up the new curve state on its next tick.
++        if (!animationFrame) {
++          animationFrame = requestAnimationFrame(animateCursor);
++        }
++      };
++      const setCursorPressed = pressed => {
++        cursorPressed = pressed;
++        renderCursorGlyph();
++      };
++      // Native chrome events keep the overlay responsive when a human moves the
++      // real mouse. Synthetic Juggler events enter through __rotundaSetCursorOverlay.
++      window.addEventListener('mousemove', e => {
++        moveCursorTo(e.clientX, e.clientY);
 +      });
 +      window.addEventListener('mousedown', () => {
-+        cursorPressed = true;
-+        renderCursorGlyph();
++        setCursorPressed(true);
 +      }, true);
 +      window.addEventListener('mouseup', () => {
-+        cursorPressed = false;
-+        renderCursorGlyph();
++        setCursorPressed(false);
++      }, true);
++      // Synthetic events already arrive in chrome coordinates from PageHandler.
++      // "clicksettle" is not a DOM event; it is an overlay-only phase that
++      // tells the glyph to square up before mousedown/mouseup.
++      window.__rotundaSetCursorOverlay = (x, y, type) => {
++        const settleForClick = type === "clicksettle" || type === "mousedown" || type === "mouseup";
++        if (type === "mousedown" || type === "mouseup") {
++          snapCursorTo(x, y);
++        } else {
++          moveCursorTo(x, y, settleForClick);
++        }
++        if (type === "clicksettle") {
++          settleCursorForClick(false);
++        }
++        if (type === "mousedown") {
++          armClickSettle();
++          settleCursorForClick(true);
++          setCursorPressed(true);
++        } else if (type === "mouseup") {
++          armClickSettle();
++          settleCursorForClick(true);
++          setCursorPressed(false);
++        }
++      };
++      // Fallback CustomEvent path for callers that cannot reach the function
++      // directly on ownerGlobal.
++      window.addEventListener('RotundaCursorMove', e => {
++        const detail = e.detail || {};
++        window.__rotundaSetCursorOverlay(detail.x, detail.y, detail.type);
 +      }, true);
 +    }
 +
      // Wait until chrome is painted before executing code not critical to making the window visible
      this._boundDelayedStartup = this._delayedStartup.bind(this);
      window.addEventListener("MozAfterPaint", this._boundDelayedStartup);
-@@ -366,9 +453,152 @@ var gBrowserInit = {
+@@ -366,9 +655,152 @@ var gBrowserInit = {
        )?.removeAttribute("key");
      }
  

@@ -10,7 +10,7 @@ from typing import Any
 
 import torch
 
-from .constants import KEY_BACKSPACE
+from .constants import KEY_BACKSPACE, KEY_UNKNOWN_ACTION
 from .generation import load_checkpoint
 from .keyboard_logic import minimum_terminal_edit_steps
 
@@ -164,6 +164,7 @@ def runtime_metadata(checkpoint: dict[str, Any]) -> dict[str, Any]:
                 "idToAction": {str(index): token for index, token in checkpoint["id_to_action"].items()},
                 "actionToId": checkpoint.get("action_to_id")
                 or {token: int(index) for index, token in checkpoint["id_to_action"].items()},
+                "unknownAction": KEY_UNKNOWN_ACTION,
                 "sequenceMode": checkpoint.get("keyboard_sequence_mode", checkpoint.get("sequence_mode", "raw")),
                 "learnedTypoHead": bool(checkpoint["model_config"].get("learned_typo_head", False)),
                 "decodeDefaults": keyboard_decode_defaults(checkpoint),

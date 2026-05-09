@@ -968,11 +968,13 @@ index 2b4726c..ca04252 100644
    if (aType.EqualsLiteral("mousedown")) {
      msg = eMouseDown;
    } else if (aType.EqualsLiteral("mouseup")) {
-@@ -9840,13 +9842,26 @@ Result<bool, nsresult> nsContentUtils::SynthesizeMouseEvent(
+@@ -9840,13 +9842,30 @@ Result<bool, nsresult> nsContentUtils::SynthesizeMouseEvent(
      msg = eMouseHitTest;
    } else if (aType.EqualsLiteral("MozMouseExploreByTouch")) {
      msg = eMouseExploreByTouch;
 +  } else if (aType.EqualsLiteral("dragover")) {
++    // Juggler sends dragover/drop through this mouse synthesis path so the
++    // active platform drag session stays attached to the generated event.
 +    msg = eDragOver;
 +    isPWDragEventMessage = true;
 +  } else if (aType.EqualsLiteral("drop")) {
@@ -988,6 +990,8 @@ index 2b4726c..ca04252 100644
 +  Maybe<WidgetDragEvent> pwDragEvent;
 +
 +  if (isPWDragEventMessage) {
++    // Drag events share most coordinate/modifier fields with mouse events, but
++    // must be backed by WidgetDragEvent for Gecko's drag/drop pipeline.
 +    pwDragEvent.emplace(true, msg, aWidget);
 +    pwDragEvent->mReason = aOptions.mIsWidgetEventSynthesized
 +                             ? WidgetMouseEvent::eSynthesized
@@ -1004,10 +1008,12 @@ index 2b4726c..ca04252 100644
        pointerEvent.isSome() ? pointerEvent.ref() : mouseEvent.ref();
    mouseOrPointerEvent.pointerId = aMouseEventData.mIdentifier;
    mouseOrPointerEvent.mModifiers =
-@@ -9898,6 +9914,8 @@ Result<bool, nsresult> nsContentUtils::SynthesizeMouseEvent(
+@@ -9898,6 +9920,10 @@ Result<bool, nsresult> nsContentUtils::SynthesizeMouseEvent(
    mouseOrPointerEvent.mFlags.mIsSynthesizedForTests =
        aOptions.mIsDOMEventSynthesized;
    mouseOrPointerEvent.mExitFrom = std::move(exitFrom);
++  // Preserve the protocol event id on the widget event so BrowserChild can ack
++  // the exact renderer event that PageHandler is waiting on.
 +  mouseOrPointerEvent.mJugglerEventId = aMouseEventData.mJugglerEventId;
 +  mouseOrPointerEvent.convertToPointer = aOptions.mConvertToPointer;
    mouseOrPointerEvent.mCallbackId = notifier.SaveCallback();
@@ -1039,7 +1045,7 @@ diff --git a/dom/base/nsDOMWindowUtils.cpp b/dom/base/nsDOMWindowUtils.cpp
 index f5ae11b..f10b600 100644
 --- a/dom/base/nsDOMWindowUtils.cpp
 +++ b/dom/base/nsDOMWindowUtils.cpp
-@@ -705,6 +705,55 @@ nsDOMWindowUtils::GetPresShellId(uint32_t* aPresShellId) {
+@@ -705,6 +705,60 @@ nsDOMWindowUtils::GetPresShellId(uint32_t* aPresShellId) {
    return NS_ERROR_FAILURE;
  }
  
@@ -1066,9 +1072,14 @@ index f5ae11b..f10b600 100644
 +    return NS_ERROR_FAILURE;
 +  }
 +
++  // Callers provide CSS pixels in the chrome/content coordinate space. Convert
++  // through the pres shell and widget offset before handing the point to Gecko's
++  // event synthesizer, which expects layout-device coordinates.
 +  LayoutDeviceIntPoint refPoint = nsContentUtils::ToWidgetPoint(
 +      CSSPoint(aX, aY), offset, presShell->GetPresContext());
 +
++  // Keep payload fields and dispatch options separate: data describes the mouse
++  // event itself, while options describe how Gecko should synthesize it.
 +  SynthesizeMouseEventData mouseEventData;
 +  mouseEventData.mIdentifier = aIdentifier;
 +  mouseEventData.mButton = aButton;

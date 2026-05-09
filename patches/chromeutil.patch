@@ -37,7 +37,7 @@ index 52f0af76ec..2a7a9ae4fc 100644
  double ChromeUtils::DateNow(GlobalObject&) { return JS_Now() / 1000.0; }
  
  /* static */
-@@ -2141,6 +2161,100 @@ void ChromeUtils::GetAllPossibleUtilityActorNames(GlobalObject& aGlobal,
+@@ -2141,6 +2161,103 @@ void ChromeUtils::GetAllPossibleUtilityActorNames(GlobalObject& aGlobal,
    }
  }
  
@@ -105,6 +105,9 @@ index 52f0af76ec..2a7a9ae4fc 100644
 +                                          long aFromY, long aToX, long aToY,
 +                                          bool aClickAtEnd,
 +                                          nsTArray<double>& aPlan) {
++  // The runtime model returns structured rows. ChromeUtils crosses into JS via
++  // WebIDL, so flatten each row to repeated [x, y, dtMs, action] groups and let
++  // PageHandler rebuild named objects on the chrome JS side.
 +  auto plan = rotundacfg::MouseRuntimeModel::GenerateFromConfig(
 +      aFromX, aFromY, aToX, aToY, aClickAtEnd);
 +
@@ -202,7 +205,7 @@ index 6a99703db1..82415eba19 100644
    /**
     * Starts the JSOracle process for ORB JavaScript validation, if it hasn't started already.
     */
-@@ -761,6 +768,43 @@ partial namespace ChromeUtils {
+@@ -761,6 +768,45 @@ partial namespace ChromeUtils {
    [ChromeOnly]
    readonly attribute unsigned long aliveUtilityProcesses;
  
@@ -233,6 +236,8 @@ index 6a99703db1..82415eba19 100644
 +
 +  /**
 +   * Calculate a human-like mouse trajectory between two points.
++   *
++   * Returns repeated [x, y, dtMs, action] groups.
 +   */
 +  sequence<double> rotundaGetMouseTrajectory(long fromX, long fromY, long toX, long toY, optional boolean clickAtEnd = false);
 +

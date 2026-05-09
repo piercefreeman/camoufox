@@ -16,6 +16,7 @@ const Cu = Components.utils;
 const XUL_NS = 'http://www.mozilla.org/keymaster/gatekeeper/there.is.only.xul';
 const helper = new Helper();
 const HUMANIZED_MOUSE_INTERVAL_MS = 10;
+const HUMANIZED_MOUSEMOVE_ACK_TIMEOUT_MS = 250;
 
 function hashConsoleMessage(params) {
   return params.location.lineNumber + ':' + params.location.columnNumber + ':' + params.location.url;
@@ -29,6 +30,9 @@ function humanizedMousePlan(fromX, fromY, toX, toY, bounds, clickAtEnd = false) 
   if (!isHumanizeEnabled() || fromX === toX && fromY === toY)
     return null;
 
+  // ChromeUtils returns a compact native array in repeated
+  // [x, y, dtMs, action] groups. Keep the native boundary simple, then turn it
+  // into named JS objects before the dispatcher starts walking the path.
   const flatPlan = ChromeUtils.rotundaGetMouseTrajectory(
     Math.round(fromX),
     Math.round(fromY),
@@ -46,14 +50,20 @@ function humanizedMousePlan(fromX, fromY, toX, toY, bounds, clickAtEnd = false) 
     const dtMs = Math.max(0, flatPlan[i + 2] || 0);
     const action = flatPlan[i + 3] || 0;
     if (bounds) {
-      x = Math.max(0, Math.min(bounds.width, x));
-      y = Math.max(0, Math.min(bounds.height, y));
+      // The model can generate tiny excursions outside the viewport. Clamp here
+      // so the renderer still receives legal content coordinates.
+      x = Math.max(1, Math.min(Math.max(1, bounds.width - 1), x));
+      y = Math.max(1, Math.min(Math.max(1, bounds.height - 1), y));
     }
+    // Back-to-back duplicate points produce no visual or DOM value but do add
+    // waits, so drop them before dispatching.
     if (plan.length && plan[plan.length - 1].x === x && plan[plan.length - 1].y === y)
       continue;
     plan.push({x, y, dtMs, action});
   }
 
+  // The current mouse position is already true in the browser. Start with the
+  // first actual movement and force the final point to be the requested target.
   if (plan.length && plan[0].x === fromX && plan[0].y === fromY)
     plan.shift();
   if (!plan.length || plan[plan.length - 1].x !== toX || plan[plan.length - 1].y !== toY)
@@ -537,7 +547,21 @@ export class PageHandler {
 
   async ['Page.dispatchMouseEvent']({type, x, y, button, clickCount, modifiers, buttons}) {
     const win = this._pageTarget._window;
-    const sendEvents = async (types, eventX = x, eventY = y) => {
+    const notifyCursorOverlay = (eventType, chromeX, chromeY) => {
+      try {
+        const overlayWin = this._pageTarget._linkedBrowser.ownerGlobal || win;
+        if (typeof overlayWin.__rotundaSetCursorOverlay === 'function') {
+          overlayWin.__rotundaSetCursorOverlay(chromeX, chromeY, eventType);
+          return;
+        }
+        overlayWin.dispatchEvent(new overlayWin.CustomEvent('RotundaCursorMove', {
+          detail: {type: eventType, x: chromeX, y: chromeY},
+        }));
+      } catch (e) {
+        // Cursor overlay is optional; never block input dispatch.
+      }
+    };
+    const sendEvents = async (types, eventX = x, eventY = y, overlayType = null, options = {}) => {
       // 1. Scroll element to the desired location first; the coordinates are relative to the element.
       this._pageTarget._linkedBrowser.scrollRectIntoViewIfNeeded(eventX, eventY, 0, 0);
       // 2. Get element's bounding box in the browser after the scroll is completed.
@@ -549,11 +573,20 @@ export class PageHandler {
       const watcher = new EventWatcher(this._pageEventSink, types, this._pendingEventWatchers);
       const promises = [];
       for (const type of types) {
+        // Protocol callers speak in web-content coordinates. Gecko's synthetic
+        // event API wants chrome-window coordinates, so offset by the linked
+        // browser's current box after any scroll adjustment.
+        const chromeX = eventX + boundingBox.left;
+        const chromeY = eventY + boundingBox.top;
+        // The renderer still gets the real DOM mouse event type. The overlay can
+        // receive a higher-level visual phase, e.g. "clicksettle", when we want
+        // the cursor graphic to prepare for a click without changing dispatch.
+        notifyCursorOverlay(overlayType || type, chromeX, chromeY);
         // This dispatches to the renderer synchronously.
         const jugglerEventId = win.windowUtils.jugglerSendMouseEvent(
           type,
-          eventX + boundingBox.left,
-          eventY + boundingBox.top,
+          chromeX,
+          chromeY,
           button,
           clickCount,
           modifiers,
@@ -566,34 +599,60 @@ export class PageHandler {
           win.windowUtils.DEFAULT_MOUSE_POINTER_ID /* pointerIdentifier */,
           false /* disablePointerEvent */
         );
-        promises.push(watcher.ensureEvent(type, eventObject => eventObject.jugglerEventId === jugglerEventId));
+        const eventPromise = watcher.ensureEvent(type, eventObject => eventObject.jugglerEventId === jugglerEventId);
+        if (options.timeoutMs) {
+          promises.push(Promise.race([
+            eventPromise.catch(() => null),
+            new Promise(resolve => setTimeout(() => resolve(null), options.timeoutMs)),
+          ]));
+        } else {
+          promises.push(eventPromise);
+        }
       }
-      await Promise.all(promises);
-      await watcher.dispose();
+      try {
+        await Promise.all(promises);
+      } finally {
+        watcher.dispose();
+      }
     };
-    const waitForHumanizedMouseInterval = async (points, index) => {
-      if (index + 1 < points.length) {
-        const delay = points[index + 1].dtMs || HUMANIZED_MOUSE_INTERVAL_MS;
-        await new Promise(resolve => setTimeout(resolve, delay));
-      }
+    const createHumanizedMouseScheduler = points => {
+      let nextDueTime = Date.now();
+      return async index => {
+        if (index === 0)
+          return;
+        // Schedule against the cumulative model timeline so renderer/APZ ack
+        // time does not get added to every modeled interval.
+        const delay = points[index].dtMs || HUMANIZED_MOUSE_INTERVAL_MS;
+        nextDueTime += delay;
+        const remaining = nextDueTime - Date.now();
+        if (remaining > 0)
+          await new Promise(resolve => setTimeout(resolve, remaining));
+      };
     };
     const sendDragOver = async (eventX, eventY) => {
       const watcher = new EventWatcher(this._pageEventSink, ['dragover'], this._pendingEventWatchers);
       await this._contentPage.send('dispatchDragEvent', {type: 'dragover', x: eventX, y: eventY, modifiers});
       await watcher.ensureEventsAndDispose(['dragover']);
     };
-    const sendDragOverPath = async (points, startIndex = 0) => {
+    const sendDragOverPath = async (points, startIndex = 0, waitForPoint = createHumanizedMouseScheduler(points)) => {
       for (let i = startIndex; i < points.length; ++i) {
         const point = points[i];
+        await waitForPoint(i);
+        // Once Gecko has started a drag session, mousemove is no longer the
+        // right event shape. Continue the same path as dragover events instead.
         await sendDragOver(point.x, point.y);
-        await waitForHumanizedMouseInterval(points, i);
       }
     };
     const sendPotentialDragPath = async (points) => {
+      const waitForPoint = createHumanizedMouseScheduler(points);
       for (let i = 0; i < points.length; ++i) {
         const point = points[i];
+        await waitForPoint(i);
         const watcher = new EventWatcher(this._pageEventSink, ['dragstart', 'juggler-drag-finalized'], this._pendingEventWatchers);
         try {
+          // Button-held moves begin as normal mousemove events. If content turns
+          // one into a drag, the watcher flips us into dragover dispatch for the
+          // rest of this planned path.
           await sendEvents(['mousemove'], point.x, point.y);
 
           if (watcher.hasEvent('dragstart')) {
@@ -605,19 +664,20 @@ export class PageHandler {
         }
 
         if (this._isDragging) {
-          await waitForHumanizedMouseInterval(points, i);
-          await sendDragOverPath(points, i + 1);
+          await sendDragOverPath(points, i + 1, waitForPoint);
           return;
         }
-
-        await waitForHumanizedMouseInterval(points, i);
       }
     };
-    const sendMouseMovePath = async (points) => {
+    const sendMouseMovePath = async (points, settleForClick = false) => {
+      const waitForPoint = createHumanizedMouseScheduler(points);
       for (let i = 0; i < points.length; ++i) {
         const point = points[i];
-        await sendEvents(['mousemove'], point.x, point.y);
-        await waitForHumanizedMouseInterval(points, i);
+        await waitForPoint(i);
+        // For click-bound paths, start settling the visual cursor over the final
+        // few move events so the arrow is upright before mousedown lands.
+        const overlayType = settleForClick && i >= points.length - 3 ? 'clicksettle' : null;
+        await sendEvents(['mousemove'], point.x, point.y, overlayType, {timeoutMs: HUMANIZED_MOUSEMOVE_ACK_TIMEOUT_MS});
       }
     };
 
@@ -660,9 +720,12 @@ export class PageHandler {
           return;
 
         const previousMousePosition = this._lastMousePosition || {x: 0, y: 0};
-        const points = humanizedMousePlan(previousMousePosition.x, previousMousePosition.y, x, y, boundingBox);
+        const points = humanizedMousePlan(previousMousePosition.x, previousMousePosition.y, x, y, boundingBox, true);
+        // Humanized click movement is split from the actual press: first walk the
+        // pointer to the target, then send mousedown/contextmenu at the final
+        // coordinate once the overlay has had a chance to settle.
         if (points)
-          await sendMouseMovePath(points);
+          await sendMouseMovePath(points, true);
         this._lastMousePosition = { x, y };
         const eventNames = button === 2 ? ['mousedown', 'contextmenu'] : ['mousedown'];
         await sendEvents(eventNames);
@@ -673,6 +736,8 @@ export class PageHandler {
         const previousMousePosition = this._lastMousePosition || {x: 0, y: 0};
         this._lastMousePosition = { x, y };
         if (this._isDragging) {
+          // Active drag sessions cannot be represented as plain mousemove in
+          // content. Preserve humanized timing but emit dragover/drop semantics.
           const points = humanizedMousePlan(previousMousePosition.x, previousMousePosition.y, x, y, boundingBox);
           if (points)
             await sendDragOverPath(points);
@@ -682,6 +747,8 @@ export class PageHandler {
         }
 
         if (buttons === 0) {
+          // Hover movement is the simplest case: walk the modeled path as
+          // mousemove events and let the overlay follow the same points.
           const points = humanizedMousePlan(previousMousePosition.x, previousMousePosition.y, x, y, boundingBox);
           if (points) {
             await sendMouseMovePath(points);
@@ -690,6 +757,8 @@ export class PageHandler {
         }
 
         if (buttons) {
+          // Button-held movement might become a drag depending on page behavior,
+          // so dispatch one point at a time and watch for Gecko's dragstart ack.
           const points = humanizedMousePlan(previousMousePosition.x, previousMousePosition.y, x, y, boundingBox);
           if (points) {
             await sendPotentialDragPath(points);
@@ -717,6 +786,8 @@ export class PageHandler {
         const previousMousePosition = this._lastMousePosition || {x, y};
         this._lastMousePosition = { x, y };
         if (this._isDragging) {
+          // Finish any remaining humanized movement before drop/dragend so the
+          // drop target matches the final requested coordinate.
           const points = humanizedMousePlan(previousMousePosition.x, previousMousePosition.y, x, y, boundingBox);
           if (points)
             await sendDragOverPath(points);
@@ -756,6 +827,8 @@ export class PageHandler {
         await helper.awaitTopic('apz-repaints-flushed');
 
       win.windowUtils.sendWheelEvent(
+        // Wheel synthesis uses the same content-to-chrome coordinate hop as
+        // mouse dispatch, but it does not participate in the cursor overlay.
         x + boundingBox.left,
         y + boundingBox.top,
         deltaX,

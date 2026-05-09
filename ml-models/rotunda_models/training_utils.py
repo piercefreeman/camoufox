@@ -16,6 +16,8 @@ from .constants import (
     KEY_BACKSPACE,
     KEY_LAYOUT,
     KEY_STOP,
+    KEY_UNKNOWN_ACTION,
+    PRINTABLE_ASCII,
 )
 from .keyboard_logic import canonical_keyboard_steps
 from .types import KeyboardEpisode, MouseEpisode
@@ -181,7 +183,9 @@ def coordinate_scale_for(episodes: list[MouseEpisode]) -> float:
 def build_keyboard_vocabs(episodes: list[KeyboardEpisode]) -> tuple[dict[str, int], dict[str, int]]:
     """Build character and action vocabularies from keyboard training episodes."""
     chars = set()
-    action_chars = {item.token for item in KEY_LAYOUT}
+    ascii_chars = set(PRINTABLE_ASCII)
+    concrete_action_chars = {item.token for item in KEY_LAYOUT} | ascii_chars
+    action_chars = concrete_action_chars | {KEY_UNKNOWN_ACTION}
     for episode in episodes:
         # Text conditions need initial/final characters, while action targets
         # need physical edits plus the explicit terminal tokens.
@@ -190,8 +194,15 @@ def build_keyboard_vocabs(episodes: list[KeyboardEpisode]) -> tuple[dict[str, in
         for step in episode.steps:
             if step.action not in {KEY_BACKSPACE, KEY_STOP}:
                 chars.add(step.action)
-                action_chars.add(step.action)
-    char_tokens = [CHAR_PAD, CHAR_UNK, CHAR_EOS, CHAR_SEP, *sorted(chars | {item.token for item in KEY_LAYOUT})]
+                if step.action in concrete_action_chars:
+                    action_chars.add(step.action)
+    char_tokens = [
+        CHAR_PAD,
+        CHAR_UNK,
+        CHAR_EOS,
+        CHAR_SEP,
+        *sorted(chars | {item.token for item in KEY_LAYOUT} | ascii_chars | {KEY_UNKNOWN_ACTION}),
+    ]
     action_tokens = [*sorted(action_chars), KEY_BACKSPACE, KEY_STOP]
     return (
         {token: index for index, token in enumerate(char_tokens)},
