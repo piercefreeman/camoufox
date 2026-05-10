@@ -514,17 +514,21 @@ class LaunchOptionBuilder:
         confirm_paths(addons)
         config.addons = addons
 
-    def _resolve_firefox_version(self, executable_path: Path) -> str:
+    def _resolve_firefox_version(self, executable_path: Path) -> str | None:
         if self.ff_version is None:
             bundle_version = _load_bundle_version(executable_path)
             if bundle_version:
                 return bundle_version.split(".", 1)[0]
+            if self.executable_path is not None:
+                return None
             return installed_verstr().split(".", 1)[0]
 
         LeakWarning.warn("ff_version", self.i_know_what_im_doing)
         return str(self.ff_version)
 
-    def _build_generated_config(self, target_os: HostTargetOS, ff_version: str) -> RotundaProfile:
+    def _build_generated_config(
+        self, target_os: HostTargetOS, ff_version: str | None
+    ) -> RotundaProfile:
         env = self._env_map()
 
         if self.fingerprint is not None:
@@ -921,7 +925,10 @@ def _join_unique(values: Iterable[str]) -> str:
 
 
 def _resolve_bundle_resource(executable_path: Path, filename: str) -> Path:
-    candidates = [executable_path.parent / filename]
+    candidates = [
+        executable_path.parent / filename,
+        executable_path.parent / "browser" / filename,
+    ]
     if executable_path.parent.name == "MacOS" and executable_path.parent.parent.name == "Contents":
         candidates.insert(0, executable_path.parent.parent / "Resources" / filename)
 
