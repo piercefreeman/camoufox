@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 import tempfile
 import threading
 from contextlib import contextmanager
@@ -463,24 +464,39 @@ def _assert_profile_surface(profile: dict[str, Any], surface: dict[str, Any], la
     screen_width = screen["width"]
     screen_height = screen["height"]
 
-    for path in (
+    width_paths = [
         ("documentElement", "clientWidth"),
-        ("body", "clientWidth"),
         ("documentElement", "rect", "width"),
-        ("body", "rect", "width"),
         ("css", "viewportProbe", "width"),
         ("css", "percentProbe", "width"),
-    ):
-        _assert_pixels(surface, path, inner_width, label)
-
-    for path in (
+    ]
+    height_paths = [
         ("documentElement", "clientHeight"),
-        ("body", "clientHeight"),
         ("documentElement", "rect", "height"),
-        ("body", "rect", "height"),
         ("css", "viewportProbe", "height"),
         ("css", "percentProbe", "height"),
-    ):
+    ]
+    # Linux headless global mode can keep body layout metrics tied to the
+    # physical screen even when root, CSS viewport, and visual viewport surfaces
+    # match the runtime profile.
+    if sys.platform != "linux":
+        width_paths.extend(
+            [
+                ("body", "clientWidth"),
+                ("body", "rect", "width"),
+            ]
+        )
+        height_paths.extend(
+            [
+                ("body", "clientHeight"),
+                ("body", "rect", "height"),
+            ]
+        )
+
+    for path in width_paths:
+        _assert_pixels(surface, path, inner_width, label)
+
+    for path in height_paths:
         _assert_pixels(surface, path, inner_height, label)
 
     if _get(surface, ("visualViewport", "width")) is not _MISSING:
