@@ -25,17 +25,21 @@ index 101590d8c8..f004930b20 100644
  #include <inttypes.h>
  
  #include <cstddef>
-@@ -1006,6 +1008,16 @@ nsRect Element::GetClientAreaRect() {
+@@ -1006,6 +1008,20 @@ nsRect Element::GetClientAreaRect() {
    Document* doc = OwnerDoc();
    nsPresContext* presContext = doc->GetPresContext();
  
 +  if (doc->GetBodyElement() == this) {
-+    if (auto screen = MaskConfig::Profile().getScreen()) {
-+      auto width = screen->getWidth();
-+      auto height = screen->getHeight();
-+      if (width && height) {
-+        return nsRect(0, 0, *width * 60, *height * 60);
-+      }
++    auto width = MaskConfig::GetInt32("document.body.clientWidth");
++    auto height = MaskConfig::GetInt32("document.body.clientHeight");
++    if (!width) {
++      width = MaskConfig::GetInt32("window.innerWidth");
++    }
++    if (!height) {
++      height = MaskConfig::GetInt32("window.innerHeight");
++    }
++    if (width && height) {
++      return nsRect(0, 0, *width * 60, *height * 60);
 +    }
 +  }
 +
