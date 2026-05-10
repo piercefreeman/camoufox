@@ -23,7 +23,7 @@ def test_list_available_versions_filters_to_current_python_library_version(
         {
             "repo": "MonkeySee-AI/rotunda",
             "name": "Official",
-            "pattern": "{name}-{version}-{build}-{os}.{arch}.zip",
+            "pattern": "{name}-{build}-{version}-{os}.{arch}.zip",
         },
         spoof_library_version="0.7.0",
     )
@@ -38,17 +38,17 @@ def test_list_available_versions_filters_to_current_python_library_version(
                     "prerelease": False,
                     "assets": [
                         {
-                            "name": "rotunda-0.7.0-beta.1-mac.arm64.zip",
+                            "name": "rotunda-150.0.1-0.7.0-mac.arm64.zip",
                             "browser_download_url": "https://example.test/0.7.0.zip",
                             "id": 1,
                         },
                         {
-                            "name": "rotunda-0.7.1-beta.1-mac.arm64.zip",
+                            "name": "rotunda-150.0.1-0.7.1-mac.arm64.zip",
                             "browser_download_url": "https://example.test/0.7.1.zip",
                             "id": 2,
                         },
                         {
-                            "name": "rotunda-0.7.0-beta.1-lin.x86_64.zip",
+                            "name": "rotunda-150.0.1-0.7.0-lin.x86_64.zip",
                             "browser_download_url": "https://example.test/linux.zip",
                             "id": 3,
                         },
@@ -64,7 +64,7 @@ def test_list_available_versions_filters_to_current_python_library_version(
         spoof_arch="arm64",
     )
 
-    assert [version.version.full_string for version in versions] == ["0.7.0-beta.1"]
+    assert [version.version.full_string for version in versions] == ["0.7.0-150.0.1"]
     assert versions[0].url == "https://example.test/0.7.0.zip"
 
 

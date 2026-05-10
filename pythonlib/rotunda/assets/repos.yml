@@ -7,7 +7,7 @@ default:
 browsers:
   - repo: MonkeySee-AI/rotunda
     name: Official
-    pattern: "{name}-{version}-{build}-{os}.{arch}.zip"
+    pattern: "{name}-{build}-{version}-{os}.{arch}.zip"
 
 # GeoIP database repositories
 geoip:
