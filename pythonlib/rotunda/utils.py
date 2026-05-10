@@ -297,11 +297,15 @@ def sync_attach_vd(
 def get_env_vars(
     config: RotundaProfile | dict[str, Any],
     user_agent_os: str,
+    *,
+    executable_path: str | Path | None = None,
 ) -> dict[str, str | float | bool]:
     """
     Validate and serialize a config map into a runtime profile JSON file.
 
     The browser bootstrap code reads `ROTUNDA_CONFIG_PATH` before Firefox starts.
+    On Linux, `executable_path` lets packaged browser artifacts supply their own
+    fontconfig and font resources without requiring an installed Rotunda bundle.
     """
     profile = _build_runtime_profile(config)
 
@@ -317,14 +321,11 @@ def get_env_vars(
     env_vars: dict[str, str | float | bool] = {"ROTUNDA_CONFIG_PATH": config_path}
 
     if OS_NAME == "lin":
-        directory_map = {"lin": "linux", "mac": "macos", "win": "windows"}
-        fontconfig_path = get_path(os.path.join("fontconfigs", directory_map[user_agent_os]))
-        fonts_conf = os.path.join(fontconfig_path, "fonts.conf")
-        if not os.path.exists(fonts_conf):
-            raise FileNotFoundError(
-                f"fonts.conf not found in {fontconfig_path}. The Rotunda bundle is incomplete."
-            )
-        env_vars["FONTCONFIG_FILE"] = _generate_fontconfig(fontconfig_path)
+        fontconfig_path, fonts_path = _resolve_linux_font_resources(
+            user_agent_os,
+            Path(executable_path) if executable_path is not None else None,
+        )
+        env_vars["FONTCONFIG_FILE"] = _generate_fontconfig(fontconfig_path, fonts_path)
 
     return env_vars
 
@@ -482,7 +483,15 @@ class LaunchOptionBuilder:
 
         runtime_env = {
             **env,
-            **get_env_vars(config, _user_agent_os(config)),
+            **get_env_vars(
+                config,
+                _user_agent_os(config),
+                executable_path=(
+                    resolved_executable
+                    if self.executable_path is not None or self.browser is not None
+                    else None
+                ),
+            ),
         }
         configure_launch_debug_dump(
             runtime_env,
@@ -744,13 +753,19 @@ class LaunchOptionBuilder:
         return launch_path()
 
 
-def _generate_fontconfig(fontconfig_path: str) -> str:
+def _generate_fontconfig(
+    fontconfig_path: str | Path,
+    fonts_dir: str | Path | None = None,
+) -> str:
     import hashlib
 
-    fonts_dir = get_path("fonts")
-    fonts_conf_src = os.path.join(fontconfig_path, "fonts.conf")
+    if fonts_dir is None:
+        fonts_dir = get_path("fonts")
+    fontconfig_path = Path(fontconfig_path)
+    fonts_dir = Path(fonts_dir)
+    fonts_conf_src = fontconfig_path / "fonts.conf"
 
-    with open(fonts_conf_src, encoding="utf-8") as handle:
+    with fonts_conf_src.open(encoding="utf-8") as handle:
         conf_content = handle.read()
 
     conf_content = conf_content.replace(
@@ -924,13 +939,80 @@ def _join_unique(values: Iterable[str]) -> str:
     return ", ".join(_unique_strings(values))
 
 
-def _resolve_bundle_resource(executable_path: Path, filename: str) -> Path:
+def _bundle_resource_roots(executable_path: Path) -> list[Path]:
     candidates = [
-        executable_path.parent / filename,
-        executable_path.parent / "browser" / filename,
+        executable_path.parent,
+        executable_path.parent / "browser",
     ]
     if executable_path.parent.name == "MacOS" and executable_path.parent.parent.name == "Contents":
-        candidates.insert(0, executable_path.parent.parent / "Resources" / filename)
+        candidates.insert(0, executable_path.parent.parent / "Resources")
+
+    return _dedupe_paths(candidates)
+
+
+def _source_bundle_root() -> Path:
+    return Path(__file__).resolve().parents[2] / "bundle"
+
+
+def _dedupe_paths(paths: Iterable[Path]) -> list[Path]:
+    seen: set[Path] = set()
+    result: list[Path] = []
+    for path in paths:
+        resolved = path.resolve()
+        if resolved in seen:
+            continue
+        seen.add(resolved)
+        result.append(path)
+    return result
+
+
+def _resolve_linux_font_resources(
+    user_agent_os: str,
+    executable_path: Path | None,
+) -> tuple[Path, Path | None]:
+    directory_map = {"lin": "linux", "mac": "macos", "win": "windows"}
+    directory = directory_map[user_agent_os]
+
+    if executable_path is not None:
+        roots = [*_bundle_resource_roots(executable_path), _source_bundle_root()]
+        if result := _find_linux_font_resources(roots, directory):
+            return result
+
+        raise FileNotFoundError(
+            "fonts.conf not found in the Rotunda bundle for "
+            f"{executable_path}. Expected fontconfig/{directory}/fonts.conf "
+            "and fonts/ beside the executable or in the source bundle."
+        )
+
+    checked: list[str] = []
+    for root_name in ("fontconfig", "fontconfigs"):
+        fontconfig_path = Path(get_path(os.path.join(root_name, directory)))
+        checked.append(str(fontconfig_path))
+        if (fontconfig_path / "fonts.conf").exists():
+            return fontconfig_path, Path(get_path("fonts"))
+
+    raise FileNotFoundError(
+        f"fonts.conf not found in {', '.join(checked)}. The Rotunda bundle is incomplete."
+    )
+
+
+def _find_linux_font_resources(
+    roots: Iterable[Path],
+    directory: str,
+) -> tuple[Path, Path] | None:
+    for root in _dedupe_paths(roots):
+        fonts_path = root / "fonts"
+        if not fonts_path.exists():
+            continue
+        for root_name in ("fontconfig", "fontconfigs"):
+            fontconfig_path = root / root_name / directory
+            if (fontconfig_path / "fonts.conf").exists():
+                return fontconfig_path, fonts_path
+    return None
+
+
+def _resolve_bundle_resource(executable_path: Path, filename: str) -> Path:
+    candidates = [root / filename for root in _bundle_resource_roots(executable_path)]
 
     for candidate in candidates:
         if candidate.exists():
