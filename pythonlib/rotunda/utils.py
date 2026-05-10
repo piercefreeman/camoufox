@@ -4,7 +4,7 @@ import configparser
 import json
 import os
 import tempfile
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from os import environ
 from os.path import abspath
@@ -240,6 +240,25 @@ def runtime_profile_init_script(config: RotundaProfile | dict[str, Any]) -> str:
 
     lines.append("})();")
     return "\n".join(lines)
+
+
+def persistent_context_options(options: Mapping[str, Any]) -> dict[str, Any]:
+    """
+    Adapt Rotunda launch options for Playwright persistent contexts.
+
+    `launch_options()` must remain valid for `firefox.launch()`, which does not
+    accept context-only keys such as `viewport`. Persistent contexts do accept
+    those keys, and Linux headless layout uses that viewport instead of Firefox
+    process window flags.
+    """
+    result = dict(options)
+    if "viewport" in result or result.get("no_viewport") is True:
+        return result
+
+    viewport = _viewport_from_launch_options(result)
+    if viewport is not None:
+        result["viewport"] = viewport
+    return result
 
 
 async def async_attach_vd(
@@ -908,6 +927,35 @@ def _merge_missing_nested(target: dict[str, Any], source: dict[str, Any]) -> Non
             _merge_missing_nested(current, value)
         elif key not in target:
             target[key] = value
+
+
+def _viewport_from_launch_options(options: Mapping[str, Any]) -> dict[str, int] | None:
+    env = options.get("env")
+    if not isinstance(env, Mapping):
+        return None
+
+    config_path = env.get("ROTUNDA_CONFIG_PATH")
+    if not isinstance(config_path, str):
+        return None
+
+    try:
+        profile = RotundaProfile.model_validate(
+            json.loads(Path(config_path).read_text(encoding="utf-8"))
+        )
+    except (OSError, json.JSONDecodeError, ValidationError):
+        return None
+
+    window = profile.window
+    if (
+        window is None
+        or not isinstance(window.inner_width, int)
+        or window.inner_width <= 0
+        or not isinstance(window.inner_height, int)
+        or window.inner_height <= 0
+    ):
+        return None
+
+    return {"width": window.inner_width, "height": window.inner_height}
 
 
 def _warn_manual_config(config: RotundaProfile) -> None:

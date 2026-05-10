@@ -589,7 +589,7 @@ async def test_global_launch_surfaces_match_runtime_fingerprint(pytestconfig: py
 
     from rotunda.addons import DefaultAddons
     from rotunda.fingerprints import generate_fingerprint
-    from rotunda.utils import launch_options
+    from rotunda.utils import launch_options, persistent_context_options
 
     fingerprint = generate_fingerprint(window=(1280, 800))
     launch = launch_options(
@@ -606,6 +606,7 @@ async def test_global_launch_surfaces_match_runtime_fingerprint(pytestconfig: py
 
     profile_path = Path(str(launch["env"]["ROTUNDA_CONFIG_PATH"]))
     profile = json.loads(profile_path.read_text(encoding="utf-8"))
+    launch = persistent_context_options(launch)
     launch["timeout"] = 60_000
 
     try:

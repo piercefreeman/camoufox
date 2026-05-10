@@ -13,7 +13,7 @@ from .sync_api import (
     Rotunda,
     connect_over_remote_juggler,
 )
-from .utils import launch_options
+from .utils import launch_options, persistent_context_options
 
 __all__ = [
     "AsyncConnectOverRemoteJuggler",
@@ -28,4 +28,5 @@ __all__ = [
     "async_connect_over_remote_juggler",
     "connect_over_remote_juggler",
     "launch_options",
+    "persistent_context_options",
 ]
