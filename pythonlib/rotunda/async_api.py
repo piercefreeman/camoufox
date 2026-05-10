@@ -18,7 +18,7 @@ from rotunda.virtdisplay import VirtualDisplay
 from . import remote_juggler as _remote_juggler
 from .debug_dump import attach_debug_metadata, install_async_context_debug_dump
 from .fingerprints import _derive_browser_major_version, generate_context_fingerprint
-from .utils import async_attach_vd, launch_options
+from .utils import async_attach_vd, launch_options, persistent_context_options
 
 AsyncConnectOverRemoteJuggler = _remote_juggler.AsyncConnectOverRemoteJuggler
 async_connect_over_remote_juggler = _remote_juggler.async_connect_over_remote_juggler
@@ -102,8 +102,9 @@ async def AsyncNewBrowser(
 
     # Persistent context
     if persistent_context:
-        context = await playwright.firefox.launch_persistent_context("", **from_options)
-        attach_debug_metadata(context, from_options)
+        context_options = persistent_context_options(from_options)
+        context = await playwright.firefox.launch_persistent_context("", **context_options)
+        attach_debug_metadata(context, context_options)
         return await async_attach_vd(context, virtual_display)
 
     # Browser

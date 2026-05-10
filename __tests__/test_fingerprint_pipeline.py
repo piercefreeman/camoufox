@@ -853,6 +853,59 @@ def test_launch_options_generates_full_config_payload(
     assert 1 <= payload["window"]["history"]["length"] <= 5
 
 
+def test_launch_options_sets_headless_firefox_viewport_env(
+    modules: tuple[Any, Any, Any],
+    fake_fingerprint: FakeFingerprint,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _, _, utils = modules
+    monkeypatch.setattr(utils, "generate_fingerprint", lambda **_: fake_fingerprint)
+
+    options = utils.launch_options(env={"TEST_ENV": "1"}, headless=True)
+
+    assert options["env"]["MOZ_HEADLESS_WIDTH"] == str(fake_fingerprint.screen.innerWidth)
+    assert options["env"]["MOZ_HEADLESS_HEIGHT"] == str(fake_fingerprint.screen.innerHeight)
+    assert options["args"][-2:] == [
+        "--window-size",
+        f"{fake_fingerprint.screen.innerWidth},{fake_fingerprint.screen.innerHeight}",
+    ]
+
+
+def test_persistent_context_options_sets_viewport_from_runtime_profile(
+    modules: tuple[Any, Any, Any],
+    fake_fingerprint: FakeFingerprint,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _, _, utils = modules
+    monkeypatch.setattr(utils, "generate_fingerprint", lambda **_: fake_fingerprint)
+
+    options = utils.launch_options(env={"TEST_ENV": "1"}, headless=True)
+    context_options = utils.persistent_context_options(options)
+
+    assert "viewport" not in options
+    assert context_options["viewport"] == {
+        "width": fake_fingerprint.screen.innerWidth,
+        "height": fake_fingerprint.screen.innerHeight,
+    }
+    assert context_options["env"] == options["env"]
+
+
+def test_persistent_context_options_respects_explicit_viewport(
+    modules: tuple[Any, Any, Any],
+    fake_fingerprint: FakeFingerprint,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _, _, utils = modules
+    monkeypatch.setattr(utils, "generate_fingerprint", lambda **_: fake_fingerprint)
+
+    options = utils.launch_options(env={"TEST_ENV": "1"}, headless=True)
+    context_options = utils.persistent_context_options(
+        {**options, "viewport": {"width": 320, "height": 240}}
+    )
+
+    assert context_options["viewport"] == {"width": 320, "height": 240}
+
+
 def test_launch_options_applies_navigator_tracking_signal_prefs(
     modules: tuple[Any, Any, Any],
     fake_fingerprint: FakeFingerprint,
@@ -1326,6 +1379,50 @@ def test_launch_options_reads_version_from_linux_bundle_browser_dir(
 
     assert options["executable_path"] == str(executable_path)
     assert payload["navigator"]["userAgent"].endswith("Firefox/150.0")
+
+
+def test_launch_options_uses_explicit_linux_bundle_font_resources(
+    modules: tuple[Any, Any, Any],
+    fake_linux_host: Any,
+    fake_linux_fingerprint: FakeFingerprint,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _, _, utils = modules
+    hosts = importlib.import_module("rotunda.fingerprinting.hosts")
+    host_macos = importlib.import_module("rotunda.fingerprinting.host_macos")
+    host_linux = importlib.import_module("rotunda.fingerprinting.host_linux")
+
+    monkeypatch.setattr(hosts.sys, "platform", "linux")
+    monkeypatch.setattr(host_macos.MacOSHostAdapter, "_cached", None)
+    monkeypatch.setattr(host_linux.LinuxHostAdapter, "_cached", fake_linux_host)
+    monkeypatch.setattr(utils, "OS_NAME", "lin")
+    monkeypatch.setattr(utils, "generate_fingerprint", lambda **_: fake_linux_fingerprint)
+    monkeypatch.setattr(
+        utils,
+        "get_path",
+        lambda file: (_ for _ in ()).throw(AssertionError(f"should not resolve {file}")),
+    )
+
+    executable_path = tmp_path / "rotunda-bin"
+    executable_path.write_text("", encoding="utf-8")
+    fontconfig_root = tmp_path / "fontconfig" / "linux"
+    fontconfig_root.mkdir(parents=True)
+    (fontconfig_root / "fonts.conf").write_text(
+        '<fontconfig><dir prefix="cwd">fonts</dir></fontconfig>',
+        encoding="utf-8",
+    )
+    (tmp_path / "fonts" / "linux").mkdir(parents=True)
+
+    options = utils.launch_options(
+        executable_path=executable_path,
+        env={"TEST_ENV": "1"},
+        headless=True,
+    )
+    runtime_fontconfig = Path(options["env"]["FONTCONFIG_FILE"])
+
+    assert options["executable_path"] == str(executable_path)
+    assert f"<dir>{tmp_path / 'fonts'}</dir>" in runtime_fontconfig.read_text(encoding="utf-8")
 
 
 def test_launch_options_does_not_fetch_installed_version_for_explicit_executable(

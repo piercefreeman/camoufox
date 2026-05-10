@@ -748,6 +748,7 @@ export class PageTarget {
       if (currentBrowserRect.width > 0 && currentBrowserRect.height > 0)
         this._window.resizeBy(width - currentBrowserRect.width, height - currentBrowserRect.height);
 
+      await waitForBrowserElementSize(this._window, this._linkedBrowser, width, height);
       await this._channel.connect('').send('awaitViewportDimensions', { width: width / this._zoom, height: height / this._zoom });
     } else {
       this._linkedBrowser.style.removeProperty('width');
@@ -1441,6 +1442,31 @@ async function waitForWindowReady(window) {
   }
   if (window.document.readyState !== 'complete')
     await helper.awaitEvent(window, 'load');
+}
+
+async function waitForBrowserElementSize(window, browser, width, height) {
+  const deadline = Date.now() + 5000;
+  await new Promise(resolve => {
+    const schedule = () => {
+      if (window.requestAnimationFrame)
+        window.requestAnimationFrame(check);
+      else
+        window.setTimeout(check, 16);
+    };
+    const check = () => {
+      const rect = browser.getBoundingClientRect();
+      if (Math.abs(rect.width - width) <= 1 && Math.abs(rect.height - height) <= 1) {
+        resolve();
+        return;
+      }
+      if (Date.now() >= deadline) {
+        resolve();
+        return;
+      }
+      schedule();
+    };
+    check();
+  });
 }
 
 TargetRegistry.Events = {

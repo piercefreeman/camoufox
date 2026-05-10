@@ -17,7 +17,7 @@ from . import remote_juggler as _remote_juggler
 from .debug_dump import attach_debug_metadata, install_sync_context_debug_dump
 from .exceptions import InvalidProxy
 from .fingerprints import _derive_browser_major_version, generate_context_fingerprint
-from .utils import launch_options, sync_attach_vd
+from .utils import launch_options, persistent_context_options, sync_attach_vd
 
 ConnectOverRemoteJuggler = _remote_juggler.ConnectOverRemoteJuggler
 connect_over_remote_juggler = _remote_juggler.connect_over_remote_juggler
@@ -102,8 +102,9 @@ def NewBrowser(
 
     # Persistent context
     if persistent_context:
-        context = playwright.firefox.launch_persistent_context("", **from_options)
-        attach_debug_metadata(context, from_options)
+        context_options = persistent_context_options(from_options)
+        context = playwright.firefox.launch_persistent_context("", **context_options)
+        attach_debug_metadata(context, context_options)
         return sync_attach_vd(context, virtual_display)
 
     # Browser

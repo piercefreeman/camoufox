@@ -614,7 +614,11 @@ class AgentDaemon:
             executable_path = resolve_installed_rotunda_executable()
 
             self.playwright = await async_playwright().start()
-            from rotunda.utils import launch_options, runtime_profile_init_script
+            from rotunda.utils import (
+                launch_options,
+                persistent_context_options,
+                runtime_profile_init_script,
+            )
 
             env: dict[str, str | int | float] = dict(os.environ)
             opts = await asyncio.to_thread(
@@ -624,9 +628,10 @@ class AgentDaemon:
                 env=env,
                 humanize=humanize,
             )
+            context_opts = persistent_context_options(opts)
             self.context = await self.playwright.firefox.launch_persistent_context(
                 str(user_data_dir),
-                **opts,
+                **context_opts,
             )
             profile_path = opts.get("env", {}).get("ROTUNDA_CONFIG_PATH")
             if profile_path:

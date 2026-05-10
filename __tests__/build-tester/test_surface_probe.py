@@ -463,24 +463,27 @@ def _assert_profile_surface(profile: dict[str, Any], surface: dict[str, Any], la
     screen_width = screen["width"]
     screen_height = screen["height"]
 
-    for path in (
+    width_paths = [
         ("documentElement", "clientWidth"),
-        ("body", "clientWidth"),
         ("documentElement", "rect", "width"),
+        ("body", "clientWidth"),
         ("body", "rect", "width"),
         ("css", "viewportProbe", "width"),
         ("css", "percentProbe", "width"),
-    ):
-        _assert_pixels(surface, path, inner_width, label)
-
-    for path in (
+    ]
+    height_paths = [
         ("documentElement", "clientHeight"),
-        ("body", "clientHeight"),
         ("documentElement", "rect", "height"),
+        ("body", "clientHeight"),
         ("body", "rect", "height"),
         ("css", "viewportProbe", "height"),
         ("css", "percentProbe", "height"),
-    ):
+    ]
+
+    for path in width_paths:
+        _assert_pixels(surface, path, inner_width, label)
+
+    for path in height_paths:
         _assert_pixels(surface, path, inner_height, label)
 
     if _get(surface, ("visualViewport", "width")) is not _MISSING:
@@ -589,7 +592,7 @@ async def test_global_launch_surfaces_match_runtime_fingerprint(pytestconfig: py
 
     from rotunda.addons import DefaultAddons
     from rotunda.fingerprints import generate_fingerprint
-    from rotunda.utils import launch_options
+    from rotunda.utils import launch_options, persistent_context_options
 
     fingerprint = generate_fingerprint(window=(1280, 800))
     launch = launch_options(
@@ -606,6 +609,7 @@ async def test_global_launch_surfaces_match_runtime_fingerprint(pytestconfig: py
 
     profile_path = Path(str(launch["env"]["ROTUNDA_CONFIG_PATH"]))
     profile = json.loads(profile_path.read_text(encoding="utf-8"))
+    launch = persistent_context_options(launch)
     launch["timeout"] = 60_000
 
     try:

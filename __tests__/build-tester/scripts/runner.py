@@ -94,7 +94,7 @@ async def run_per_context_phase(
     )
 
     # Phase 3: Wait for all tests to complete
-    print(f"  Waiting for all per-context tests to complete...")
+    print("  Waiting for all per-context tests to complete...")
     await asyncio.gather(
         *[ctx["page"].wait_for_function("!!window.__testComplete__", timeout=120000) for ctx in open_contexts],
         return_exceptions=True,
@@ -314,6 +314,7 @@ async def run_tests(
                     **get_env_vars(
                         preset["rotundaConfig"],
                         _user_agent_os(profile["userAgent"]),
+                        executable_path=binary_path,
                     ),
                 }
                 browser = await asyncio.wait_for(
@@ -342,7 +343,7 @@ async def run_tests(
 
                 page = await context.new_page()
                 await page.goto(test_page_url, wait_until="domcontentloaded", timeout=30000)
-                print(f"  Waiting for tests to complete...")
+                print("  Waiting for tests to complete...")
                 await page.wait_for_function("!!window.__testComplete__", timeout=120000)
 
                 test_error = await page.evaluate("window.__testError__")
