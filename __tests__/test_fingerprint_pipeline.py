@@ -853,6 +853,20 @@ def test_launch_options_generates_full_config_payload(
     assert 1 <= payload["window"]["history"]["length"] <= 5
 
 
+def test_launch_options_sets_headless_firefox_viewport_env(
+    modules: tuple[Any, Any, Any],
+    fake_fingerprint: FakeFingerprint,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _, _, utils = modules
+    monkeypatch.setattr(utils, "generate_fingerprint", lambda **_: fake_fingerprint)
+
+    options = utils.launch_options(env={"TEST_ENV": "1"}, headless=True)
+
+    assert options["env"]["MOZ_HEADLESS_WIDTH"] == str(fake_fingerprint.screen.innerWidth)
+    assert options["env"]["MOZ_HEADLESS_HEIGHT"] == str(fake_fingerprint.screen.innerHeight)
+
+
 def test_launch_options_applies_navigator_tracking_signal_prefs(
     modules: tuple[Any, Any, Any],
     fake_fingerprint: FakeFingerprint,

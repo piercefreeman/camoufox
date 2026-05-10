@@ -473,6 +473,7 @@ class LaunchOptionBuilder:
         self._apply_locale()
         self._apply_humanize()
         self._apply_firefox_preferences()
+        self._apply_headless_viewport_env()
 
         if self.debug:
             print("[DEBUG] Config:")
@@ -723,6 +724,25 @@ class LaunchOptionBuilder:
 
         if self.enable_cache:
             _merge_missing(firefox_user_prefs, CACHE_PREFS)
+
+    def _apply_headless_viewport_env(self) -> None:
+        if not self.headless:
+            return
+
+        config = self._profile()
+        window = config.window
+        if (
+            window is None
+            or not isinstance(window.inner_width, int)
+            or window.inner_width <= 0
+            or not isinstance(window.inner_height, int)
+            or window.inner_height <= 0
+        ):
+            return
+
+        env = self._env_map()
+        env["MOZ_HEADLESS_WIDTH"] = str(window.inner_width)
+        env["MOZ_HEADLESS_HEIGHT"] = str(window.inner_height)
 
     def _resolve_executable_path(self) -> str:
         if self.executable_path is not None:
