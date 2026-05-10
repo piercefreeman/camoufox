@@ -745,8 +745,7 @@ class LaunchOptionBuilder:
         env["MOZ_HEADLESS_HEIGHT"] = str(window.inner_height)
 
         args = self._launch_args()
-        _append_arg_value(args, "--width", window.inner_width)
-        _append_arg_value(args, "--height", window.inner_height)
+        _append_arg_value(args, "--window-size", f"{window.inner_width},{window.inner_height}")
 
     def _resolve_executable_path(self) -> str:
         if self.executable_path is not None:
@@ -959,7 +958,7 @@ def _unique_strings(values: Iterable[str]) -> list[str]:
     return result
 
 
-def _append_arg_value(args: list[str], name: str, value: int) -> None:
+def _append_arg_value(args: list[str], name: str, value: int | str) -> None:
     if any(arg == name or arg.startswith(f"{name}=") for arg in args):
         return
     args.extend([name, str(value)])

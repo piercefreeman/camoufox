@@ -865,11 +865,9 @@ def test_launch_options_sets_headless_firefox_viewport_env(
 
     assert options["env"]["MOZ_HEADLESS_WIDTH"] == str(fake_fingerprint.screen.innerWidth)
     assert options["env"]["MOZ_HEADLESS_HEIGHT"] == str(fake_fingerprint.screen.innerHeight)
-    assert options["args"][-4:] == [
-        "--width",
-        str(fake_fingerprint.screen.innerWidth),
-        "--height",
-        str(fake_fingerprint.screen.innerHeight),
+    assert options["args"][-2:] == [
+        "--window-size",
+        f"{fake_fingerprint.screen.innerWidth},{fake_fingerprint.screen.innerHeight}",
     ]
 
 
