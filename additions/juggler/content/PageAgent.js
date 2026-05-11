@@ -23,6 +23,8 @@ const helper = new Helper();
 const HUMANIZED_TEXT_INTERVAL_MS = 10;
 const KEYBOARD_BACKSPACE = "<BACKSPACE>";
 const KEYBOARD_STOP = "<STOP>";
+const PAGE_SCROLL_KEY_SETTLE_MS = 100;
+const PAGE_SCROLL_MAX_KEY_PRESSES = 20;
 
 function isHumanizeEnabled() {
   return ChromeUtils.rotundaGetBool('humanize.enabled', false);
@@ -87,6 +89,76 @@ async function applyKeyboardAction(frame, tip, action) {
     return;
   }
   tip.commitCompositionWith(action);
+}
+
+function scrollTargetRect(unsafeObject, rect) {
+  const elementRect = unsafeObject.getBoundingClientRect();
+  if (!rect || rect.x < 0 || rect.y < 0 || rect.width < 0 || rect.height < 0)
+    return elementRect;
+
+  const width = Math.max(1, Number(rect.width) || 0);
+  const height = Math.max(1, Number(rect.height) || 0);
+  const left = elementRect.left + Number(rect.x || 0);
+  const top = elementRect.top + Number(rect.y || 0);
+  return {
+    left,
+    top,
+    right: left + width,
+    bottom: top + height,
+    width,
+    height,
+  };
+}
+
+function scrollViewportState(unsafeObject, rect) {
+  const domWindow = unsafeObject.ownerDocument.defaultView;
+  const documentElement = domWindow.document.documentElement;
+  const viewportWidth = domWindow.innerWidth || documentElement.clientWidth || 0;
+  const viewportHeight = domWindow.innerHeight || documentElement.clientHeight || 0;
+  const targetRect = scrollTargetRect(unsafeObject, rect);
+  const inViewport =
+    targetRect.bottom > 0 &&
+    targetRect.right > 0 &&
+    targetRect.top < viewportHeight &&
+    targetRect.left < viewportWidth;
+
+  let direction = "down";
+  if (targetRect.bottom <= 0 || targetRect.top < 0)
+    direction = "up";
+
+  return {inViewport, direction};
+}
+
+async function dispatchPageScrollKey(frame, direction) {
+  const domWindow = frame.domWindow();
+  const key = direction === "up" ? "PageUp" : "PageDown";
+  const keyCode = direction === "up" ? 33 : 34;
+  const keyEvent = new (domWindow.KeyboardEvent)("", {
+    key,
+    code: key,
+    keyCode,
+  });
+  const flags = 0;
+  const tip = frame.textInputProcessor();
+  // TODO: Replace this PageUp/PageDown fallback with trackpad-style scroll once
+  // we have representative scroll capture data.
+  tip.keydown(keyEvent, flags);
+  tip.keyup(keyEvent, flags);
+  if (domWindow.windowUtils.flushApzRepaints())
+    await helper.awaitTopic('apz-repaints-flushed');
+  await new Promise(resolve => setTimeout(resolve, PAGE_SCROLL_KEY_SETTLE_MS));
+}
+
+async function scrollIntoViewWithPageKeys(frame, unsafeObject, rect) {
+  for (let i = 0; i <= PAGE_SCROLL_MAX_KEY_PRESSES; ++i) {
+    const state = scrollViewportState(unsafeObject, rect);
+    if (state.inViewport)
+      return true;
+    if (i >= PAGE_SCROLL_MAX_KEY_PRESSES)
+      return false;
+    await dispatchPageScrollKey(frame, state.direction);
+  }
+  return false;
 }
 
 async function commitTextInput(frame, text, keyEvent = undefined, humanizeEnabled = isHumanizeEnabled()) {
@@ -539,10 +611,13 @@ export class PageAgent {
       throw new Error('Node is detached from document');
     if (!rect)
       rect = { x: -1, y: -1, width: -1, height: -1};
-    if (unsafeObject.scrollRectIntoViewIfNeeded)
-      unsafeObject.scrollRectIntoViewIfNeeded(rect.x, rect.y, rect.width, rect.height);
-    else
+    if (unsafeObject.scrollRectIntoViewIfNeeded) {
+      const scrolledWithPageKeys = await scrollIntoViewWithPageKeys(frame, unsafeObject, rect);
+      if (!scrolledWithPageKeys)
+        unsafeObject.scrollRectIntoViewIfNeeded(rect.x, rect.y, rect.width, rect.height);
+    } else {
       throw new Error('Node does not have a layout object');
+    }
   }
 
   _getNodeBoundingBox(unsafeObject) {
