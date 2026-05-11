@@ -981,7 +981,7 @@ class AgentHTTPServer:
                 await disconnect_task
             try:
                 return await request_task
-            except TimeoutError as exc:
+            except (TimeoutError, asyncio.TimeoutError) as exc:
                 raise AgentRequestTimeout(path, timeout_seconds) from exc
         finally:
             if not request_task.done():
