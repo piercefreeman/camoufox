@@ -460,8 +460,17 @@ class FakeLocator:
     async def click(self, *, timeout: int) -> None:
         self.events.append(("click", timeout))
 
-    async def press(self, key: str, *, timeout: int | None = None) -> None:
-        self.events.append(("press", key, timeout))
+    async def press(
+        self,
+        key: str,
+        *,
+        timeout: int | None = None,
+        no_wait_after: bool | None = None,
+    ) -> None:
+        if no_wait_after is None:
+            self.events.append(("press", key, timeout))
+        else:
+            self.events.append(("press", key, timeout, no_wait_after))
 
     async def evaluate(self, script: str, arg=None) -> dict:
         self.events.append(("evaluate", script, arg))
@@ -534,6 +543,19 @@ class FakeLocator:
         self.events.append(("locator_screenshot", path, timeout))
 
 
+class SubmitNavigationWaitLocator(FakeLocator):
+    async def press(
+        self,
+        key: str,
+        *,
+        timeout: int | None = None,
+        no_wait_after: bool | None = None,
+    ) -> None:
+        await super().press(key, timeout=timeout, no_wait_after=no_wait_after)
+        if key == "Enter" and no_wait_after is not True:
+            await asyncio.Event().wait()
+
+
 class FakeSerializer:
     def __init__(self, locator: FakeLocator) -> None:
         self.locator = locator
@@ -590,8 +612,20 @@ async def test_agent_fill_uses_playwright_click_and_rotunda_insert_text_path() -
         ("press", "ControlOrMeta+A", 15_000),
         ("press", "Backspace", 15_000),
         ("insert_text", "hello"),
-        ("press", "Enter", None),
+        ("press", "Enter", 15_000, True),
     ]
+
+
+async def test_agent_fill_submit_does_not_wait_for_playwright_navigation_after_enter() -> None:
+    events: list[tuple] = []
+    daemon = AgentDaemon({"id": "prof_1"})
+    daemon.pages["page_1"] = FakePage(events)
+    daemon.page_serializers["page_1"] = FakeSerializer(SubmitNavigationWaitLocator(events))
+    daemon._describe_page_unlocked = _fake_describe_page
+
+    await asyncio.wait_for(daemon.fill_text("page_1", "input_ref", "hello", submit=True), timeout=1)
+
+    assert ("press", "Enter", 15_000, True) in events
 
 
 async def test_agent_type_uses_playwright_click_and_rotunda_insert_text_path() -> None:
@@ -607,7 +641,7 @@ async def test_agent_type_uses_playwright_click_and_rotunda_insert_text_path() -
     assert action_events == [
         ("click", 15_000),
         ("insert_text", "hello"),
-        ("press", "Enter", None),
+        ("press", "Enter", 15_000, True),
     ]
 
 

@@ -376,7 +376,7 @@ class AgentDaemon:
             if text:
                 await page.keyboard.insert_text(text)
             if submit:
-                await locator.press("Enter")
+                await locator.press("Enter", timeout=15_000, no_wait_after=True)
             await self._settle(page)
             result = await self._describe_page_unlocked(page_id)
             result["pages"] = await self._pages_since(before_pages)
@@ -437,7 +437,7 @@ class AgentDaemon:
             if text:
                 await page.keyboard.insert_text(text)
             if submit:
-                await locator.press("Enter")
+                await locator.press("Enter", timeout=15_000, no_wait_after=True)
             await self._settle(page)
             result = await self._describe_page_unlocked(page_id)
             result["pages"] = await self._pages_since(before_pages)
