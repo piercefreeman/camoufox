@@ -4,16 +4,13 @@ import asyncio
 import json
 import os
 import sys
-import threading
 import time
 import uuid
-from concurrent.futures import TimeoutError as FutureTimeoutError
 from contextlib import suppress
-from dataclasses import asdict
-from http.server import BaseHTTPRequestHandler, HTTPServer
+from dataclasses import asdict, dataclass
 from pathlib import Path
-from socketserver import ThreadingMixIn
 from typing import Any, Literal, cast
+from urllib.parse import urlsplit
 
 import rich_click as click
 from playwright.async_api import BrowserContext, Page, Playwright, async_playwright
@@ -821,115 +818,238 @@ class AgentRequestTimeout(Exception):
         self.timeout_seconds = timeout_seconds
 
 
-class AgentHTTPServer(ThreadingMixIn, HTTPServer):
-    daemon: AgentDaemon
-    token: str
-    loop: asyncio.AbstractEventLoop
-    instance_id: str
-    started_at: float
-    update_tick: float
-    daemon_threads = True
+class AgentClientDisconnected(Exception):
+    pass
 
-    def run_agent(self, awaitable: Any, *, path: str, timeout_seconds: float) -> Any:
-        future = asyncio.run_coroutine_threadsafe(
-            _run_with_timeout(awaitable, timeout_seconds),
-            self.loop,
-        )
+
+@dataclass
+class AgentHTTPRequest:
+    method: str
+    path: str
+    headers: dict[str, str]
+    body: bytes
+
+
+class AgentHTTPServer:
+    def __init__(
+        self,
+        *,
+        daemon: AgentDaemon,
+        token: str,
+        server: asyncio.AbstractServer,
+        server_address: tuple[str, int],
+        instance_id: str,
+        started_at: float,
+    ) -> None:
+        self.daemon = daemon
+        self.token = token
+        self._server = server
+        self.server_address = server_address
+        self.instance_id = instance_id
+        self.started_at = started_at
+        self.update_tick = started_at
+        self._shutdown_event = asyncio.Event()
+        self._background_tasks: set[asyncio.Task[Any]] = set()
+
+    async def serve_forever(self) -> None:
+        async with self._server:
+            await self._shutdown_event.wait()
+
+    async def close(self) -> None:
+        self._shutdown_event.set()
+        self._server.close()
+        await self._server.wait_closed()
+
+    async def initiate_shutdown(self) -> None:
+        with suppress(Exception):
+            await self.daemon.close()
+        await self.close()
+
+    async def handle_client(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
         try:
-            return future.result(timeout=timeout_seconds + 5)
-        except (TimeoutError, FutureTimeoutError) as exc:
-            if not future.done():
-                future.cancel()
-            raise AgentRequestTimeout(path, timeout_seconds) from exc
-
-    def initiate_shutdown(self) -> None:
-        def shutdown() -> None:
+            request = await self._read_request(reader)
+            if request is None:
+                return
+            if request.method == "GET":
+                await self._handle_get(request, writer)
+            elif request.method == "POST":
+                await self._handle_post(request, reader, writer)
+            else:
+                await self._json(writer, {"ok": False, "error": "Method not allowed"}, status=405)
+        except AgentClientDisconnected:
+            return
+        except Exception as exc:
             with suppress(Exception):
-                self.run_agent(self.daemon.close(), path="/shutdown", timeout_seconds=10.0)
-            self.shutdown()
+                await self._json(writer, {"ok": False, "error": str(exc)}, status=500)
+        finally:
+            writer.close()
+            with suppress(Exception):
+                await writer.wait_closed()
 
-        threading.Thread(target=shutdown, name="rotunda-agent-shutdown", daemon=True).start()
-
-
-class AgentRequestHandler(BaseHTTPRequestHandler):
-    server: AgentHTTPServer
-
-    def do_GET(self) -> None:
-        if self.path == "/identity":
-            self._json(
+    async def _handle_get(self, request: AgentHTTPRequest, writer: asyncio.StreamWriter) -> None:
+        if request.path == "/identity":
+            await self._json(
+                writer,
                 {
                     "ok": True,
                     "service": AGENT_IDENTITY_SERVICE,
-                    "profile_id": self.server.daemon.profile["id"],
+                    "profile_id": self.daemon.profile["id"],
                     "host": AGENT_HOST,
-                    "port": int(self.server.server_address[1]),
+                    "port": int(self.server_address[1]),
                     "pid": os.getpid(),
-                    "started_at": self.server.started_at,
-                    "instance_id": self.server.instance_id,
-                    "update_tick": self.server.update_tick,
-                }
+                    "started_at": self.started_at,
+                    "instance_id": self.instance_id,
+                    "update_tick": self.update_tick,
+                },
             )
             return
-        if not self._authorized():
+        if not await self._authorized(request, writer):
             return
-        if self.path == "/ping":
-            self._json(
+        if request.path == "/ping":
+            await self._json(
+                writer,
                 {
                     "ok": True,
-                    "profile_id": self.server.daemon.profile["id"],
-                    "instance_id": self.server.instance_id,
-                    "update_tick": self.server.update_tick,
-                }
+                    "profile_id": self.daemon.profile["id"],
+                    "instance_id": self.instance_id,
+                    "update_tick": self.update_tick,
+                },
             )
             return
-        self._json({"ok": False, "error": "Not found"}, status=404)
+        await self._json(writer, {"ok": False, "error": "Not found"}, status=404)
 
-    def do_POST(self) -> None:
-        if not self._authorized():
+    async def _handle_post(
+        self,
+        request: AgentHTTPRequest,
+        reader: asyncio.StreamReader,
+        writer: asyncio.StreamWriter,
+    ) -> None:
+        if not await self._authorized(request, writer):
             return
         try:
-            payload = self._read_payload()
-            if self.path == "/shutdown":
-                self._json({"ok": True, "stopping": True})
-                self.server.initiate_shutdown()
+            payload = self._read_payload(request.body)
+            if request.path == "/shutdown":
+                await self._json(writer, {"ok": True, "stopping": True})
+                self._background(self.initiate_shutdown())
                 return
-            timeout_seconds = _request_timeout_seconds(self.path, payload)
-            result = self.server.run_agent(
-                _dispatch_agent_request(self.server.daemon, self.path, payload),
-                path=self.path,
+            timeout_seconds = _request_timeout_seconds(request.path, payload)
+            result = await self._run_agent_request(
+                request.path,
+                payload,
+                reader,
                 timeout_seconds=timeout_seconds,
             )
-            self._json({"ok": True, **result})
+            await self._json(writer, {"ok": True, **result})
         except AgentRouteNotFound:
-            self._json({"ok": False, "error": "Not found"}, status=404)
+            await self._json(writer, {"ok": False, "error": "Not found"}, status=404)
         except AgentRequestTimeout as exc:
-            self._json({"ok": False, "error": str(exc)}, status=504)
+            await self._json(writer, {"ok": False, "error": str(exc)}, status=504)
+        except json.JSONDecodeError as exc:
+            await self._json(writer, {"ok": False, "error": str(exc)}, status=400)
+        except AgentClientDisconnected:
+            raise
         except Exception as exc:
-            self._json({"ok": False, "error": str(exc)}, status=500)
+            await self._json(writer, {"ok": False, "error": str(exc)}, status=500)
 
-    def log_message(self, format: str, *args: Any) -> None:
-        return
+    async def _run_agent_request(
+        self,
+        path: str,
+        payload: dict[str, Any],
+        reader: asyncio.StreamReader,
+        *,
+        timeout_seconds: float,
+    ) -> dict[str, Any]:
+        request_task = asyncio.create_task(
+            _run_with_timeout(
+                _dispatch_agent_request(self.daemon, path, payload),
+                timeout_seconds,
+            )
+        )
+        disconnect_task = asyncio.create_task(_wait_for_disconnect(reader))
+        try:
+            done, _ = await asyncio.wait(
+                {request_task, disconnect_task},
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+            if disconnect_task in done:
+                request_task.cancel()
+                with suppress(asyncio.CancelledError):
+                    await request_task
+                raise AgentClientDisconnected
+            disconnect_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await disconnect_task
+            try:
+                return await request_task
+            except TimeoutError as exc:
+                raise AgentRequestTimeout(path, timeout_seconds) from exc
+        finally:
+            if not request_task.done():
+                request_task.cancel()
+            if not disconnect_task.done():
+                disconnect_task.cancel()
 
-    def _authorized(self) -> bool:
-        expected = f"Bearer {self.server.token}"
-        if self.headers.get("Authorization") != expected:
-            self._json({"ok": False, "error": "Unauthorized"}, status=401)
+    async def _authorized(self, request: AgentHTTPRequest, writer: asyncio.StreamWriter) -> bool:
+        expected = f"Bearer {self.token}"
+        if request.headers.get("authorization") != expected:
+            await self._json(writer, {"ok": False, "error": "Unauthorized"}, status=401)
             return False
         return True
 
-    def _read_payload(self) -> dict[str, Any]:
-        length = int(self.headers.get("Content-Length", "0"))
-        if length == 0:
-            return {}
-        return json.loads(self.rfile.read(length).decode("utf-8"))
+    async def _read_request(self, reader: asyncio.StreamReader) -> AgentHTTPRequest | None:
+        request_line = await reader.readline()
+        if not request_line:
+            return None
+        parts = request_line.decode("iso-8859-1").strip().split()
+        if len(parts) != 3:
+            raise ValueError("Malformed HTTP request line")
+        method, target, _version = parts
+        headers: dict[str, str] = {}
+        while True:
+            line = await reader.readline()
+            if line in {b"\r\n", b"\n", b""}:
+                break
+            name, value = line.decode("iso-8859-1").split(":", 1)
+            headers[name.lower()] = value.strip()
+        length = int(headers.get("content-length") or "0")
+        body = await reader.readexactly(length) if length else b""
+        return AgentHTTPRequest(
+            method=method.upper(),
+            path=urlsplit(target).path or "/",
+            headers=headers,
+            body=body,
+        )
 
-    def _json(self, payload: dict[str, Any], *, status: int = 200) -> None:
+    def _read_payload(self, body: bytes) -> dict[str, Any]:
+        if not body:
+            return {}
+        data = json.loads(body.decode("utf-8"))
+        if not isinstance(data, dict):
+            raise ValueError("Expected JSON object payload")
+        return data
+
+    async def _json(self, writer: asyncio.StreamWriter, payload: dict[str, Any], *, status: int = 200) -> None:
+        reason = _http_reason(status)
         body = json.dumps(payload).encode("utf-8")
-        self.send_response(status)
-        self.send_header("Content-Type", "application/json")
-        self.send_header("Content-Length", str(len(body)))
-        self.end_headers()
-        self.wfile.write(body)
+        writer.write(
+            "\r\n".join(
+                [
+                    f"HTTP/1.1 {status} {reason}",
+                    "Content-Type: application/json",
+                    f"Content-Length: {len(body)}",
+                    "Connection: close",
+                    "",
+                    "",
+                ]
+            ).encode("ascii")
+            + body
+        )
+        await writer.drain()
+
+    def _background(self, awaitable: Any) -> None:
+        task = asyncio.create_task(awaitable)
+        self._background_tasks.add(task)
+        task.add_done_callback(self._background_tasks.discard)
 
 
 async def _dispatch_agent_request(
@@ -1214,31 +1334,41 @@ def run_daemon(
     port_count: int = AGENT_PORT_COUNT,
 ) -> None:
     hide_macos_dock_icon()
+    asyncio.run(
+        _run_daemon_async(
+            profile_id=profile_id,
+            token=token,
+            ready_file=ready_file,
+            session_file=session_file,
+            port_base=port_base,
+            port_count=port_count,
+        )
+    )
+
+
+async def _run_daemon_async(
+    *,
+    profile_id: str,
+    token: str,
+    ready_file: Path,
+    session_file: Path,
+    port_base: int = AGENT_PORT_BASE,
+    port_count: int = AGENT_PORT_COUNT,
+) -> None:
     store = AgentStore()
-    loop: asyncio.AbstractEventLoop | None = None
-    loop_thread: threading.Thread | None = None
     server: AgentHTTPServer | None = None
-    heartbeat_stop: threading.Event | None = None
-    heartbeat_thread: threading.Thread | None = None
+    heartbeat_task: asyncio.Task[None] | None = None
     instance_id = f"daemon_{uuid.uuid4().hex[:12]}"
     try:
         profile = store.load_profile(profile_id)
         daemon = AgentDaemon(profile)
-        loop = asyncio.new_event_loop()
-        loop_thread = threading.Thread(
-            target=_run_agent_loop,
-            args=(loop,),
-            name=f"rotunda-agent-{profile_id}",
-            daemon=True,
+        server = await _bind_agent_server(
+            daemon=daemon,
+            token=token,
+            instance_id=instance_id,
+            port_base=port_base,
+            port_count=port_count,
         )
-        loop_thread.start()
-        server = _bind_agent_server(port_base=port_base, port_count=port_count)
-        server.daemon = daemon
-        server.token = token
-        server.loop = loop
-        server.instance_id = instance_id
-        server.started_at = time.time()
-        server.update_tick = server.started_at
         host = str(server.server_address[0])
         port = int(server.server_address[1])
         session = {
@@ -1252,19 +1382,14 @@ def run_daemon(
             "update_tick": server.update_tick,
         }
         _write_daemon_state(store, profile_id, session_file, session)
-        heartbeat_stop = threading.Event()
-        heartbeat_thread = threading.Thread(
-            target=_heartbeat_daemon_state,
-            args=(store, profile_id, session_file, session, server, heartbeat_stop),
-            name=f"rotunda-agent-heartbeat-{profile_id}",
-            daemon=True,
+        heartbeat_task = asyncio.create_task(
+            _heartbeat_daemon_state(store, profile_id, session_file, session, server)
         )
-        heartbeat_thread.start()
         ready_file.write_text(
             json.dumps({"ok": True, "session": session}),
             encoding="utf-8",
         )
-        server.serve_forever()
+        await server.serve_forever()
     except Exception as exc:
         ready_file.write_text(
             json.dumps({"ok": False, "error": str(exc)}),
@@ -1272,34 +1397,28 @@ def run_daemon(
         )
         raise
     finally:
-        if heartbeat_stop is not None:
-            heartbeat_stop.set()
-        if heartbeat_thread is not None:
-            heartbeat_thread.join(timeout=2)
+        if heartbeat_task is not None:
+            heartbeat_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await heartbeat_task
         if server is not None:
             with suppress(Exception):
-                server.server_close()
-            if loop is not None and loop.is_running():
-                with suppress(Exception):
-                    server.run_agent(server.daemon.close(), path="/shutdown", timeout_seconds=10.0)
+                await server.close()
+            with suppress(Exception):
+                await server.daemon.close()
         store.remove_daemon_record(instance_id=instance_id)
         _remove_session_if_instance(store, profile_id, instance_id)
-        if loop is not None:
-            if loop.is_running():
-                loop.call_soon_threadsafe(loop.stop)
-            if loop_thread is not None:
-                loop_thread.join(timeout=5)
-            with suppress(Exception):
-                loop.close()
-
-
-def _run_agent_loop(loop: asyncio.AbstractEventLoop) -> None:
-    asyncio.set_event_loop(loop)
-    loop.run_forever()
 
 
 async def _run_with_timeout(awaitable: Any, timeout_seconds: float) -> Any:
     return await asyncio.wait_for(awaitable, timeout=timeout_seconds)
+
+
+async def _wait_for_disconnect(reader: asyncio.StreamReader) -> None:
+    while True:
+        data = await reader.read(1)
+        if not data:
+            return
 
 
 def _request_timeout_seconds(path: str, payload: dict[str, Any]) -> float:
@@ -1308,6 +1427,18 @@ def _request_timeout_seconds(path: str, payload: dict[str, Any]) -> float:
             timeout_ms = int(payload.get("timeout_ms") or 15_000)
             return max(1.0, timeout_ms / 1000 + 5.0)
     return AGENT_ROUTE_TIMEOUT_SECONDS.get(path, AGENT_REQUEST_TIMEOUT_SECONDS)
+
+
+def _http_reason(status: int) -> str:
+    return {
+        200: "OK",
+        400: "Bad Request",
+        401: "Unauthorized",
+        404: "Not Found",
+        405: "Method Not Allowed",
+        500: "Internal Server Error",
+        504: "Gateway Timeout",
+    }.get(status, "OK")
 
 
 def _load_auth_token(path: Path | None) -> str | None:
@@ -1321,27 +1452,61 @@ def _load_auth_token(path: Path | None) -> str | None:
     return str(token) if token else None
 
 
-def _bind_agent_server(*, port_base: int, port_count: int) -> AgentHTTPServer:
+async def _bind_agent_server(
+    *,
+    daemon: AgentDaemon,
+    token: str,
+    instance_id: str,
+    port_base: int,
+    port_count: int,
+) -> AgentHTTPServer:
     last_error: OSError | None = None
     for port in agent_ports(port_base=port_base, port_count=port_count):
+        holder: dict[str, AgentHTTPServer] = {}
+
+        async def handle_client(
+            reader: asyncio.StreamReader,
+            writer: asyncio.StreamWriter,
+            holder: dict[str, AgentHTTPServer] = holder,
+        ) -> None:
+            await holder["server"].handle_client(reader, writer)
+
         try:
-            return AgentHTTPServer((AGENT_HOST, port), AgentRequestHandler)
+            server = await asyncio.start_server(handle_client, AGENT_HOST, port)
         except OSError as exc:
             last_error = exc
+            continue
+        sockets = server.sockets or []
+        if not sockets:
+            server.close()
+            await server.wait_closed()
+            raise RuntimeError("Rotunda agent server bound no sockets")
+        host, bound_port = sockets[0].getsockname()[:2]
+        started_at = time.time()
+        agent_server = AgentHTTPServer(
+            daemon=daemon,
+            token=token,
+            server=server,
+            server_address=(str(host), int(bound_port)),
+            instance_id=instance_id,
+            started_at=started_at,
+        )
+        holder["server"] = agent_server
+        return agent_server
     raise RuntimeError(
         f"Could not bind Rotunda agent on {AGENT_HOST}:{port_base}-{port_base + port_count - 1}"
     ) from last_error
 
 
-def _heartbeat_daemon_state(
+async def _heartbeat_daemon_state(
     store: AgentStore,
     profile_id: str,
     session_file: Path,
     session: dict[str, Any],
     server: AgentHTTPServer,
-    stop_event: threading.Event,
 ) -> None:
-    while not stop_event.wait(HEARTBEAT_INTERVAL_SECONDS):
+    while True:
+        await asyncio.sleep(HEARTBEAT_INTERVAL_SECONDS)
         session["update_tick"] = time.time()
         server.update_tick = float(session["update_tick"])
         with suppress(Exception):
