@@ -281,8 +281,9 @@ class FakePage:
 
 
 class FakeLocator:
-    def __init__(self, events: list[tuple]) -> None:
+    def __init__(self, events: list[tuple], viewport_states: list[dict] | None = None) -> None:
         self.events = events
+        self.viewport_states = list(viewport_states or [])
 
     async def click(self, *, timeout: int) -> None:
         self.events.append(("click", timeout))
@@ -292,6 +293,10 @@ class FakeLocator:
 
     async def evaluate(self, script: str, arg=None) -> dict:
         self.events.append(("evaluate", script, arg))
+        if "inViewport" in script:
+            if self.viewport_states:
+                return self.viewport_states.pop(0)
+            return {"inViewport": True}
         return {
             "tag": "select",
             "role": "",
@@ -504,6 +509,45 @@ async def test_agent_press_hover_drag_check_scroll_and_upload_primitives() -> No
     assert any(event[0] == "evaluate" for event in events)
     assert any(event[0] == "page_evaluate" for event in events)
     assert ("set_input_files", ["/tmp/example.txt"], 15_000) in events
+
+
+async def test_agent_scroll_uses_page_keys_until_ref_enters_viewport() -> None:
+    events: list[tuple] = []
+    locator = FakeLocator(
+        events,
+        viewport_states=[
+            {"inViewport": False},
+            {"inViewport": False},
+            {"inViewport": True},
+        ],
+    )
+    daemon = AgentDaemon({"id": "prof_1"})
+    daemon.pages["page_1"] = FakePage(events)
+    daemon.page_serializers["page_1"] = FakeSerializer(locator)
+    daemon._describe_page_unlocked = _fake_describe_page
+
+    await daemon.scroll("page_1", direction="down", amount=300, ref="target_ref")
+
+    viewport_checks = [event for event in events if event[0] == "evaluate" and "inViewport" in event[1]]
+    assert len(viewport_checks) == 3
+    assert [event for event in events if event[0] == "keyboard_press"] == [
+        ("keyboard_press", "PageDown"),
+        ("keyboard_press", "PageDown"),
+    ]
+    assert not any(event[0] == "evaluate" and "scrollBy" in event[1] for event in events)
+
+
+async def test_agent_scroll_page_uses_page_up_down_keypresses() -> None:
+    events: list[tuple] = []
+    daemon = AgentDaemon({"id": "prof_1"})
+    daemon.pages["page_1"] = FakePage(events)
+    daemon.page_serializers["page_1"] = FakeSerializer(FakeLocator(events))
+    daemon._describe_page_unlocked = _fake_describe_page
+
+    await daemon.scroll("page_1", direction="up", amount=200)
+
+    assert ("keyboard_press", "PageUp") in events
+    assert not any(event[0] == "page_evaluate" and "scrollBy" in event[1] for event in events)
 
 
 async def test_agent_screenshot_wait_extract_download_and_dialog_primitives(tmp_path) -> None:

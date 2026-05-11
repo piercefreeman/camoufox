@@ -1420,11 +1420,11 @@ def agent_hover(args: tuple[str, ...]) -> None:
 
 
 @agent_cmd.command(name="scroll")
-@click.option("--amount", default=600, show_default=True, help="Scroll distance in pixels.")
+@click.option("--amount", default=600, show_default=True, help="Approximate page scroll distance in pixels.")
 @click.argument("args", nargs=-1, required=True, metavar="[PAGE] [REF] DIRECTION")
 def agent_scroll(args: tuple[str, ...], amount: int) -> None:
     """
-    Scroll a page or scrollable DOM ref.
+    Scroll a page, or page-key scroll until a DOM ref enters the viewport.
     """
     from .agent.store import AgentStore
 
