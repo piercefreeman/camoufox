@@ -584,6 +584,7 @@ class DOMSerializer:
         self._references: dict[str, DOMReference] = {}
 
     def serialize(self, page: Any) -> DOMSnapshot:
+        self.clear_references()
         frames = list(_read_attr(page, "frames", []))
         frame_index = {id(frame): index for index, frame in enumerate(frames)}
         dom_frames: list[DOMFrame] = []
@@ -633,6 +634,7 @@ class DOMSerializer:
         return DOMSnapshot(items=items, frames=dom_frames, text=text)
 
     async def async_serialize(self, page: Any) -> DOMSnapshot:
+        self.clear_references()
         frames = list(_read_attr(page, "frames", []))
         frame_index = {id(frame): index for index, frame in enumerate(frames)}
         dom_frames: list[DOMFrame] = []

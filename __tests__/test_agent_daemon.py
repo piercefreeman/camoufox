@@ -14,7 +14,10 @@ from rotunda.agent import daemon as daemon_module
 from rotunda.agent.client import AgentClient, AgentClientError
 from rotunda.__main__ import cli
 from rotunda.agent import store as store_module
-from rotunda.agent.daemon import AgentDaemon, AgentHTTPServer
+from rotunda.agent.daemon import (
+    AgentDaemon,
+    AgentHTTPServer,
+)
 from rotunda.agent.store import AgentStore
 
 

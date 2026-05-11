@@ -77,6 +77,8 @@ uvx rotunda agent check <checkbox-ref>
 
 `info` prints the full attributes, state, bounds, and select options for one element. `select` chooses dropdown options by value by default; use `--by label` or `--by index` when that is more convenient. `fill` replaces the field contents, while `type` appends at the focused cursor position. Both use Rotunda's humanized text input path, and mouse actions use Rotunda's path prediction when humanization is enabled.
 
+After an action, the CLI reports whether the page had a full refresh or mostly stayed the same. Same-page updates print a compact `+`/`-` element delta; run `describe` again when you want the full current DOM.
+
 The agent CLI also includes broader browser primitives for less form-like tasks:
 
 ```bash
