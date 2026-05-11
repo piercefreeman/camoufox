@@ -199,6 +199,48 @@ SCROLL_PAGE_SCRIPT = r"""
 }
 """
 
+ELEMENT_VIEWPORT_STATE_SCRIPT = r"""
+(el) => {
+  const rect = el.getBoundingClientRect();
+  const style = window.getComputedStyle(el);
+  const viewportWidth = window.innerWidth || document.documentElement.clientWidth || 0;
+  const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0;
+  const visible = style.display !== "none" &&
+    style.visibility !== "hidden" &&
+    style.visibility !== "collapse" &&
+    Number(style.opacity) !== 0 &&
+    rect.width > 0 &&
+    rect.height > 0;
+  const inViewport = visible &&
+    rect.bottom > 0 &&
+    rect.right > 0 &&
+    rect.top < viewportHeight &&
+    rect.left < viewportWidth;
+
+  return {
+    inViewport,
+    rect: {
+      x: Math.round(rect.x),
+      y: Math.round(rect.y),
+      width: Math.round(rect.width),
+      height: Math.round(rect.height),
+      top: Math.round(rect.top),
+      right: Math.round(rect.right),
+      bottom: Math.round(rect.bottom),
+      left: Math.round(rect.left),
+    },
+    viewport: {width: viewportWidth, height: viewportHeight},
+  };
+}
+"""
+
+PAGE_VERTICAL_SCROLL_SIZE_SCRIPT = r"""
+() => window.innerHeight || document.documentElement.clientHeight || 600
+"""
+
+SCROLL_KEY_SETTLE_MS = 100
+SCROLL_INTO_VIEW_MAX_KEY_PRESSES = 20
+
 
 class AgentDaemon:
     def __init__(self, profile: dict[str, Any]) -> None:
@@ -504,13 +546,21 @@ class AgentDaemon:
     ) -> dict[str, Any]:
         async with self._page_lock(page_id):
             page = self._page(page_id)
-            delta = _scroll_delta(direction, amount)
-            if ref:
-                serializer = await self._serializer_for(page_id, page)
-                locator = await serializer.async_resolve_locator(page, ref)
-                await locator.evaluate(SCROLL_ELEMENT_SCRIPT, delta)
+            if direction in {"down", "up"}:
+                if ref:
+                    serializer = await self._serializer_for(page_id, page)
+                    locator = await serializer.async_resolve_locator(page, ref)
+                    await _scroll_locator_into_view_with_page_keys(page, locator, direction)
+                else:
+                    await _scroll_page_with_page_keys(page, direction, amount)
             else:
-                await page.evaluate(SCROLL_PAGE_SCRIPT, delta)
+                delta = _scroll_delta(direction, amount)
+                if ref:
+                    serializer = await self._serializer_for(page_id, page)
+                    locator = await serializer.async_resolve_locator(page, ref)
+                    await locator.evaluate(SCROLL_ELEMENT_SCRIPT, delta)
+                else:
+                    await page.evaluate(SCROLL_PAGE_SCRIPT, delta)
             await self._settle(page)
             return await self._describe_page_unlocked(page_id)
 
@@ -1094,6 +1144,60 @@ def _select_by(value: str) -> Literal["value", "label", "index"]:
     if value in {"value", "label", "index"}:
         return cast(Literal["value", "label", "index"], value)
     raise ValueError(f"Unsupported select mode: {value}")
+
+
+async def _scroll_page_with_page_keys(page: Page, direction: str, amount: int) -> None:
+    key = _page_scroll_key(direction)
+    presses = await _page_scroll_press_count(page, amount)
+    for _ in range(presses):
+        await _press_page_scroll_key(page, key)
+
+
+async def _scroll_locator_into_view_with_page_keys(page: Page, locator: Any, direction: str) -> bool:
+    key = _page_scroll_key(direction)
+    for press_index in range(SCROLL_INTO_VIEW_MAX_KEY_PRESSES + 1):
+        state = await _locator_viewport_state(locator)
+        if state.get("inViewport"):
+            return True
+        if press_index >= SCROLL_INTO_VIEW_MAX_KEY_PRESSES:
+            return False
+        await _press_page_scroll_key(page, key)
+    return False
+
+
+async def _locator_viewport_state(locator: Any) -> dict[str, Any]:
+    state = await locator.evaluate(ELEMENT_VIEWPORT_STATE_SCRIPT)
+    return state if isinstance(state, dict) else {"inViewport": False}
+
+
+async def _page_scroll_press_count(page: Page, amount: int) -> int:
+    if amount <= 0:
+        return 1
+
+    page_size = 0
+    with suppress(Exception):
+        page_size = int(await page.evaluate(PAGE_VERTICAL_SCROLL_SIZE_SCRIPT) or 0)
+    if page_size <= 0:
+        page_size = amount
+
+    presses = (amount + page_size - 1) // page_size
+    return max(1, min(SCROLL_INTO_VIEW_MAX_KEY_PRESSES, presses))
+
+
+async def _press_page_scroll_key(page: Page, key: str) -> None:
+    # TODO: Replace this PageUp/PageDown fallback with trackpad-style scroll once
+    # we have representative scroll capture data.
+    await page.keyboard.press(key)
+    with suppress(Exception):
+        await page.wait_for_timeout(SCROLL_KEY_SETTLE_MS)
+
+
+def _page_scroll_key(direction: str) -> str:
+    if direction == "down":
+        return "PageDown"
+    if direction == "up":
+        return "PageUp"
+    raise ValueError(f"Unsupported page-key scroll direction: {direction}")
 
 
 def _scroll_delta(direction: str, amount: int) -> dict[str, int]:
