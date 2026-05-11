@@ -1,12 +1,17 @@
 from __future__ import annotations
 
+import asyncio
+import threading
 import time
 from http.server import HTTPServer
 from pathlib import Path
 from socketserver import ThreadingMixIn
 
+import pytest
 from click.testing import CliRunner
 from rotunda import __main__ as cli_module
+from rotunda.agent import daemon as daemon_module
+from rotunda.agent.client import AgentClient, AgentClientError
 from rotunda.__main__ import cli
 from rotunda.agent import store as store_module
 from rotunda.agent.daemon import AgentDaemon, AgentHTTPServer
@@ -29,6 +34,63 @@ def isolate_agent_store(tmp_path, monkeypatch) -> None:
 def test_agent_http_server_accepts_concurrent_requests_for_async_playwright_api() -> None:
     assert issubclass(AgentHTTPServer, HTTPServer)
     assert issubclass(AgentHTTPServer, ThreadingMixIn)
+
+
+def test_agent_http_timeout_cancels_page_locked_extract(monkeypatch) -> None:
+    events: list[tuple] = []
+    daemon = AgentDaemon({"id": "prof_1"})
+    daemon.pages["page_1"] = HangingTextPage(events)
+
+    async def fake_describe_page(page_id: str, max_items: int = 200) -> dict:
+        return {
+            "page": {"id": page_id, "url": "https://example.test", "title": ""},
+            "text": "described",
+            "items": [],
+            "max_items": max_items,
+        }
+
+    daemon._describe_page_unlocked = fake_describe_page
+    monkeypatch.setitem(daemon_module.AGENT_ROUTE_TIMEOUT_SECONDS, "/extract", 0.05)
+
+    loop = asyncio.new_event_loop()
+    loop_thread = threading.Thread(target=daemon_module._run_agent_loop, args=(loop,), daemon=True)
+    loop_thread.start()
+
+    server = AgentHTTPServer((daemon_module.AGENT_HOST, 0), daemon_module.AgentRequestHandler)
+    server.daemon = daemon
+    server.token = "token"
+    server.loop = loop
+    server.instance_id = "daemon_test"
+    server.started_at = time.time()
+    server.update_tick = server.started_at
+    server_thread = threading.Thread(target=server.serve_forever, daemon=True)
+    server_thread.start()
+
+    client = AgentClient(
+        {
+            "profile_id": "prof_1",
+            "host": daemon_module.AGENT_HOST,
+            "port": int(server.server_address[1]),
+            "token": "token",
+        }
+    )
+    try:
+        with pytest.raises(AgentClientError, match=r"/extract.*timed out"):
+            client.post("/extract", {"page_id": "page_1", "format": "text"})
+
+        result = client.post("/describe", {"page_id": "page_1", "max_items": 5})
+    finally:
+        server.shutdown()
+        server.server_close()
+        server_thread.join(timeout=5)
+        loop.call_soon_threadsafe(loop.stop)
+        loop_thread.join(timeout=5)
+        loop.close()
+
+    assert result["text"] == "described"
+    assert result["max_items"] == 5
+    assert ("inner_text_start", "body", 15_000) in events
+    assert ("inner_text_cancelled", "body") in events
 
 
 def test_agent_profile_defaults_to_headed(tmp_path, monkeypatch) -> None:
@@ -278,6 +340,23 @@ class FakePage:
 
         events = self.events
         return TextLocator()
+
+
+class HangingTextPage(FakePage):
+    def locator(self, selector: str):
+        self.events.append(("page_locator", selector))
+
+        class BodyLocator:
+            async def inner_text(self, *, timeout: int) -> str:
+                events.append(("inner_text_start", selector, timeout))
+                try:
+                    await asyncio.Event().wait()
+                except asyncio.CancelledError:
+                    events.append(("inner_text_cancelled", selector))
+                    raise
+
+        events = self.events
+        return BodyLocator()
 
 
 class FakeLocator:

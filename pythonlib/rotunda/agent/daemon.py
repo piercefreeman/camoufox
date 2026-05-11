@@ -7,6 +7,7 @@ import sys
 import threading
 import time
 import uuid
+from concurrent.futures import TimeoutError as FutureTimeoutError
 from contextlib import suppress
 from dataclasses import asdict
 from http.server import BaseHTTPRequestHandler, HTTPServer
@@ -27,6 +28,36 @@ from .runtime import (
     agent_ports,
 )
 from .store import AgentStore
+
+AGENT_REQUEST_TIMEOUT_SECONDS = 70.0
+AGENT_ROUTE_TIMEOUT_SECONDS = {
+    "/back": 70.0,
+    "/check": 25.0,
+    "/click": 25.0,
+    "/close-page": 20.0,
+    "/describe": 30.0,
+    "/dialog": 10.0,
+    "/downloads": 20.0,
+    "/drag": 25.0,
+    "/extract": 25.0,
+    "/fill": 25.0,
+    "/forward": 70.0,
+    "/hover": 20.0,
+    "/info": 20.0,
+    "/navigate": 70.0,
+    "/new-context": 70.0,
+    "/new-page": 20.0,
+    "/pages": 20.0,
+    "/press": 25.0,
+    "/reload": 70.0,
+    "/save-download": 70.0,
+    "/screenshot": 40.0,
+    "/scroll": 20.0,
+    "/select": 25.0,
+    "/type": 25.0,
+    "/uncheck": 25.0,
+    "/upload": 25.0,
+}
 
 ELEMENT_INFO_SCRIPT = r"""
 (el) => {
@@ -783,6 +814,13 @@ class AgentRouteNotFound(Exception):
     pass
 
 
+class AgentRequestTimeout(Exception):
+    def __init__(self, path: str, timeout_seconds: float) -> None:
+        super().__init__(f"Agent request {path} timed out after {timeout_seconds:g}s")
+        self.path = path
+        self.timeout_seconds = timeout_seconds
+
+
 class AgentHTTPServer(ThreadingMixIn, HTTPServer):
     daemon: AgentDaemon
     token: str
@@ -792,14 +830,22 @@ class AgentHTTPServer(ThreadingMixIn, HTTPServer):
     update_tick: float
     daemon_threads = True
 
-    def run_agent(self, awaitable: Any) -> Any:
-        future = asyncio.run_coroutine_threadsafe(awaitable, self.loop)
-        return future.result()
+    def run_agent(self, awaitable: Any, *, path: str, timeout_seconds: float) -> Any:
+        future = asyncio.run_coroutine_threadsafe(
+            _run_with_timeout(awaitable, timeout_seconds),
+            self.loop,
+        )
+        try:
+            return future.result(timeout=timeout_seconds + 5)
+        except (TimeoutError, FutureTimeoutError) as exc:
+            if not future.done():
+                future.cancel()
+            raise AgentRequestTimeout(path, timeout_seconds) from exc
 
     def initiate_shutdown(self) -> None:
         def shutdown() -> None:
             with suppress(Exception):
-                self.run_agent(self.daemon.close())
+                self.run_agent(self.daemon.close(), path="/shutdown", timeout_seconds=10.0)
             self.shutdown()
 
         threading.Thread(target=shutdown, name="rotunda-agent-shutdown", daemon=True).start()
@@ -847,10 +893,17 @@ class AgentRequestHandler(BaseHTTPRequestHandler):
                 self._json({"ok": True, "stopping": True})
                 self.server.initiate_shutdown()
                 return
-            result = self.server.run_agent(_dispatch_agent_request(self.server.daemon, self.path, payload))
+            timeout_seconds = _request_timeout_seconds(self.path, payload)
+            result = self.server.run_agent(
+                _dispatch_agent_request(self.server.daemon, self.path, payload),
+                path=self.path,
+                timeout_seconds=timeout_seconds,
+            )
             self._json({"ok": True, **result})
         except AgentRouteNotFound:
             self._json({"ok": False, "error": "Not found"}, status=404)
+        except AgentRequestTimeout as exc:
+            self._json({"ok": False, "error": str(exc)}, status=504)
         except Exception as exc:
             self._json({"ok": False, "error": str(exc)}, status=500)
 
@@ -1228,7 +1281,7 @@ def run_daemon(
                 server.server_close()
             if loop is not None and loop.is_running():
                 with suppress(Exception):
-                    server.run_agent(server.daemon.close())
+                    server.run_agent(server.daemon.close(), path="/shutdown", timeout_seconds=10.0)
         store.remove_daemon_record(instance_id=instance_id)
         _remove_session_if_instance(store, profile_id, instance_id)
         if loop is not None:
@@ -1243,6 +1296,18 @@ def run_daemon(
 def _run_agent_loop(loop: asyncio.AbstractEventLoop) -> None:
     asyncio.set_event_loop(loop)
     loop.run_forever()
+
+
+async def _run_with_timeout(awaitable: Any, timeout_seconds: float) -> Any:
+    return await asyncio.wait_for(awaitable, timeout=timeout_seconds)
+
+
+def _request_timeout_seconds(path: str, payload: dict[str, Any]) -> float:
+    if path == "/wait":
+        with suppress(TypeError, ValueError):
+            timeout_ms = int(payload.get("timeout_ms") or 15_000)
+            return max(1.0, timeout_ms / 1000 + 5.0)
+    return AGENT_ROUTE_TIMEOUT_SECONDS.get(path, AGENT_REQUEST_TIMEOUT_SECONDS)
 
 
 def _load_auth_token(path: Path | None) -> str | None:
