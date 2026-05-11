@@ -1,12 +1,17 @@
 from __future__ import annotations
 
+import asyncio
+import inspect
+import json
 import time
-from http.server import HTTPServer
+from contextlib import suppress
 from pathlib import Path
-from socketserver import ThreadingMixIn
 
+import pytest
 from click.testing import CliRunner
 from rotunda import __main__ as cli_module
+from rotunda.agent import daemon as daemon_module
+from rotunda.agent.client import AgentClient, AgentClientError
 from rotunda.__main__ import cli
 from rotunda.agent import store as store_module
 from rotunda.agent.daemon import AgentDaemon, AgentHTTPServer
@@ -27,8 +32,159 @@ def isolate_agent_store(tmp_path, monkeypatch) -> None:
 
 
 def test_agent_http_server_accepts_concurrent_requests_for_async_playwright_api() -> None:
-    assert issubclass(AgentHTTPServer, HTTPServer)
-    assert issubclass(AgentHTTPServer, ThreadingMixIn)
+    assert inspect.iscoroutinefunction(AgentHTTPServer.handle_client)
+    assert inspect.iscoroutinefunction(AgentHTTPServer.serve_forever)
+
+
+async def test_agent_http_timeout_cancels_page_locked_extract(monkeypatch) -> None:
+    events: list[tuple] = []
+    daemon = AgentDaemon({"id": "prof_1"})
+    daemon.pages["page_1"] = HangingTextPage(events)
+
+    async def fake_describe_page(page_id: str, max_items: int = 200) -> dict:
+        return {
+            "page": {"id": page_id, "url": "https://example.test", "title": ""},
+            "text": "described",
+            "items": [],
+            "max_items": max_items,
+        }
+
+    daemon._describe_page_unlocked = fake_describe_page
+    monkeypatch.setitem(daemon_module.AGENT_ROUTE_TIMEOUT_SECONDS, "/extract", 0.05)
+
+    server = await daemon_module._bind_agent_server(
+        daemon=daemon,
+        token="token",
+        instance_id="daemon_test",
+        port_base=0,
+        port_count=1,
+    )
+    client = AgentClient(
+        {
+            "profile_id": "prof_1",
+            "host": daemon_module.AGENT_HOST,
+            "port": int(server.server_address[1]),
+            "token": "token",
+        }
+    )
+    try:
+        with pytest.raises(AgentClientError, match=r"/extract.*timed out"):
+            await asyncio.to_thread(client.post, "/extract", {"page_id": "page_1", "format": "text"})
+
+        result = await asyncio.to_thread(client.post, "/describe", {"page_id": "page_1", "max_items": 5})
+    finally:
+        await server.close()
+
+    assert result["text"] == "described"
+    assert result["max_items"] == 5
+    assert ("inner_text_start", "body", 15_000) in events
+    assert ("inner_text_cancelled", "body") in events
+
+
+async def test_agent_http_client_disconnect_cancels_page_locked_extract() -> None:
+    events: list[tuple] = []
+    daemon = AgentDaemon({"id": "prof_1"})
+    daemon.pages["page_1"] = HangingTextPage(events)
+
+    async def fake_describe_page(page_id: str, max_items: int = 200) -> dict:
+        return {
+            "page": {"id": page_id, "url": "https://example.test", "title": ""},
+            "text": "described",
+            "items": [],
+            "max_items": max_items,
+        }
+
+    daemon._describe_page_unlocked = fake_describe_page
+    server = await daemon_module._bind_agent_server(
+        daemon=daemon,
+        token="token",
+        instance_id="daemon_test",
+        port_base=0,
+        port_count=1,
+    )
+    client = AgentClient(
+        {
+            "profile_id": "prof_1",
+            "host": daemon_module.AGENT_HOST,
+            "port": int(server.server_address[1]),
+            "token": "token",
+        }
+    )
+    try:
+        _reader, writer = await asyncio.open_connection(daemon_module.AGENT_HOST, int(server.server_address[1]))
+        body = b'{"page_id":"page_1","format":"text"}'
+        writer.write(
+            b"\r\n".join(
+                [
+                    b"POST /extract HTTP/1.1",
+                    b"Host: 127.0.0.1",
+                    b"Authorization: Bearer token",
+                    b"Content-Type: application/json",
+                    f"Content-Length: {len(body)}".encode("ascii"),
+                    b"",
+                    b"",
+                ]
+            )
+            + body
+        )
+        await writer.drain()
+        writer.close()
+        await writer.wait_closed()
+
+        for _ in range(100):
+            if ("inner_text_cancelled", "body") in events:
+                break
+            await asyncio.sleep(0.01)
+
+        result = await asyncio.to_thread(client.post, "/describe", {"page_id": "page_1", "max_items": 5})
+    finally:
+        await server.close()
+
+    assert result["text"] == "described"
+    assert ("inner_text_start", "body", 15_000) in events
+    assert ("inner_text_cancelled", "body") in events
+
+
+async def test_agent_async_daemon_lifecycle_serves_identity_ping_shutdown(tmp_path, monkeypatch) -> None:
+    isolate_agent_store(tmp_path, monkeypatch)
+    store = AgentStore()
+    profile = store.create_profile(name="async-daemon")
+    ready_file = tmp_path / "logs" / "ready.json"
+    session_file = store.session_path(profile["id"])
+
+    task = asyncio.create_task(
+        daemon_module._run_daemon_async(
+            profile_id=profile["id"],
+            token="token",
+            ready_file=ready_file,
+            session_file=session_file,
+            port_base=0,
+            port_count=1,
+        )
+    )
+    try:
+        for _ in range(100):
+            if ready_file.exists():
+                break
+            await asyncio.sleep(0.01)
+        assert ready_file.exists()
+
+        ready = json.loads(ready_file.read_text(encoding="utf-8"))
+        assert ready["ok"] is True
+        client = AgentClient(ready["session"])
+
+        identity = await asyncio.to_thread(client.get, "/identity")
+        assert identity["service"] == "rotunda-agent"
+        ping = await asyncio.to_thread(client.get, "/ping")
+        assert ping["profile_id"] == profile["id"]
+        stopped = await asyncio.to_thread(client.post, "/shutdown")
+        assert stopped["stopping"] is True
+        await asyncio.wait_for(task, timeout=2)
+    finally:
+        if not task.done():
+            task.cancel()
+            with suppress(asyncio.CancelledError):
+                await task
 
 
 def test_agent_profile_defaults_to_headed(tmp_path, monkeypatch) -> None:
@@ -280,6 +436,23 @@ class FakePage:
         return TextLocator()
 
 
+class HangingTextPage(FakePage):
+    def locator(self, selector: str):
+        self.events.append(("page_locator", selector))
+
+        class BodyLocator:
+            async def inner_text(self, *, timeout: int) -> str:
+                events.append(("inner_text_start", selector, timeout))
+                try:
+                    await asyncio.Event().wait()
+                except asyncio.CancelledError:
+                    events.append(("inner_text_cancelled", selector))
+                    raise
+
+        events = self.events
+        return BodyLocator()
+
+
 class FakeLocator:
     def __init__(self, events: list[tuple]) -> None:
         self.events = events
@@ -287,8 +460,17 @@ class FakeLocator:
     async def click(self, *, timeout: int) -> None:
         self.events.append(("click", timeout))
 
-    async def press(self, key: str, *, timeout: int | None = None) -> None:
-        self.events.append(("press", key, timeout))
+    async def press(
+        self,
+        key: str,
+        *,
+        timeout: int | None = None,
+        no_wait_after: bool | None = None,
+    ) -> None:
+        if no_wait_after is None:
+            self.events.append(("press", key, timeout))
+        else:
+            self.events.append(("press", key, timeout, no_wait_after))
 
     async def evaluate(self, script: str, arg=None) -> dict:
         self.events.append(("evaluate", script, arg))
@@ -361,6 +543,19 @@ class FakeLocator:
         self.events.append(("locator_screenshot", path, timeout))
 
 
+class SubmitNavigationWaitLocator(FakeLocator):
+    async def press(
+        self,
+        key: str,
+        *,
+        timeout: int | None = None,
+        no_wait_after: bool | None = None,
+    ) -> None:
+        await super().press(key, timeout=timeout, no_wait_after=no_wait_after)
+        if key == "Enter" and no_wait_after is not True:
+            await asyncio.Event().wait()
+
+
 class FakeSerializer:
     def __init__(self, locator: FakeLocator) -> None:
         self.locator = locator
@@ -417,8 +612,20 @@ async def test_agent_fill_uses_playwright_click_and_rotunda_insert_text_path() -
         ("press", "ControlOrMeta+A", 15_000),
         ("press", "Backspace", 15_000),
         ("insert_text", "hello"),
-        ("press", "Enter", None),
+        ("press", "Enter", 15_000, True),
     ]
+
+
+async def test_agent_fill_submit_does_not_wait_for_playwright_navigation_after_enter() -> None:
+    events: list[tuple] = []
+    daemon = AgentDaemon({"id": "prof_1"})
+    daemon.pages["page_1"] = FakePage(events)
+    daemon.page_serializers["page_1"] = FakeSerializer(SubmitNavigationWaitLocator(events))
+    daemon._describe_page_unlocked = _fake_describe_page
+
+    await asyncio.wait_for(daemon.fill_text("page_1", "input_ref", "hello", submit=True), timeout=1)
+
+    assert ("press", "Enter", 15_000, True) in events
 
 
 async def test_agent_type_uses_playwright_click_and_rotunda_insert_text_path() -> None:
@@ -434,7 +641,7 @@ async def test_agent_type_uses_playwright_click_and_rotunda_insert_text_path() -
     assert action_events == [
         ("click", 15_000),
         ("insert_text", "hello"),
-        ("press", "Enter", None),
+        ("press", "Enter", 15_000, True),
     ]
 
 
