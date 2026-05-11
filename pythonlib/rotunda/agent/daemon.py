@@ -7,7 +7,6 @@ import sys
 import threading
 import time
 import uuid
-from collections import Counter
 from contextlib import suppress
 from dataclasses import asdict
 from http.server import BaseHTTPRequestHandler, HTTPServer
@@ -18,7 +17,8 @@ from typing import Any, Literal, cast
 import rich_click as click
 from playwright.async_api import BrowserContext, Page, Playwright, async_playwright
 
-from .dom_serializer import DOMElement, DOMSerializer, DOMSnapshot
+from .dom import DomDiff, render_action_change
+from .dom_serializer import DOMSerializer, DOMSnapshot
 from .runtime import (
     AGENT_HOST,
     AGENT_IDENTITY_SERVICE,
@@ -200,122 +200,9 @@ SCROLL_PAGE_SCRIPT = r"""
 }
 """
 
-ACTION_FULL_REFRESH_THRESHOLD = 0.75
-
-
-def build_action_change(
-    before_snapshot: DOMSnapshot | None,
-    after_snapshot: DOMSnapshot | None,
-    *,
-    before_url: str,
-    after_url: str,
-    new_page_count: int = 0,
-) -> dict[str, Any]:
-    before_items = list(before_snapshot.items) if before_snapshot else []
-    after_items = list(after_snapshot.items) if after_snapshot else []
-    element_change_ratio = _element_change_ratio(before_items, after_items)
-    navigated = _navigation_identity(before_url) != _navigation_identity(after_url)
-    full_refresh = navigated or element_change_ratio > ACTION_FULL_REFRESH_THRESHOLD
-    added, removed = _element_delta(before_items, after_items)
-
-    return {
-        "status": "full_refresh" if full_refresh else "same_page",
-        "full_refresh": full_refresh,
-        "navigated": navigated,
-        "element_change_ratio": round(element_change_ratio, 4),
-        "element_change_threshold": ACTION_FULL_REFRESH_THRESHOLD,
-        "before_count": len(before_items),
-        "after_count": len(after_items),
-        "added_count": len(added),
-        "removed_count": len(removed),
-        "added": [] if full_refresh else added,
-        "removed": [] if full_refresh else removed,
-        "new_page_count": new_page_count,
-    }
-
-
-def render_action_change(change: dict[str, Any]) -> str:
-    if change.get("full_refresh"):
-        reasons: list[str] = []
-        if change.get("navigated"):
-            reasons.append("navigation")
-        ratio = float(change.get("element_change_ratio") or 0.0)
-        threshold = float(change.get("element_change_threshold") or ACTION_FULL_REFRESH_THRESHOLD)
-        if ratio > threshold:
-            reasons.append(f"{ratio:.0%} elements changed")
-        if change.get("new_page_count"):
-            reasons.append(_count_label(int(change["new_page_count"]), "new page"))
-        suffix = f" ({', '.join(reasons)})" if reasons else ""
-        return f"page: full refresh{suffix}"
-
-    added = [str(line) for line in change.get("added") or []]
-    removed = [str(line) for line in change.get("removed") or []]
-    if not added and not removed:
-        lines = ["page: stayed the same"]
-        if change.get("new_page_count"):
-            lines[0] += f" ({_count_label(int(change['new_page_count']), 'new page')})"
-        return "\n".join(lines)
-
-    counts = []
-    counts.append(_count_label(len(added), "added"))
-    counts.append(_count_label(len(removed), "removed"))
-    if change.get("new_page_count"):
-        counts.append(_count_label(int(change["new_page_count"]), "new page"))
-
-    lines = [f"page: mostly unchanged ({', '.join(counts)})"]
-    lines.extend(f"+ {line}" for line in added)
-    lines.extend(f"- {line}" for line in removed)
-    return "\n".join(lines)
-
-
-def _element_change_ratio(before_items: list[DOMElement], after_items: list[DOMElement]) -> float:
-    total = max(len(before_items), len(after_items))
-    if total == 0:
-        return 0.0
-    before_counts = Counter(_element_signature(item) for item in before_items)
-    after_counts = Counter(_element_signature(item) for item in after_items)
-    unchanged = sum((before_counts & after_counts).values())
-    return max(0.0, min(1.0, 1.0 - (unchanged / total)))
-
-
-def _element_delta(
-    before_items: list[DOMElement],
-    after_items: list[DOMElement],
-) -> tuple[list[str], list[str]]:
-    before_counts = Counter(_element_signature(item) for item in before_items)
-    after_counts = Counter(_element_signature(item) for item in after_items)
-    added_counts = after_counts - before_counts
-    removed_counts = before_counts - after_counts
-    return _lines_for_counts(after_items, added_counts), _lines_for_counts(before_items, removed_counts)
-
-
-def _lines_for_counts(items: list[DOMElement], counts: Counter[str]) -> list[str]:
-    remaining = Counter(counts)
-    lines: list[str] = []
-    for item in items:
-        signature = _element_signature(item)
-        if remaining[signature] <= 0:
-            continue
-        lines.append(item.agent_line())
-        remaining[signature] -= 1
-    return lines
-
-
-def _element_signature(item: DOMElement) -> str:
-    line = item.agent_line()
-    return line.split("] - ", 1)[1] if "] - " in line else line
-
-
-def _navigation_identity(url: str) -> str:
-    return str(url or "").split("#", 1)[0]
-
 
 def _page_url(page: Page) -> str:
     return str(getattr(page, "url", "") or "")
-
-
-def _count_label(count: int, label: str) -> str:
-    return f"{count} {label}{'' if count == 1 else 's'}"
 
 
 class AgentDaemon:
@@ -885,15 +772,15 @@ class AgentDaemon:
         result = await self._describe_page_unlocked(page_id)
         new_pages = await self._pages_since(before_pages)
         after_snapshot = self.page_snapshots.get(page_id)
-        change = build_action_change(
+        change = DomDiff.from_snapshots(
             before_snapshot,
             after_snapshot,
             before_url=before_url,
             after_url=str(result.get("page", {}).get("url") or _page_url(page)),
             new_page_count=len(new_pages),
-        )
+        ).action_change()
         result["pages"] = new_pages
-        result["change"] = change
+        result["change"] = change.to_payload()
         result["text"] = render_action_change(change)
         return result
 
