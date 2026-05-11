@@ -7,6 +7,7 @@ import sys
 import threading
 import time
 import uuid
+from collections import Counter
 from contextlib import suppress
 from dataclasses import asdict
 from http.server import BaseHTTPRequestHandler, HTTPServer
@@ -17,7 +18,7 @@ from typing import Any, Literal, cast
 import rich_click as click
 from playwright.async_api import BrowserContext, Page, Playwright, async_playwright
 
-from .dom_serializer import DOMSerializer
+from .dom_serializer import DOMElement, DOMSerializer, DOMSnapshot
 from .runtime import (
     AGENT_HOST,
     AGENT_IDENTITY_SERVICE,
@@ -199,6 +200,120 @@ SCROLL_PAGE_SCRIPT = r"""
 }
 """
 
+ACTION_FULL_REFRESH_THRESHOLD = 0.75
+
+
+def build_action_change(
+    before_snapshot: DOMSnapshot | None,
+    after_snapshot: DOMSnapshot | None,
+    *,
+    before_url: str,
+    after_url: str,
+    new_page_count: int = 0,
+) -> dict[str, Any]:
+    before_items = list(before_snapshot.items) if before_snapshot else []
+    after_items = list(after_snapshot.items) if after_snapshot else []
+    element_change_ratio = _element_change_ratio(before_items, after_items)
+    navigated = _navigation_identity(before_url) != _navigation_identity(after_url)
+    full_refresh = navigated or element_change_ratio > ACTION_FULL_REFRESH_THRESHOLD
+    added, removed = _element_delta(before_items, after_items)
+
+    return {
+        "status": "full_refresh" if full_refresh else "same_page",
+        "full_refresh": full_refresh,
+        "navigated": navigated,
+        "element_change_ratio": round(element_change_ratio, 4),
+        "element_change_threshold": ACTION_FULL_REFRESH_THRESHOLD,
+        "before_count": len(before_items),
+        "after_count": len(after_items),
+        "added_count": len(added),
+        "removed_count": len(removed),
+        "added": [] if full_refresh else added,
+        "removed": [] if full_refresh else removed,
+        "new_page_count": new_page_count,
+    }
+
+
+def render_action_change(change: dict[str, Any]) -> str:
+    if change.get("full_refresh"):
+        reasons: list[str] = []
+        if change.get("navigated"):
+            reasons.append("navigation")
+        ratio = float(change.get("element_change_ratio") or 0.0)
+        threshold = float(change.get("element_change_threshold") or ACTION_FULL_REFRESH_THRESHOLD)
+        if ratio > threshold:
+            reasons.append(f"{ratio:.0%} elements changed")
+        if change.get("new_page_count"):
+            reasons.append(_count_label(int(change["new_page_count"]), "new page"))
+        suffix = f" ({', '.join(reasons)})" if reasons else ""
+        return f"page: full refresh{suffix}"
+
+    added = [str(line) for line in change.get("added") or []]
+    removed = [str(line) for line in change.get("removed") or []]
+    counts = []
+    if added or removed:
+        counts.append(_count_label(len(added), "added"))
+        counts.append(_count_label(len(removed), "removed"))
+    else:
+        counts.append("no element changes")
+    if change.get("new_page_count"):
+        counts.append(_count_label(int(change["new_page_count"]), "new page"))
+
+    lines = [f"page: mostly unchanged ({', '.join(counts)})"]
+    lines.extend(f"+ {line}" for line in added)
+    lines.extend(f"- {line}" for line in removed)
+    return "\n".join(lines)
+
+
+def _element_change_ratio(before_items: list[DOMElement], after_items: list[DOMElement]) -> float:
+    total = max(len(before_items), len(after_items))
+    if total == 0:
+        return 0.0
+    before_counts = Counter(_element_signature(item) for item in before_items)
+    after_counts = Counter(_element_signature(item) for item in after_items)
+    unchanged = sum((before_counts & after_counts).values())
+    return max(0.0, min(1.0, 1.0 - (unchanged / total)))
+
+
+def _element_delta(
+    before_items: list[DOMElement],
+    after_items: list[DOMElement],
+) -> tuple[list[str], list[str]]:
+    before_counts = Counter(_element_signature(item) for item in before_items)
+    after_counts = Counter(_element_signature(item) for item in after_items)
+    added_counts = after_counts - before_counts
+    removed_counts = before_counts - after_counts
+    return _lines_for_counts(after_items, added_counts), _lines_for_counts(before_items, removed_counts)
+
+
+def _lines_for_counts(items: list[DOMElement], counts: Counter[str]) -> list[str]:
+    remaining = Counter(counts)
+    lines: list[str] = []
+    for item in items:
+        signature = _element_signature(item)
+        if remaining[signature] <= 0:
+            continue
+        lines.append(item.agent_line())
+        remaining[signature] -= 1
+    return lines
+
+
+def _element_signature(item: DOMElement) -> str:
+    line = item.agent_line()
+    return line.split("] - ", 1)[1] if "] - " in line else line
+
+
+def _navigation_identity(url: str) -> str:
+    return str(url or "").split("#", 1)[0]
+
+
+def _page_url(page: Page) -> str:
+    return str(getattr(page, "url", "") or "")
+
+
+def _count_label(count: int, label: str) -> str:
+    return f"{count} {label}{'' if count == 1 else 's'}"
+
 
 class AgentDaemon:
     def __init__(self, profile: dict[str, Any]) -> None:
@@ -208,6 +323,7 @@ class AgentDaemon:
         self.context_id: str | None = None
         self.pages: dict[str, Page] = {}
         self.page_serializers: dict[str, DOMSerializer] = {}
+        self.page_snapshots: dict[str, DOMSnapshot] = {}
         self.downloads: dict[str, dict[str, Any]] = {}
         self._download_objects: dict[str, Any] = {}
         self.dialogs: list[dict[str, Any]] = []
@@ -223,6 +339,7 @@ class AgentDaemon:
             self.context = None
             self.pages.clear()
             self.page_serializers.clear()
+            self.page_snapshots.clear()
             self._page_locks.clear()
             if self.playwright:
                 await self.playwright.stop()
@@ -256,6 +373,7 @@ class AgentDaemon:
                 await page.close()
             self.pages.pop(page_id, None)
             self.page_serializers.pop(page_id, None)
+            self.page_snapshots.pop(page_id, None)
             self._page_locks.pop(page_id, None)
         return {"closed": page_id, **await self.list_pages()}
 
@@ -270,6 +388,7 @@ class AgentDaemon:
             await page.goto(url, wait_until=wait_until, timeout=60_000)
             await self._settle(page)
             self.page_serializers.pop(page_id, None)
+            self.page_snapshots.pop(page_id, None)
             return {"page": await self._page_payload(page_id, page)}
 
     async def go_back(self, page_id: str) -> dict[str, Any]:
@@ -278,6 +397,7 @@ class AgentDaemon:
             await page.go_back(wait_until="domcontentloaded", timeout=60_000)
             await self._settle(page)
             self.page_serializers.pop(page_id, None)
+            self.page_snapshots.pop(page_id, None)
             return {"page": await self._page_payload(page_id, page)}
 
     async def go_forward(self, page_id: str) -> dict[str, Any]:
@@ -286,6 +406,7 @@ class AgentDaemon:
             await page.go_forward(wait_until="domcontentloaded", timeout=60_000)
             await self._settle(page)
             self.page_serializers.pop(page_id, None)
+            self.page_snapshots.pop(page_id, None)
             return {"page": await self._page_payload(page_id, page)}
 
     async def reload(self, page_id: str) -> dict[str, Any]:
@@ -294,6 +415,7 @@ class AgentDaemon:
             await page.reload(wait_until="domcontentloaded", timeout=60_000)
             await self._settle(page)
             self.page_serializers.pop(page_id, None)
+            self.page_snapshots.pop(page_id, None)
             return {"page": await self._page_payload(page_id, page)}
 
     async def describe_page(self, page_id: str, max_items: int = 200) -> dict[str, Any]:
@@ -306,14 +428,15 @@ class AgentDaemon:
     async def click(self, page_id: str, ref: str) -> dict[str, Any]:
         async with self._page_lock(page_id):
             page = self._page(page_id)
-            before_pages = set(self.pages)
-            serializer = await self._serializer_for(page_id, page)
+            before_pages, before_url, before_snapshot, serializer = await self._action_baseline_unlocked(
+                page_id,
+                page,
+            )
+            assert serializer is not None
             locator = await serializer.async_resolve_locator(page, ref)
             await locator.click(timeout=15_000)
             await self._settle(page)
-            result = await self._describe_page_unlocked(page_id)
-            result["pages"] = await self._pages_since(before_pages)
-            return result
+            return await self._action_result_unlocked(page_id, page, before_pages, before_url, before_snapshot)
 
     async def element_info(self, page_id: str, ref: str) -> dict[str, Any]:
         async with self._page_lock(page_id):
@@ -339,8 +462,11 @@ class AgentDaemon:
     async def fill_text(self, page_id: str, ref: str, text: str, *, submit: bool = False) -> dict[str, Any]:
         async with self._page_lock(page_id):
             page = self._page(page_id)
-            before_pages = set(self.pages)
-            serializer = await self._serializer_for(page_id, page)
+            before_pages, before_url, before_snapshot, serializer = await self._action_baseline_unlocked(
+                page_id,
+                page,
+            )
+            assert serializer is not None
             locator = await serializer.async_resolve_locator(page, ref)
             await locator.click(timeout=15_000)
             await locator.press("ControlOrMeta+A", timeout=15_000)
@@ -350,9 +476,7 @@ class AgentDaemon:
             if submit:
                 await locator.press("Enter")
             await self._settle(page)
-            result = await self._describe_page_unlocked(page_id)
-            result["pages"] = await self._pages_since(before_pages)
-            return result
+            return await self._action_result_unlocked(page_id, page, before_pages, before_url, before_snapshot)
 
     async def select_options(
         self,
@@ -366,8 +490,11 @@ class AgentDaemon:
             raise ValueError("Select requires at least one value.")
         async with self._page_lock(page_id):
             page = self._page(page_id)
-            before_pages = set(self.pages)
-            serializer = await self._serializer_for(page_id, page)
+            before_pages, before_url, before_snapshot, serializer = await self._action_baseline_unlocked(
+                page_id,
+                page,
+            )
+            assert serializer is not None
             locator = await serializer.async_resolve_locator(page, ref)
             selected: list[str]
             if by == "index":
@@ -387,9 +514,8 @@ class AgentDaemon:
                     timeout=15_000,
                 )
             await self._settle(page)
-            result = await self._describe_page_unlocked(page_id)
+            result = await self._action_result_unlocked(page_id, page, before_pages, before_url, before_snapshot)
             result["selected"] = selected
-            result["pages"] = await self._pages_since(before_pages)
             return result
 
     async def type_text(
@@ -402,8 +528,11 @@ class AgentDaemon:
     ) -> dict[str, Any]:
         async with self._page_lock(page_id):
             page = self._page(page_id)
-            before_pages = set(self.pages)
-            serializer = await self._serializer_for(page_id, page)
+            before_pages, before_url, before_snapshot, serializer = await self._action_baseline_unlocked(
+                page_id,
+                page,
+            )
+            assert serializer is not None
             locator = await serializer.async_resolve_locator(page, ref)
             await locator.click(timeout=15_000)
             if text:
@@ -411,9 +540,7 @@ class AgentDaemon:
             if submit:
                 await locator.press("Enter")
             await self._settle(page)
-            result = await self._describe_page_unlocked(page_id)
-            result["pages"] = await self._pages_since(before_pages)
-            return result
+            return await self._action_result_unlocked(page_id, page, before_pages, before_url, before_snapshot)
 
     async def screenshot(
         self,
@@ -473,26 +600,32 @@ class AgentDaemon:
     async def press_key(self, page_id: str, key: str, *, ref: str | None = None) -> dict[str, Any]:
         async with self._page_lock(page_id):
             page = self._page(page_id)
-            before_pages = set(self.pages)
+            before_pages, before_url, before_snapshot, serializer = await self._action_baseline_unlocked(
+                page_id,
+                page,
+                need_serializer=ref is not None,
+            )
             if ref:
-                serializer = await self._serializer_for(page_id, page)
+                assert serializer is not None
                 locator = await serializer.async_resolve_locator(page, ref)
                 await locator.press(key, timeout=15_000)
             else:
                 await page.keyboard.press(key)
             await self._settle(page)
-            result = await self._describe_page_unlocked(page_id)
-            result["pages"] = await self._pages_since(before_pages)
-            return result
+            return await self._action_result_unlocked(page_id, page, before_pages, before_url, before_snapshot)
 
     async def hover(self, page_id: str, ref: str) -> dict[str, Any]:
         async with self._page_lock(page_id):
             page = self._page(page_id)
-            serializer = await self._serializer_for(page_id, page)
+            before_pages, before_url, before_snapshot, serializer = await self._action_baseline_unlocked(
+                page_id,
+                page,
+            )
+            assert serializer is not None
             locator = await serializer.async_resolve_locator(page, ref)
             await locator.hover(timeout=15_000)
             await self._settle(page)
-            return await self._describe_page_unlocked(page_id)
+            return await self._action_result_unlocked(page_id, page, before_pages, before_url, before_snapshot)
 
     async def scroll(
         self,
@@ -504,21 +637,29 @@ class AgentDaemon:
     ) -> dict[str, Any]:
         async with self._page_lock(page_id):
             page = self._page(page_id)
+            before_pages, before_url, before_snapshot, serializer = await self._action_baseline_unlocked(
+                page_id,
+                page,
+                need_serializer=ref is not None,
+            )
             delta = _scroll_delta(direction, amount)
             if ref:
-                serializer = await self._serializer_for(page_id, page)
+                assert serializer is not None
                 locator = await serializer.async_resolve_locator(page, ref)
                 await locator.evaluate(SCROLL_ELEMENT_SCRIPT, delta)
             else:
                 await page.evaluate(SCROLL_PAGE_SCRIPT, delta)
             await self._settle(page)
-            return await self._describe_page_unlocked(page_id)
+            return await self._action_result_unlocked(page_id, page, before_pages, before_url, before_snapshot)
 
     async def drag(self, page_id: str, source_ref: str, target_ref: str) -> dict[str, Any]:
         async with self._page_lock(page_id):
             page = self._page(page_id)
-            before_pages = set(self.pages)
-            serializer = await self._serializer_for(page_id, page)
+            before_pages, before_url, before_snapshot, serializer = await self._action_baseline_unlocked(
+                page_id,
+                page,
+            )
+            assert serializer is not None
             source = await serializer.async_resolve_locator(page, source_ref)
             target = await serializer.async_resolve_locator(page, target_ref)
             if hasattr(source, "drag_to"):
@@ -529,35 +670,38 @@ class AgentDaemon:
                 await target.hover(timeout=15_000)
                 await page.mouse.up()
             await self._settle(page)
-            result = await self._describe_page_unlocked(page_id)
-            result["pages"] = await self._pages_since(before_pages)
-            return result
+            return await self._action_result_unlocked(page_id, page, before_pages, before_url, before_snapshot)
 
     async def set_checked(self, page_id: str, ref: str, *, checked: bool) -> dict[str, Any]:
         async with self._page_lock(page_id):
             page = self._page(page_id)
-            before_pages = set(self.pages)
-            serializer = await self._serializer_for(page_id, page)
+            before_pages, before_url, before_snapshot, serializer = await self._action_baseline_unlocked(
+                page_id,
+                page,
+            )
+            assert serializer is not None
             locator = await serializer.async_resolve_locator(page, ref)
             if checked:
                 await locator.check(timeout=15_000)
             else:
                 await locator.uncheck(timeout=15_000)
             await self._settle(page)
-            result = await self._describe_page_unlocked(page_id)
-            result["pages"] = await self._pages_since(before_pages)
-            return result
+            return await self._action_result_unlocked(page_id, page, before_pages, before_url, before_snapshot)
 
     async def upload_files(self, page_id: str, ref: str, paths: list[str]) -> dict[str, Any]:
         if not paths:
             raise ValueError("upload requires at least one file path.")
         async with self._page_lock(page_id):
             page = self._page(page_id)
-            serializer = await self._serializer_for(page_id, page)
+            before_pages, before_url, before_snapshot, serializer = await self._action_baseline_unlocked(
+                page_id,
+                page,
+            )
+            assert serializer is not None
             locator = await serializer.async_resolve_locator(page, ref)
             await locator.set_input_files(paths, timeout=15_000)
             await self._settle(page)
-            return await self._describe_page_unlocked(page_id)
+            return await self._action_result_unlocked(page_id, page, before_pages, before_url, before_snapshot)
 
     async def list_downloads(self) -> dict[str, Any]:
         downloads = [await self._download_payload(download_id) for download_id in self.downloads]
@@ -688,25 +832,67 @@ class AgentDaemon:
             self._page_locks[page_id] = lock
         return lock
 
+    async def _action_baseline_unlocked(
+        self,
+        page_id: str,
+        page: Page,
+        *,
+        need_serializer: bool = True,
+    ) -> tuple[set[str], str, DOMSnapshot | None, DOMSerializer | None]:
+        before_pages = set(self.pages)
+        serializer = self.page_serializers.get(page_id)
+        if need_serializer or self.page_snapshots.get(page_id) is None:
+            serializer = await self._serializer_for(page_id, page)
+        return before_pages, _page_url(page), self.page_snapshots.get(page_id), serializer
+
     async def _serializer_for(self, page_id: str, page: Page) -> DOMSerializer:
         serializer = self.page_serializers.get(page_id)
         if serializer is None:
             serializer = DOMSerializer()
-            await serializer.async_serialize(page)
             self.page_serializers[page_id] = serializer
+        if page_id not in self.page_snapshots and hasattr(serializer, "async_serialize"):
+            self.page_snapshots[page_id] = await serializer.async_serialize(page)
         return serializer
 
     async def _describe_page_unlocked(self, page_id: str, max_items: int = 200) -> dict[str, Any]:
         page = self._page(page_id)
-        serializer = DOMSerializer(max_items=max_items)
+        serializer = self.page_serializers.get(page_id)
+        if serializer is None:
+            serializer = DOMSerializer(max_items=max_items)
+            self.page_serializers[page_id] = serializer
+        else:
+            serializer.max_items = max_items
         snapshot = await serializer.async_serialize(page)
-        self.page_serializers[page_id] = serializer
+        self.page_snapshots[page_id] = snapshot
         return {
             "page": await self._page_payload(page_id, page),
             "text": snapshot.text,
             "frames": [asdict(frame) for frame in snapshot.frames],
             "items": [asdict(item) for item in snapshot.items],
         }
+
+    async def _action_result_unlocked(
+        self,
+        page_id: str,
+        page: Page,
+        before_pages: set[str],
+        before_url: str,
+        before_snapshot: DOMSnapshot | None,
+    ) -> dict[str, Any]:
+        result = await self._describe_page_unlocked(page_id)
+        new_pages = await self._pages_since(before_pages)
+        after_snapshot = self.page_snapshots.get(page_id)
+        change = build_action_change(
+            before_snapshot,
+            after_snapshot,
+            before_url=before_url,
+            after_url=str(result.get("page", {}).get("url") or _page_url(page)),
+            new_page_count=len(new_pages),
+        )
+        result["pages"] = new_pages
+        result["change"] = change
+        result["text"] = render_action_change(change)
+        return result
 
     async def _settle(self, page: Page) -> None:
         with suppress(Exception):
