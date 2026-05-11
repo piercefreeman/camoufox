@@ -250,12 +250,15 @@ def render_action_change(change: dict[str, Any]) -> str:
 
     added = [str(line) for line in change.get("added") or []]
     removed = [str(line) for line in change.get("removed") or []]
+    if not added and not removed:
+        lines = ["page: stayed the same"]
+        if change.get("new_page_count"):
+            lines[0] += f" ({_count_label(int(change['new_page_count']), 'new page')})"
+        return "\n".join(lines)
+
     counts = []
-    if added or removed:
-        counts.append(_count_label(len(added), "added"))
-        counts.append(_count_label(len(removed), "removed"))
-    else:
-        counts.append("no element changes")
+    counts.append(_count_label(len(added), "added"))
+    counts.append(_count_label(len(removed), "removed"))
     if change.get("new_page_count"):
         counts.append(_count_label(int(change["new_page_count"]), "new page"))
 

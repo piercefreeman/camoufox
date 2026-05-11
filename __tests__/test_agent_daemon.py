@@ -211,6 +211,23 @@ def test_agent_action_change_renders_same_page_delta_without_unchanged_elements(
     assert "Save" not in text
 
 
+def test_agent_action_change_reports_identical_elements_as_same_page() -> None:
+    before = _action_snapshot(_action_item("old_save", "Save"), _action_item("old_cancel", "Cancel"))
+    after = _action_snapshot(_action_item("new_save", "Save"), _action_item("new_cancel", "Cancel"))
+
+    change = build_action_change(
+        before,
+        after,
+        before_url="https://example.test/form",
+        after_url="https://example.test/form",
+    )
+
+    assert change["status"] == "same_page"
+    assert change["added"] == []
+    assert change["removed"] == []
+    assert render_action_change(change) == "page: stayed the same"
+
+
 def test_agent_action_change_reports_full_refresh_without_full_delta() -> None:
     before = _action_snapshot(
         _action_item("old_a", "Alpha"),
