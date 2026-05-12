@@ -143,8 +143,7 @@ This repository builds on daijro's original Firefox patching work, which laid th
 
 Their main focus, however, is on stealth whereas ours is on automation. We want to give your Agents access to a browser that works almost identically to your daily driver.
 
-- Repository: [github.com/MonkeySee-AI/rotunda](https://github.com/MonkeySee-AI/rotunda)
-- Docs: [rotunda.sh](https://rotunda.sh)
+[camoufox](https://github.com/daijro/camoufox)
 
 ## FAQ
 
