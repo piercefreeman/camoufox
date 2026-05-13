@@ -4,6 +4,14 @@
 
 Giving your agents the power to browse the web is like giving them superpowers. You can automate almost anything. Rotunda is a browser built for agents from the ground up. Sick of seeing more captchas in Claude than when you open Chrome and do it yourself? Try Rotunda.
 
+<p align="center">
+  <a href="https://rotunda.sh/#demo">
+    <img src="docs/media/amazon-demo.png" alt="Rotunda Amazon demo" width="480" />
+  </a>
+  <br />
+  <em><a href="https://rotunda.sh/#demo">Check out the demo!</a></em>
+</p>
+
 ## Getting started
 
 Install Rotunda into your Python project with `uv`, then fetch the latest Rotunda browser build:
