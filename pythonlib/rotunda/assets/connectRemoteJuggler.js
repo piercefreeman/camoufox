@@ -132,6 +132,8 @@ async function main() {
   const browserOptions = {
     name: 'firefox',
     browserType: 'firefox',
+    // Playwright <= 1.58 reads this private BrowserOptions field.
+    isChromium: false,
     slowMo: options.slowMo || 0,
     persistent: options.attachToDefaultContext === false ? undefined : { noDefaultViewport: true },
     headful: true,
