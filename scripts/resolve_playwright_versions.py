@@ -20,6 +20,7 @@ import click
 
 PYPI_PACKAGE_URL = "https://pypi.org/pypi/{package}/json"
 STABLE_VERSION_RE = re.compile(r"^(\d+)\.(\d+)\.(\d+)$")
+DEFAULT_MINIMUM_VERSION = "1.51.0"
 
 
 def _stable_version_tuple(version: str) -> tuple[int, int, int] | None:
@@ -37,14 +38,18 @@ def select_recent_minor_versions(
     releases: dict[str, list[dict[str, Any]]],
     *,
     limit: int,
+    minimum_version: str,
 ) -> list[str]:
     if limit < 1:
         raise ValueError("limit must be at least 1")
+    minimum = _stable_version_tuple(minimum_version)
+    if minimum is None:
+        raise ValueError(f"minimum_version must be a stable x.y.z version: {minimum_version}")
 
     stable_versions: list[tuple[tuple[int, int, int], str]] = []
     for version, files in releases.items():
         parsed = _stable_version_tuple(version)
-        if parsed is None or not _has_installable_file(files):
+        if parsed is None or parsed < minimum or not _has_installable_file(files):
             continue
         stable_versions.append((parsed, version))
 
@@ -94,6 +99,12 @@ def write_github_output(path: Path, name: str, value: str) -> None:
     help="PyPI request timeout in seconds.",
 )
 @click.option(
+    "--minimum-version",
+    default=DEFAULT_MINIMUM_VERSION,
+    show_default=True,
+    help="Oldest stable Playwright version Rotunda supports.",
+)
+@click.option(
     "--github-output",
     type=click.Path(path_type=Path),
     help="Optional path to GITHUB_OUTPUT.",
@@ -108,12 +119,20 @@ def main(
     package_name: str,
     limit: int,
     timeout: float,
+    minimum_version: str,
     github_output: Path | None,
     output_name: str,
 ) -> None:
     """Resolve recent stable Playwright release lines from PyPI."""
     metadata = fetch_pypi_metadata(package_name, timeout=timeout)
-    versions = select_recent_minor_versions(metadata["releases"], limit=limit)
+    try:
+        versions = select_recent_minor_versions(
+            metadata["releases"],
+            limit=limit,
+            minimum_version=minimum_version,
+        )
+    except ValueError as exc:
+        raise click.ClickException(str(exc)) from exc
     if not versions:
         raise click.ClickException(f"No stable releases found for {package_name}.")
 

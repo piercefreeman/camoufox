@@ -2662,7 +2662,7 @@ requires-dist = [
     { name = "numpy" },
     { name = "orjson" },
     { name = "platformdirs" },
-    { name = "playwright" },
+    { name = "playwright", specifier = ">=1.51.0" },
     { name = "pydantic", specifier = ">=2,<3" },
     { name = "pyobjc-framework-cocoa", marker = "sys_platform == 'darwin'" },
     { name = "pyside6", marker = "extra == 'gui'" },

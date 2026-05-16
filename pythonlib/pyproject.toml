@@ -32,7 +32,12 @@ dependencies = [
     "numpy",
     "orjson",
     "platformdirs",
-    "playwright",
+    # NOTE: The remote Juggler bridge imports Playwright's private
+    # driver path `lib/server/utils/debugLogger.js`, which exists in
+    # Playwright >=1.51.0. In Playwright 1.50.0 this module lived at
+    # `lib/utils/debugLogger.js`, so `lib/server/utils/debugLogger.js`
+    # does not exist and the bridge exits before reporting an endpoint.
+    "playwright>=1.51.0",
     "pydantic>=2,<3",
     "pysocks",
     "pyobjc-framework-Cocoa; sys_platform == 'darwin'",
