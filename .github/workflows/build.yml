@@ -181,6 +181,11 @@ jobs:
         with:
           python-version: "3.11"
 
+      - name: Set up uv
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          enable-cache: true
+
       - name: Set up LLVM
         if: matrix.target == 'linux'
         run: |
@@ -450,7 +455,7 @@ jobs:
       - name: Resolve Rotunda executable
         id: artifact
         run: |
-          python3 scripts/resolve_ci_artifact.py \
+          uv run scripts/resolve_ci_artifact.py \
             --artifact dist-artifact \
             --extract-dir .tmp/ci-artifacts/${{ matrix.target }}-${{ matrix.arch }} \
             --github-output "$GITHUB_OUTPUT"
@@ -492,10 +497,15 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Set up uv
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          enable-cache: true
+
       - name: Resolve recent Playwright versions
         id: versions
         run: |
-          python3 scripts/resolve_playwright_versions.py \
+          uv run scripts/resolve_playwright_versions.py \
             --package playwright \
             --limit 10 \
             --github-output "$GITHUB_OUTPUT"
@@ -570,7 +580,7 @@ jobs:
       - name: Resolve Rotunda executable
         id: artifact
         run: |
-          python3 scripts/resolve_ci_artifact.py \
+          uv run scripts/resolve_ci_artifact.py \
             --artifact dist-artifact \
             --extract-dir .tmp/ci-artifacts/linux-x86_64 \
             --github-output "$GITHUB_OUTPUT"

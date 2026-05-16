@@ -184,36 +184,33 @@ edits:
 	python3 ./scripts/developer.py $(version) $(release)
 
 package-linux:
-	python3 scripts/package.py linux \
-		--includes \
-			settings/chrome.css \
-			bundle/runtime-models \
-			bundle/fontconfig \
+	uv run scripts/package.py linux \
+		--include settings/chrome.css \
+		--include bundle/runtime-models \
+		--include bundle/fontconfig \
 		--version $(version) \
 		--release $(release) \
 		--arch $(arch) \
-		--fonts linux
+		--font linux
 
 package-macos:
-	python3 scripts/package.py macos \
-		--includes \
-			settings/chrome.css \
-			bundle/runtime-models \
+	uv run scripts/package.py macos \
+		--include settings/chrome.css \
+		--include bundle/runtime-models \
 		--version $(version) \
 		--release $(release) \
 		--arch $(arch) \
-		--fonts macos
+		--font macos
 
 package-windows:
-	python3 scripts/package.py windows \
-		--includes \
-			settings/chrome.css \
-			bundle/runtime-models \
-			~/.mozbuild/vs/VC/Redist/MSVC/14.38.33135/$(vcredist_arch)/Microsoft.VC143.CRT/*.dll \
+	uv run scripts/package.py windows \
+		--include settings/chrome.css \
+		--include bundle/runtime-models \
+		--include ~/.mozbuild/vs/VC/Redist/MSVC/14.38.33135/$(vcredist_arch)/Microsoft.VC143.CRT/*.dll \
 		--version $(version) \
 		--release $(release) \
 		--arch $(arch) \
-		--fonts windows
+		--font windows
 
 run:
 	cd $(cf_source_dir) \
@@ -331,7 +328,7 @@ generate-openapi-cpp:
 		--additional-properties hideGenerationTimestamp=true,modelPackage=rotundacfg
 
 validate-fingerprint-example:
-	$(ROTUNDA_UV) python scripts/validate_fingerprint_example.py
+	uv run scripts/validate_fingerprint_example.py
 
 verify-patches:
 	uv run scripts/verify_firefox_patches.py

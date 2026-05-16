@@ -107,7 +107,7 @@ jobs:
         run: uv sync --group dev --locked
 
       - name: Validate fingerprint example
-        run: uv run --package rotunda --locked python scripts/validate_fingerprint_example.py
+        run: uv run scripts/validate_fingerprint_example.py
 
   ty:
     runs-on: ubuntu-24.04

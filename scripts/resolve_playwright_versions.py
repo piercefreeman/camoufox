@@ -1,56 +1,25 @@
-#!/usr/bin/env python3
+#!/usr/bin/env -S uv run --script
+# /// script
+# requires-python = ">=3.10"
+# dependencies = [
+#   "click>=8.1",
+# ]
+# ///
 
 from __future__ import annotations
 
-import argparse
 import json
 import re
-import sys
 import urllib.parse
 import urllib.request
 from pathlib import Path
 from typing import Any
 
+import click
+
 
 PYPI_PACKAGE_URL = "https://pypi.org/pypi/{package}/json"
 STABLE_VERSION_RE = re.compile(r"^(\d+)\.(\d+)\.(\d+)$")
-
-
-def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(
-        description=(
-            "Resolve recent stable Playwright release lines from PyPI. "
-            "For each major.minor line, the newest patch release is selected."
-        )
-    )
-    parser.add_argument(
-        "--package",
-        default="playwright",
-        help="PyPI package name to inspect.",
-    )
-    parser.add_argument(
-        "--limit",
-        type=int,
-        default=10,
-        help="Number of recent major.minor release lines to return.",
-    )
-    parser.add_argument(
-        "--timeout",
-        type=float,
-        default=20,
-        help="PyPI request timeout in seconds.",
-    )
-    parser.add_argument(
-        "--github-output",
-        default=None,
-        help="Optional path to GITHUB_OUTPUT.",
-    )
-    parser.add_argument(
-        "--output-name",
-        default="versions",
-        help="GITHUB_OUTPUT key to write.",
-    )
-    return parser.parse_args()
 
 
 def _stable_version_tuple(version: str) -> tuple[int, int, int] | None:
@@ -102,21 +71,58 @@ def write_github_output(path: Path, name: str, value: str) -> None:
         handle.write(f"{name}={value}\n")
 
 
-def main() -> int:
-    args = parse_args()
-    metadata = fetch_pypi_metadata(args.package, timeout=args.timeout)
-    versions = select_recent_minor_versions(metadata["releases"], limit=args.limit)
+@click.command()
+@click.option(
+    "--package",
+    "package_name",
+    default="playwright",
+    show_default=True,
+    help="PyPI package name to inspect.",
+)
+@click.option(
+    "--limit",
+    default=10,
+    show_default=True,
+    type=click.IntRange(min=1),
+    help="Number of recent major.minor release lines to return.",
+)
+@click.option(
+    "--timeout",
+    default=20.0,
+    show_default=True,
+    type=float,
+    help="PyPI request timeout in seconds.",
+)
+@click.option(
+    "--github-output",
+    type=click.Path(path_type=Path),
+    help="Optional path to GITHUB_OUTPUT.",
+)
+@click.option(
+    "--output-name",
+    default="versions",
+    show_default=True,
+    help="GITHUB_OUTPUT key to write.",
+)
+def main(
+    package_name: str,
+    limit: int,
+    timeout: float,
+    github_output: Path | None,
+    output_name: str,
+) -> None:
+    """Resolve recent stable Playwright release lines from PyPI."""
+    metadata = fetch_pypi_metadata(package_name, timeout=timeout)
+    versions = select_recent_minor_versions(metadata["releases"], limit=limit)
     if not versions:
-        raise SystemExit(f"No stable releases found for {args.package}.")
+        raise click.ClickException(f"No stable releases found for {package_name}.")
 
     output = json.dumps(versions, separators=(",", ":"))
-    print(output)
+    click.echo(output)
 
-    if args.github_output:
-        write_github_output(Path(args.github_output), args.output_name, output)
-
-    return 0
+    if github_output:
+        write_github_output(github_output, output_name, output)
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    main()

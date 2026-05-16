@@ -1,7 +1,18 @@
-import argparse
+#!/usr/bin/env -S uv run --script
+# /// script
+# requires-python = ">=3.10"
+# dependencies = [
+#   "click>=8.1",
+#   "playwright",
+#   "rotunda[geoip]",
+#   "tabulate",
+# ]
+# ///
+
 import subprocess
 import time
 
+import click
 from rotunda.pkgman import launch_path
 from rotunda.sync_api import Rotunda
 from rotunda.virtdisplay import VirtualDisplay
@@ -57,9 +68,8 @@ def run_playwright(mode, browser_name):
         page = browser.new_page()
         page.goto(url)
         time.sleep(5)  # Allow the page to load
-        memory = get_average_memory(
-            name="rotunda-bin" if browser_name.startswith('rotunda') else 'firefox', duration=10
-        )
+        process_name = "rotunda-bin" if browser_name.startswith("rotunda") else "firefox"
+        memory = get_average_memory(name=process_name, duration=10)
         memory_usage.append((url, memory))
         page.close()
 
@@ -68,30 +78,30 @@ def run_playwright(mode, browser_name):
     return memory_usage
 
 
-if __name__ == "__main__":
-    # Set up argument parsing
-    parser = argparse.ArgumentParser(description="Run a browser memory benchmark.")
-    parser.add_argument(
-        "--mode",
-        type=str,
-        choices=["headless", "headful"],
-        required=True,
-        help="Mode to run the browser in (headless or headful).",
-    )
-    parser.add_argument(
-        "--browser",
-        type=str,
-        choices=["firefox", "rotunda", "rotunda-ubo"],
-        required=True,
-        help="Browser to use for the benchmark.",
-    )
-
-    args = parser.parse_args()
-
+@click.command()
+@click.option(
+    "--mode",
+    type=click.Choice(["headless", "headful"]),
+    required=True,
+    help="Mode to run the browser in.",
+)
+@click.option(
+    "--browser",
+    "browser_name",
+    type=click.Choice(["firefox", "rotunda", "rotunda-ubo"]),
+    required=True,
+    help="Browser to use for the benchmark.",
+)
+def main(mode: str, browser_name: str) -> None:
+    """Run a browser memory benchmark."""
     # Run the benchmark
-    results = run_playwright(args.mode, args.browser)
+    results = run_playwright(mode, browser_name)
 
     # Format results as a table
-    print(f"\n=== MEMORY RESULTS FOR {args.browser.upper()} ===")
+    print(f"\n=== MEMORY RESULTS FOR {browser_name.upper()} ===")
     table = [["URL", "Memory Usage (MB)"]] + results
     print(tabulate(table, headers="firstrow", tablefmt="grid"))
+
+
+if __name__ == "__main__":
+    main()

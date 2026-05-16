@@ -13,7 +13,7 @@ RUN apt-get update && apt-get install -y \
     && apt-get clean
 
 # Install Playwright dependencies
-RUN pip3 install --no-cache-dir playwright tabulate rotunda[geoip] --break-system-packages && \
+RUN pip3 install --no-cache-dir click playwright tabulate rotunda[geoip] --break-system-packages && \
     playwright install-deps && \
     playwright install firefox && \
     python3 -m rotunda fetch
