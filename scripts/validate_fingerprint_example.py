@@ -1,11 +1,19 @@
+#!/usr/bin/env -S uv run --script
+# /// script
+# requires-python = ">=3.10"
+# dependencies = [
+#   "click>=8.1",
+#   "pyyaml",
+# ]
+# ///
+
 from __future__ import annotations
 
-import argparse
 import json
-import sys
 from pathlib import Path
 from typing import Any
 
+import click
 import yaml
 
 
@@ -169,18 +177,6 @@ class OpenApiValidator:
             raise FingerprintExampleValidationError(f"{path}: expected value < {exclusive_maximum}, got {value}")
 
 
-def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(
-        description=(
-            "Validate example/fingerprint.json against schemas/rotunda-profile.openapi.yaml "
-            "while treating every object property as required."
-        )
-    )
-    parser.add_argument("--schema", type=Path, default=DEFAULT_SCHEMA)
-    parser.add_argument("--example", type=Path, default=DEFAULT_EXAMPLE)
-    return parser.parse_args()
-
-
 def load_json(path: Path) -> Any:
     try:
         with path.open(encoding="utf-8") as handle:
@@ -211,26 +207,39 @@ def display_path(path: Path) -> str:
         return str(path)
 
 
-def main() -> int:
-    args = parse_args()
-    schema_path = args.schema.resolve()
-    example_path = args.example.resolve()
+@click.command()
+@click.option(
+    "--schema",
+    type=click.Path(path_type=Path),
+    default=DEFAULT_SCHEMA,
+    show_default=True,
+    help="OpenAPI schema to validate against.",
+)
+@click.option(
+    "--example",
+    type=click.Path(path_type=Path),
+    default=DEFAULT_EXAMPLE,
+    show_default=True,
+    help="Fingerprint example JSON to validate.",
+)
+def main(schema: Path, example: Path) -> None:
+    """Validate the fingerprint example with all object properties required."""
+    schema_path = schema.resolve()
+    example_path = example.resolve()
 
-    document = load_yaml(schema_path)
-    example = load_json(example_path)
-    validator = OpenApiValidator(document)
-    validator.validate(example, {"$ref": ROOT_SCHEMA_REF})
+    try:
+        document = load_yaml(schema_path)
+        example_data = load_json(example_path)
+        validator = OpenApiValidator(document)
+        validator.validate(example_data, {"$ref": ROOT_SCHEMA_REF})
+    except FingerprintExampleValidationError as exc:
+        raise click.ClickException(f"Fingerprint example validation failed: {exc}") from exc
 
-    print(
+    click.echo(
         f"Validated {display_path(example_path)} against {display_path(schema_path)} "
         "with all object properties required."
     )
-    return 0
 
 
 if __name__ == "__main__":
-    try:
-        raise SystemExit(main())
-    except FingerprintExampleValidationError as exc:
-        print(f"Fingerprint example validation failed: {exc}", file=sys.stderr)
-        raise SystemExit(1)
+    main()

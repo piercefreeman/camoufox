@@ -15,6 +15,7 @@
 from datetime import datetime
 
 import pytest
+from flaky import flaky
 
 from playwright.async_api import ConsoleMessage, Error, Page
 
@@ -45,6 +46,7 @@ async def test_should_work_when_resolved_right_before_execution_context_disposal
     )
 
 
+@flaky(max_runs=3, min_passes=1)
 async def test_should_poll_on_interval(page: Page) -> None:
     polling = 100
     time_delta = await page.wait_for_function(

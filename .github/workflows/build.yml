@@ -181,6 +181,11 @@ jobs:
         with:
           python-version: "3.11"
 
+      - name: Set up uv
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          enable-cache: true
+
       - name: Set up LLVM
         if: matrix.target == 'linux'
         run: |
@@ -450,7 +455,7 @@ jobs:
       - name: Resolve Rotunda executable
         id: artifact
         run: |
-          python3 scripts/resolve_ci_artifact.py \
+          uv run scripts/resolve_ci_artifact.py \
             --artifact dist-artifact \
             --extract-dir .tmp/ci-artifacts/${{ matrix.target }}-${{ matrix.arch }} \
             --github-output "$GITHUB_OUTPUT"
@@ -473,8 +478,127 @@ jobs:
         with:
           limit-access-to-actor: true
 
+  prepare-playwright-compat:
+    needs: prepare-release
+    name: Resolve Playwright compatibility versions
+    if: github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-build') || contains(github.event.pull_request.labels.*.name, 'full-build-fast')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      versions: ${{ steps.versions.outputs.versions }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          enable-cache: true
+
+      - name: Resolve recent Playwright versions
+        id: versions
+        run: |
+          uv run scripts/resolve_playwright_versions.py \
+            --package playwright \
+            --limit 10 \
+            --minimum-version 1.51.0 \
+            --github-output "$GITHUB_OUTPUT"
+
+  remote-juggler-playwright-compat:
+    needs:
+      - prepare-release
+      - build
+      - prepare-playwright-compat
+    name: Remote Juggler Playwright ${{ matrix.playwright-version }}
+    if: github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-build') || contains(github.event.pull_request.labels.*.name, 'full-build-fast')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix:
+        playwright-version: ${{ fromJson(needs.prepare-playwright-compat.outputs.versions) }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: |
+            pyproject.toml
+            pythonlib/pyproject.toml
+            ml-models/pyproject.toml
+            __tests__/pyproject.toml
+            uv.lock
+
+      - name: Download Linux build artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: RotundaBuilds-linux-x86_64
+          path: dist-artifact
+
+      - name: Sync compatibility test environment
+        run: uv sync --package rotunda-tests --group playwright-tests --locked
+
+      - name: Install Playwright compatibility version
+        run: uv pip install --python .venv/bin/python "playwright==${{ matrix.playwright-version }}"
+
+      - name: Verify Playwright compatibility version
+        run: |
+          .venv/bin/python - <<'PY'
+          import importlib.metadata
+          from pathlib import Path
+
+          from playwright._impl._driver import compute_driver_executable
+
+          print(f"Playwright: {importlib.metadata.version('playwright')}")
+          print(f"Node: {compute_driver_executable()[0]}")
+          print(f"Driver package: {Path(compute_driver_executable()[1]).parent}")
+          PY
+
+      - name: Install Linux runtime dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y unzip
+          .venv/bin/python -m playwright install-deps firefox
+
+      - name: Resolve Rotunda executable
+        id: artifact
+        run: |
+          uv run scripts/resolve_ci_artifact.py \
+            --artifact dist-artifact \
+            --extract-dir .tmp/ci-artifacts/linux-x86_64 \
+            --github-output "$GITHUB_OUTPUT"
+
+      - name: Run Remote Juggler compatibility test
+        env:
+          ROTUNDA_EXECUTABLE_PATH: ${{ steps.artifact.outputs.executable_path }}
+        run: |
+          .venv/bin/python -m pytest \
+            --integration \
+            --headless \
+            __tests__/playwright/async/test_remote_juggler.py
+
   publish-python-package:
-    needs: integration
+    needs:
+      - integration
+      - remote-juggler-playwright-compat
     name: Publish Python package
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-24.04

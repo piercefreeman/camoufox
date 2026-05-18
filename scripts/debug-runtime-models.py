@@ -1,16 +1,24 @@
-#!/usr/bin/env python3
+#!/usr/bin/env -S uv run --script
+# /// script
+# requires-python = ">=3.10"
+# dependencies = [
+#   "click>=8.1",
+# ]
+# ///
 """Compile and run the native runtime model diagnostic harness."""
 
 from __future__ import annotations
 
-import argparse
 import json
 import shutil
 import subprocess
 import sys
 import time
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+
+import click
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -22,44 +30,33 @@ DEFAULT_MOUSE_MODEL = ROOT / "bundle" / "runtime-models" / "mouse.safetensors"
 DEFAULT_KEYBOARD_MODEL = ROOT / "bundle" / "runtime-models" / "keyboard.safetensors"
 
 
-def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(
-        description="Run C++ runtime-model diagnostics against safetensor bundles.",
-    )
-    parser.add_argument("--mouse-model", type=Path, default=DEFAULT_MOUSE_MODEL)
-    parser.add_argument("--keyboard-model", type=Path, default=DEFAULT_KEYBOARD_MODEL)
-    parser.add_argument("--output", type=Path, default=None)
-    parser.add_argument("--build-dir", type=Path, default=DEFAULT_OUTPUT_ROOT)
-    parser.add_argument("--binary", type=Path, default=None)
-    parser.add_argument("--compiler", default=None)
-    parser.add_argument("--mouse-max-steps", type=int, default=128)
-    parser.add_argument("--mouse-click-threshold", type=float, default=0.98)
-    parser.add_argument("--mouse-min-dt-ms", type=float, default=4.0)
-    parser.add_argument("--mouse-path-curve-sigma", type=float, default=0.04)
-    parser.add_argument("--mouse-random-seed", type=int, default=13)
-    parser.add_argument("--keyboard-max-steps", type=int, default=256)
-    parser.add_argument("--keyboard-structured-extra-steps", type=int, default=-1)
-    parser.add_argument("--keyboard-canonical-bias", type=float, default=1.5)
-    parser.add_argument("--keyboard-learned-typo-threshold", type=float, default=0.05)
-    parser.add_argument("--keyboard-max-typos", type=int, default=-1)
-    parser.add_argument("--keyboard-sample-typos", action=argparse.BooleanOptionalAction, default=True)
-    parser.add_argument("--keyboard-timing-jitter-sigma", type=float, default=0.0)
-    parser.add_argument("--keyboard-timing-temperature", type=float, default=0.25)
-    parser.add_argument("--keyboard-action-temperature", type=float, default=0.6)
-    parser.add_argument("--keyboard-pause-probability", type=float, default=0.0)
-    parser.add_argument("--keyboard-pause-mean-ms", type=float, default=35.0)
-    parser.add_argument("--keyboard-random-seed", type=int, default=13)
-    parser.add_argument(
-        "--include-vectors",
-        action="store_true",
-        help="Include hidden/input vectors in addition to per-step heads and top logits.",
-    )
-    parser.add_argument(
-        "--print-json",
-        action="store_true",
-        help="Print the full JSON report to stdout after writing it.",
-    )
-    return parser.parse_args()
+@dataclass(frozen=True)
+class DiagnosticOptions:
+    mouse_model: Path
+    keyboard_model: Path
+    output: Path | None
+    build_dir: Path
+    binary: Path | None
+    compiler: str | None
+    mouse_max_steps: int
+    mouse_click_threshold: float
+    mouse_min_dt_ms: float
+    mouse_path_curve_sigma: float
+    mouse_random_seed: int
+    keyboard_max_steps: int
+    keyboard_structured_extra_steps: int
+    keyboard_canonical_bias: float
+    keyboard_learned_typo_threshold: float
+    keyboard_max_typos: int
+    keyboard_sample_typos: bool
+    keyboard_timing_jitter_sigma: float
+    keyboard_timing_temperature: float
+    keyboard_action_temperature: float
+    keyboard_pause_probability: float
+    keyboard_pause_mean_ms: float
+    keyboard_random_seed: int
+    include_vectors: bool
+    print_json: bool
 
 
 def newer_than_any(path: Path, inputs: list[Path]) -> bool:
@@ -69,7 +66,7 @@ def newer_than_any(path: Path, inputs: list[Path]) -> bool:
     return all(binary_mtime >= item.stat().st_mtime for item in inputs if item.exists())
 
 
-def compile_binary(args: argparse.Namespace) -> Path:
+def compile_binary(args: DiagnosticOptions) -> Path:
     compiler = args.compiler or shutil.which("clang++") or shutil.which("c++")
     if compiler is None:
         raise SystemExit("No C++ compiler found. Install clang++ or pass --compiler.")
@@ -109,7 +106,7 @@ def compile_binary(args: argparse.Namespace) -> Path:
     return binary
 
 
-def run_diagnostics(args: argparse.Namespace, binary: Path) -> dict[str, Any]:
+def run_diagnostics(args: DiagnosticOptions, binary: Path) -> dict[str, Any]:
     mouse_model = args.mouse_model.expanduser().resolve()
     keyboard_model = args.keyboard_model.expanduser().resolve()
     for model in [mouse_model, keyboard_model]:
@@ -164,7 +161,7 @@ def run_diagnostics(args: argparse.Namespace, binary: Path) -> dict[str, Any]:
     return json.loads(result.stdout)
 
 
-def write_report(args: argparse.Namespace, report: dict[str, Any]) -> Path:
+def write_report(args: DiagnosticOptions, report: dict[str, Any]) -> Path:
     if args.output:
         output = args.output.expanduser().resolve()
     else:
@@ -223,8 +220,43 @@ def print_summary(report: dict[str, Any], report_path: Path) -> None:
         )
 
 
-def main() -> None:
-    args = parse_args()
+@click.command()
+@click.option("--mouse-model", type=click.Path(path_type=Path), default=DEFAULT_MOUSE_MODEL)
+@click.option("--keyboard-model", type=click.Path(path_type=Path), default=DEFAULT_KEYBOARD_MODEL)
+@click.option("--output", type=click.Path(path_type=Path), default=None)
+@click.option("--build-dir", type=click.Path(path_type=Path), default=DEFAULT_OUTPUT_ROOT)
+@click.option("--binary", type=click.Path(path_type=Path), default=None)
+@click.option("--compiler", default=None)
+@click.option("--mouse-max-steps", type=int, default=128, show_default=True)
+@click.option("--mouse-click-threshold", type=float, default=0.98, show_default=True)
+@click.option("--mouse-min-dt-ms", type=float, default=4.0, show_default=True)
+@click.option("--mouse-path-curve-sigma", type=float, default=0.04, show_default=True)
+@click.option("--mouse-random-seed", type=int, default=13, show_default=True)
+@click.option("--keyboard-max-steps", type=int, default=256, show_default=True)
+@click.option("--keyboard-structured-extra-steps", type=int, default=-1, show_default=True)
+@click.option("--keyboard-canonical-bias", type=float, default=1.5, show_default=True)
+@click.option("--keyboard-learned-typo-threshold", type=float, default=0.05, show_default=True)
+@click.option("--keyboard-max-typos", type=int, default=-1, show_default=True)
+@click.option("--keyboard-sample-typos/--no-keyboard-sample-typos", default=True, show_default=True)
+@click.option("--keyboard-timing-jitter-sigma", type=float, default=0.0, show_default=True)
+@click.option("--keyboard-timing-temperature", type=float, default=0.25, show_default=True)
+@click.option("--keyboard-action-temperature", type=float, default=0.6, show_default=True)
+@click.option("--keyboard-pause-probability", type=float, default=0.0, show_default=True)
+@click.option("--keyboard-pause-mean-ms", type=float, default=35.0, show_default=True)
+@click.option("--keyboard-random-seed", type=int, default=13, show_default=True)
+@click.option(
+    "--include-vectors",
+    is_flag=True,
+    help="Include hidden/input vectors in addition to per-step heads and top logits.",
+)
+@click.option(
+    "--print-json",
+    is_flag=True,
+    help="Print the full JSON report to stdout after writing it.",
+)
+def main(**kwargs: Any) -> None:
+    """Run C++ runtime-model diagnostics against safetensor bundles."""
+    args = DiagnosticOptions(**kwargs)
     binary = compile_binary(args)
     report = run_diagnostics(args, binary)
     report_path = write_report(args, report)

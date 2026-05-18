@@ -1,13 +1,19 @@
-#!/usr/bin/env python3
+#!/usr/bin/env -S uv run --script
+# /// script
+# requires-python = ">=3.10"
+# dependencies = [
+#   "click>=8.1",
+# ]
+# ///
 
-import argparse
 import glob
 import os
 import shutil
-import sys
 import tempfile
 from pathlib import Path
 from shlex import join
+
+import click
 
 from _mixin import find_src_dir, get_moz_target, list_files, run, temp_cd
 
@@ -138,41 +144,47 @@ def add_includes_to_package(package_file, includes, fonts, new_file, target):
         run(join(['7z', 'u', new_file, f'{temp_dir}/*', '-r', '-mx=9']))
 
 
-def get_args():
-    """Get CLI parameters"""
-    parser = argparse.ArgumentParser(
-        description='Package Rotunda for different operating systems.'
-    )
-    parser.add_argument('os', choices=['linux', 'macos', 'windows'], help='Target operating system')
-    parser.add_argument(
-        '--includes', nargs='+', help='List of files or directories to include in the package'
-    )
-    parser.add_argument('--version', required=True, help='Rotunda version')
-    parser.add_argument('--release', required=True, help='Rotunda release number')
-    parser.add_argument(
-        '--arch', choices=['x86_64', 'arm64'], help='Target architecture'
-    )
-    parser.add_argument('--fonts', nargs='+', help='Font directories to include under fonts/')
-    return parser.parse_args()
-
-
-def main():
-    """The main packaging function"""
-    args = get_args()
-
+@click.command()
+@click.argument("target_os", metavar="OS", type=click.Choice(["linux", "macos", "windows"]))
+@click.option(
+    "--include",
+    "--includes",
+    "includes",
+    multiple=True,
+    help="File or directory to include in the package. Can be repeated.",
+)
+@click.option("--version", required=True, help="Rotunda version.")
+@click.option("--release", required=True, help="Rotunda release number.")
+@click.option("--arch", type=click.Choice(["x86_64", "arm64"]), help="Target architecture.")
+@click.option(
+    "--font",
+    "--fonts",
+    "fonts",
+    multiple=True,
+    help="Font directory under bundle/fonts to include. Can be repeated.",
+)
+def main(
+    target_os: str,
+    includes: tuple[str, ...],
+    version: str,
+    release: str,
+    arch: str | None,
+    fonts: tuple[str, ...],
+) -> None:
+    """Package Rotunda for different operating systems."""
     # Determine file extension based on OS
     file_extensions = {'linux': 'tar.xz', 'macos': 'dmg', 'windows': 'zip'}
-    file_ext = file_extensions[args.os]
+    file_ext = file_extensions[target_os]
 
     # Build the package
-    src_dir = find_src_dir('.', args.version, args.release)
-    moz_target = get_moz_target(target=args.os, arch=args.arch)
+    src_dir = find_src_dir('.', version, release)
+    moz_target = get_moz_target(target=target_os, arch=arch)
     with temp_cd(src_dir):
         # Create package files
         run('./mach package')
         # Find package files
         search_path = os.path.abspath(
-            f'obj-{moz_target}/dist/rotunda-{args.version}-{args.release}.*.{file_ext}'
+            f'obj-{moz_target}/dist/rotunda-{version}-{release}.*.{file_ext}'
         )
 
     # Copy package files
@@ -185,28 +197,26 @@ def main():
         shutil.copy2(file, '.')
         break
     else:
-        print(f"Error: No package file found matching pattern: {search_path}")
-        sys.exit(1)
+        raise click.ClickException(f"No package file found matching pattern: {search_path}")
 
     # Find the package file
-    package_pattern = f'rotunda-{args.version}-{args.release}.en-US.*.{file_ext}'
+    package_pattern = f'rotunda-{version}-{release}.en-US.*.{file_ext}'
     package_files = glob.glob(package_pattern)
     if not package_files:
-        print(f"Error: No package file found matching pattern: {package_pattern}")
-        exit(1)
+        raise click.ClickException(f"No package file found matching pattern: {package_pattern}")
     package_file = package_files[0]
 
     # Add includes to the package
-    new_name = f'rotunda-{args.version}-{args.release}-{args.os[:3]}.{args.arch}.zip'
+    new_name = f'rotunda-{version}-{release}-{target_os[:3]}.{arch}.zip'
     add_includes_to_package(
         package_file=package_file,
-        includes=args.includes,
-        fonts=args.fonts,
+        includes=includes,
+        fonts=fonts,
         new_file=new_name,
-        target=args.os,
+        target=target_os,
     )
 
-    print(f"Packaging complete for {args.os}")
+    print(f"Packaging complete for {target_os}")
 
 
 if __name__ == '__main__':
